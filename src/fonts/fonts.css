@@ -1,0 +1,70 @@
+/* Self-hosted web fonts so rendering is deterministic and identical in a
+   headless browser capture. No reliance on system fonts.
+   Gelasio is metric-compatible with Georgia; Carlito with Calibri;
+   JetBrains Mono stands in for Consolas. */
+
+@font-face {
+  font-family: "Gelasio";
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url("./gelasio-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Gelasio";
+  font-style: italic;
+  font-weight: 400;
+  font-display: block;
+  src: url("./gelasio-400-italic.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Gelasio";
+  font-style: normal;
+  font-weight: 600;
+  font-display: block;
+  src: url("./gelasio-600.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Gelasio";
+  font-style: normal;
+  font-weight: 700;
+  font-display: block;
+  src: url("./gelasio-700.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Carlito";
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url("./carlito-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Carlito";
+  font-style: italic;
+  font-weight: 400;
+  font-display: block;
+  src: url("./carlito-400-italic.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Carlito";
+  font-style: normal;
+  font-weight: 700;
+  font-display: block;
+  src: url("./carlito-700.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url("./jetbrains-mono-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: block;
+  src: url("./jetbrains-mono-500.woff2") format("woff2");
+}
