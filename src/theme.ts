@@ -6,9 +6,14 @@
 // colours come in a light and a dark variant. Components never use literal
 // colours: they read the active variant from the theme context.
 
-import type { Level, DepStatus } from "./types";
-
 export type Mode = "light" | "dark";
+
+// Palette band keys, kept as a five-tone nesting scale and a three-state
+// (good / neutral / bad) status scale. The proposal deck reuses these as its
+// brand swatches: the five tones tint the architecture layers, the three states
+// carry success / neutral / failure semantics across the slides.
+export type Level = "theme" | "outcome" | "epic" | "feature" | "value";
+export type DepStatus = "committed" | "not-committed" | "blocked";
 
 // Raw brand swatches. Referenced only to build the variants below.
 const swatch = {
@@ -24,10 +29,13 @@ const swatch = {
   white: "#FFFFFF",
 } as const;
 
+// Fonts flow through CSS variables (defined in styles.css) so an accessibility
+// mode can swap a face for the whole slide from one place. The real families:
+//   --font-display: Gelasio (serif)  --font-body: Carlito  --font-mono: JetBrains
 export const fonts = {
-  display: '"Gelasio", Georgia, "Times New Roman", serif',
-  body: '"Carlito", Calibri, "Segoe UI", sans-serif',
-  mono: '"JetBrains Mono", Consolas, "Courier New", monospace',
+  display: "var(--font-display)",
+  body: "var(--font-body)",
+  mono: "var(--font-mono)",
 } as const;
 
 // Fixed slide canvas. Never responds to viewport; a Playwright capture at 2x
@@ -161,6 +169,14 @@ export const themes: Record<Mode, ThemeTokens> = {
   light: lightTheme,
   dark: darkTheme,
 };
+
+// Semantic status aliases for the proposal deck, so slides read by meaning
+// rather than by the legacy QBR status names.
+export const statusKey = {
+  good: "committed",
+  neutral: "not-committed",
+  bad: "blocked",
+} as const satisfies Record<string, DepStatus>;
 
 // Typographic scale (px on the 1920x1080 canvas).
 export const type = {
