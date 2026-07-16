@@ -6,6 +6,12 @@
   --font-display: "Gelasio", Georgia, "Times New Roman", serif;
   --font-body: "Carlito", Calibri, "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", Consolas, "Courier New", monospace;
+  /* single horizontal gutter shared by the header, slicer bar and canvas so
+     their left/right edges line up exactly, collapsed nav or not */
+  --gutter: 22px;
+  /* one shared height for the nav brand block AND the page header so their
+     bottom borders land on exactly the same line */
+  --header-h: 56px;
 }
 
 * {
@@ -31,24 +37,6 @@ body {
   height: 100vh;
 }
 
-/* --- stage: centres the fixed 16:9 report canvas -------------------------- */
-.stage {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 14px 16px;
-}
-.stage__bar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
 .bar-btn {
   font-family: var(--font-mono);
   font-size: 11px;
@@ -63,18 +51,12 @@ body {
 .bar-btn:hover {
   opacity: 0.8;
 }
-.stage__frame {
-  flex: none;
-  border-radius: 14px;
-  overflow: hidden;
-}
 
-/* --- report shell --------------------------------------------------------- */
+/* --- report shell: full-height left nav + content column ------------------ */
 .report {
   display: flex;
-  height: 100%;
+  height: 100vh;
   overflow: hidden;
-  border-radius: 14px;
 }
 
 .report__nav {
@@ -87,7 +69,9 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 16px 14px;
+  height: var(--header-h);
+  box-sizing: border-box;
+  padding: 0 14px;
 }
 .nav-item:not(.is-active):hover {
   background: rgba(127, 127, 127, 0.1) !important;
@@ -112,7 +96,9 @@ body {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 13px 22px;
+  height: var(--header-h);
+  box-sizing: border-box;
+  padding: 0 var(--gutter);
 }
 .hdr-btn:hover {
   opacity: 0.85;
@@ -120,35 +106,42 @@ body {
 
 .report__slicers {
   flex: 0 0 auto;
-  padding: 12px 22px;
+  padding: 12px var(--gutter);
 }
 
 .report__canvas {
   flex: 1 1 auto;
   min-height: 0;
-  overflow: hidden;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
-  padding: 16px 20px;
+  padding: 16px var(--gutter);
+}
+.report__canvas > * {
+  min-height: 700px; /* keep chart proportions sane on short windows */
 }
 
 /* KPI card rows: responsive, collapse gracefully on narrow viewports */
 .kpi-row {
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+  /* 152px (was 168px): safety margin so cards still wrap without clipping at
+     the 1.3x text-scale accessibility setting (see --text-scale below). */
+  grid-template-columns: repeat(auto-fit, minmax(152px, 1fr));
 }
 
 /* viz cards never overflow their grid track */
 .viz-card {
   overflow: hidden;
 }
-.viz-card__icons {
-  opacity: 0.55;
-  transition: opacity 0.15s ease;
+
+.bar-row:hover,
+.click-row:hover {
+  background: rgba(127, 127, 127, 0.1) !important;
 }
-.viz-card:hover .viz-card__icons {
-  opacity: 1;
+.report[data-mode="dark"] .bar-row:hover,
+.report[data-mode="dark"] .click-row:hover {
+  background: rgba(244, 241, 235, 0.07) !important;
 }
 
 .viz-search:focus {
@@ -282,7 +275,6 @@ body {
   position: relative;
   display: inline-flex;
   align-items: center;
-  outline: none;
 }
 .tip--term {
   cursor: help;
@@ -317,6 +309,153 @@ body {
   opacity: 1;
 }
 
+/* --- login screen ---------------------------------------------------------- */
+.login {
+  height: 100vh;
+  width: 100%;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+.login__card {
+  width: 100%;
+  max-width: 360px;
+  border-radius: 14px;
+  padding: 28px 26px 24px;
+}
+.login__brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 22px;
+}
+.login__badge {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  color: #fff;
+  font-weight: 700;
+  font-size: 19px;
+  flex: 0 0 auto;
+}
+.login__title {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.15;
+}
+.login__subtitle {
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-top: 2px;
+}
+.login form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.login form label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-top: 10px;
+}
+.login form label:first-of-type {
+  margin-top: 0;
+}
+.login form select,
+.login form input {
+  font-family: var(--font-body);
+  font-size: 14px;
+  padding: 9px 10px;
+  border-radius: 8px;
+}
+.login__error {
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  margin: 4px 0 0;
+}
+.login__submit {
+  margin-top: 16px;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 14px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.login__submit:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+.login__divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 20px 0 14px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.7;
+}
+.login__divider span {
+  flex: 1;
+  height: 1px;
+}
+.login__sso-btn {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid #d0d0d0;
+  background: #fff;
+  color: #3c3c3c;
+  font-family: var(--font-body);
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: not-allowed;
+}
+.login__sso-icon {
+  display: inline-grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 1px;
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+}
+.login__sso-icon span:nth-child(1) {
+  background: #f25022;
+}
+.login__sso-icon span:nth-child(2) {
+  background: #7fba00;
+}
+.login__sso-icon span:nth-child(3) {
+  background: #00a4ef;
+}
+.login__sso-icon span:nth-child(4) {
+  background: #ffb900;
+}
+.login__note {
+  margin: 12px 0 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  opacity: 0.85;
+}
+.login__note code {
+  font-family: var(--font-mono);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .anim-up,
   .anim-down,
@@ -326,4 +465,402 @@ body {
   .blob-drift {
     animation: none !important;
   }
+  .tile-lift,
+  .report__nav,
+  .skip-link {
+    transition: none;
+  }
+}
+
+/* --- accessibility & display preferences ----------------------------------
+   Everything below supports the a11y preferences system (src/a11y/prefs-
+   context.tsx), which stamps data-theme / data-dyslexia / data-text-scale /
+   data-reduce-motion / data-cvd-safe attributes onto <html>. ------------- */
+
+/* --- sr-only utility -------------------------------------------------- */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --- skip link ---------------------------------------------------------- */
+.skip-link {
+  position: fixed;
+  top: -48px;
+  left: 12px;
+  z-index: 200;
+  background: var(--teal);
+  color: #fff;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: top 0.15s ease;
+}
+.skip-link:focus {
+  top: 12px;
+}
+
+/* --- global focus-visible ------------------------------------------------- */
+:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.report[data-mode="dark"] :focus-visible {
+  outline-color: #F4F1EB;
+}
+:root[data-theme="high-contrast"] :focus-visible {
+  outline: 2px solid #00E5FF;
+  outline-offset: 2px;
+}
+
+/* --- dyslexia-friendly mode ------------------------------------------------
+   Scoped to elements that do NOT set their own inline lineHeight /
+   letterSpacing / fontFamily in JS (KPI numbers, chart SVG text, etc. keep
+   their explicit inline values on purpose, and CSS here must not fight them —
+   hence no !important and a narrow selector list rather than a blanket *). */
+:root[data-dyslexia="true"] {
+  --font-display: Verdana, "Trebuchet MS", "Segoe UI", sans-serif;
+  --font-body: Verdana, "Trebuchet MS", "Segoe UI", sans-serif;
+}
+:root[data-dyslexia="true"] body {
+  letter-spacing: 0.05em;
+  word-spacing: 0.1em;
+  line-height: 1.6;
+  font-size: 1.05em;
+}
+:root[data-dyslexia="true"] p,
+:root[data-dyslexia="true"] .a11y-desc,
+:root[data-dyslexia="true"] .login__note {
+  text-align: left;
+  line-height: 1.6;
+}
+
+/* --- text scale ------------------------------------------------------------
+   Typography in this app is almost entirely inline px fontSize (not rem), so
+   a root font-size multiplier would be inert against most of the UI. `zoom`
+   scales rendered pixels including inline styles, the same way native browser
+   zoom does — Chromium/Edge/Safari have supported it for years and Firefox
+   added support in 2024, so it's now viable as a cross-browser CSS lever. */
+:root {
+  --text-scale: 1;
+}
+:root[data-text-scale="1.15"] {
+  --text-scale: 1.15;
+}
+:root[data-text-scale="1.3"] {
+  --text-scale: 1.3;
+}
+html {
+  zoom: var(--text-scale, 1);
+}
+
+/* --- high-contrast theme ----------------------------------------------------
+   Verified WCAG contrast ratios for this palette (do not recompute):
+     #000 bg vs #fff text            = 21:1
+     #000 bg vs #B0B0B0 muted text   = ~9.7:1
+     #000 bg vs #FFD400 accent       = ~16:1 (same pair reversed: black text on
+                                        #FFD400 button bg — identical luminance
+                                        delta)
+     #000 bg vs #00E5FF focus ring   = ~13.6:1
+   All exceed the ≥7:1 bar this theme targets. Scoped to structural/chrome
+   surfaces only (page/panel backgrounds, primary text, borders, focus ring,
+   nav active state, form controls) — small semantic status-dot/bar colors
+   used for outcome coding are left alone (already fine against black, and
+   charts are handled per-chart in viz.tsx by another change).
+   !important is used ONLY in this section: color here must win over inline
+   JS-computed colors from theme.ts (React sets style={{...}} directly on
+   these elements), and there is no other way to override an inline style
+   from an external stylesheet. */
+:root[data-theme="high-contrast"] {
+  color-scheme: dark;
+}
+:root[data-theme="high-contrast"] body,
+:root[data-theme="high-contrast"] .report,
+:root[data-theme="high-contrast"] .report__nav,
+:root[data-theme="high-contrast"] .report__header,
+:root[data-theme="high-contrast"] .report__slicers,
+:root[data-theme="high-contrast"] .report__canvas,
+:root[data-theme="high-contrast"] .viz-card,
+:root[data-theme="high-contrast"] .kpi-card,
+:root[data-theme="high-contrast"] .login,
+:root[data-theme="high-contrast"] .login__card,
+:root[data-theme="high-contrast"] .dropdown-panel,
+:root[data-theme="high-contrast"] .modal-dialog {
+  background: #000 !important;
+  background-image: none !important;
+  color: #fff !important;
+  box-shadow: none !important;
+}
+:root[data-theme="high-contrast"] .viz-card,
+:root[data-theme="high-contrast"] .kpi-card,
+:root[data-theme="high-contrast"] .report__nav,
+:root[data-theme="high-contrast"] .report__header,
+:root[data-theme="high-contrast"] .report__slicers,
+:root[data-theme="high-contrast"] .login__card,
+:root[data-theme="high-contrast"] .dropdown-panel,
+:root[data-theme="high-contrast"] .modal-dialog,
+:root[data-theme="high-contrast"] button,
+:root[data-theme="high-contrast"] input,
+:root[data-theme="high-contrast"] select {
+  border-color: #fff !important;
+}
+:root[data-theme="high-contrast"] button,
+:root[data-theme="high-contrast"] input,
+:root[data-theme="high-contrast"] select {
+  background: #000 !important;
+  color: #fff !important;
+}
+:root[data-theme="high-contrast"] .nav-item.is-active {
+  background: #FFD400 !important;
+  color: #000 !important;
+  border-color: #FFD400 !important;
+}
+/* .bar-btn / .hdr-btn / .login__sso-btn are all real <button> elements
+   (src/App.tsx, src/pages/Login.tsx), so the generic button rule above
+   already covers them — no extra rule needed. */
+:root[data-theme="high-contrast"] .a11y-switch__track {
+  background: #333 !important;
+  border: 1px solid #fff !important;
+}
+:root[data-theme="high-contrast"] input:checked ~ .a11y-switch__track {
+  background: #FFD400 !important;
+}
+:root[data-theme="high-contrast"] :focus-visible {
+  outline: 2px solid #00E5FF !important;
+  outline-offset: 2px !important;
+}
+
+/* --- CVD-safe series dash patterns ------------------------------------------
+   CSS overrides the SVG stroke-dasharray presentation attribute set inline in
+   JSX; presentation attributes lose to any CSS rule, so no !important. */
+[data-cvd-safe="true"] .viz-series-0 {
+  stroke-dasharray: none;
+}
+[data-cvd-safe="true"] .viz-series-1 {
+  stroke-dasharray: 7 4;
+}
+[data-cvd-safe="true"] .viz-series-2 {
+  stroke-dasharray: 2 3;
+}
+[data-cvd-safe="true"] .viz-series-3 {
+  stroke-dasharray: 9 2 2 2;
+}
+
+/* --- reduced motion (explicit force-on via a11y prefs) ----------------------
+   The @media (prefers-reduced-motion: reduce) block above already handles the
+   OS-level preference on its own; this covers the in-app override switch. */
+[data-reduce-motion="true"] .anim-up,
+[data-reduce-motion="true"] .anim-down,
+[data-reduce-motion="true"] .anim-pop,
+[data-reduce-motion="true"] .anim-fade,
+[data-reduce-motion="true"] .pulse-soft,
+[data-reduce-motion="true"] .blob-drift {
+  animation: none !important;
+}
+[data-reduce-motion="true"] .tile-lift,
+[data-reduce-motion="true"] .report__nav,
+[data-reduce-motion="true"] .skip-link {
+  transition: none !important;
+}
+
+/* --- modal chrome (Accessibility & display panel, keyboard-shortcuts sheet) - */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.modal-dialog {
+  width: 100%;
+  max-width: min(560px, 92vw);
+  max-height: 85vh;
+  overflow-y: auto;
+  background: var(--paper);
+  color: var(--teal);
+  border-radius: 14px;
+  border: 1px solid rgba(11, 50, 57, 0.15);
+  box-shadow: 0 24px 60px rgba(11, 50, 57, 0.28);
+  padding: 24px 26px;
+}
+.report[data-mode="dark"] .modal-dialog {
+  background: #0c2329;
+  color: #f4f1eb;
+  border-color: rgba(244, 241, 235, 0.18);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+}
+
+/* --- accessibility & display panel settings groups -------------------------- */
+.a11y-panel__section {
+  padding-top: 16px;
+  margin-top: 16px;
+  border-top: 1px solid rgba(11, 50, 57, 0.12);
+}
+.a11y-panel__section:first-child {
+  padding-top: 0;
+  margin-top: 0;
+  border-top: none;
+}
+/* Dark/high-contrast border colour is no longer set via `.report[data-mode]`
+   scoping here — DisplayPanel renders outside `.report` in the DOM (App.tsx
+   mounts it as a sibling, not a descendant), so that ancestor-scoped selector
+   never matched. Each <section> now sets its own borderTopColor inline from
+   the active theme's `t.ruleSoft` token instead (see DisplayPanel.tsx). */
+
+/* --- a11y toggle switch ------------------------------------------------------
+   Real <input type="checkbox"> wrapped in <label class="a11y-switch">, kept
+   visually hidden with the .sr-only clip technique (not display:none) so it
+   stays focusable, followed by a sibling <span class="a11y-switch__track">
+   that renders the visible iOS-style pill. */
+.a11y-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+}
+.a11y-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.a11y-switch input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.a11y-switch__track {
+  display: inline-block;
+  width: 40px;
+  height: 22px;
+  border-radius: 11px;
+  background: rgba(11, 50, 57, 0.2);
+  border: 1px solid rgba(11, 50, 57, 0.25);
+  position: relative;
+  transition: background 0.15s ease;
+}
+.a11y-switch__track::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  /* Knob colour: white by default; DisplayPanel.tsx sets --a11y-knob-bg to
+     the dark paper tone only when checked+dark (so the knob stays visible
+     against the now-light "on" track fill in dark mode). */
+  background: var(--a11y-knob-bg, #fff);
+  transition: transform 0.15s ease;
+}
+.a11y-switch input:checked ~ .a11y-switch__track {
+  background: var(--teal);
+}
+.a11y-switch input:checked ~ .a11y-switch__track::before {
+  transform: translateX(18px);
+}
+.a11y-switch input:focus-visible ~ .a11y-switch__track {
+  /* --a11y-focus-color is set inline on the dialog root (DisplayPanel.tsx)
+     to the active theme's ink token, since the panel renders outside
+     `.report` and can't rely on `.report[data-mode="dark"] :focus-visible`
+     (that global override never reached this subtree — the ring was ~1.2:1
+     against the dark dialog background, effectively invisible). Falls back
+     to the original var(--teal) when unset (e.g. no inline var defined). */
+  outline: 2px solid var(--a11y-focus-color, var(--teal));
+  outline-offset: 2px;
+}
+/* Background/border for the track itself (off vs on, light vs dark) are set
+   inline per-instance in DisplayPanel.tsx from theme tokens — see the note
+   above the .a11y-panel__section rule for why the old `.report[data-mode=
+   "dark"]` scoped variants here were removed (dead, unreachable code). */
+.a11y-switch__label {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+}
+.a11y-desc {
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 3px 0 0;
+  opacity: 0.85;
+}
+
+/* --- a11y segmented control buttons (theme / text-scale pickers) ----------- */
+.a11y-seg-btn {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 7px 12px;
+  border: 1px solid rgba(11, 50, 57, 0.25);
+  background: transparent;
+  color: var(--teal);
+  cursor: pointer;
+  border-radius: 7px;
+}
+.a11y-seg-btn.is-active {
+  background: var(--teal);
+  color: #fff;
+  border-color: var(--teal);
+}
+/* Falls back to the pre-existing var(--teal) ring when --a11y-focus-color is
+   unset, so this is a no-op for the other two consumers of .a11y-seg-btn
+   (the keyboard-shortcuts sheet and the admin confirm dialog in
+   src/pages/admin/shared.tsx) — both render inside `.report` already and are
+   unaffected. DisplayPanel.tsx sets the variable on its dialog root. */
+.a11y-seg-btn:focus-visible {
+  outline-color: var(--a11y-focus-color, var(--teal));
+}
+.report[data-mode="dark"] .a11y-seg-btn {
+  border-color: rgba(244, 241, 235, 0.28);
+  color: #f4f1eb;
+}
+.report[data-mode="dark"] .a11y-seg-btn.is-active {
+  background: #f4f1eb;
+  color: #0c2329;
+  border-color: #f4f1eb;
+}
+
+/* --- shared dropdown-panel chrome hook --------------------------------------
+   Base positioning/visual style for these popovers (Views menu, User menu,
+   slicer dropdowns, chart-hover tooltip) is set per-component; this class
+   just gives high-contrast mode something concrete to target (see section
+   above), so no base rule is needed here. */
+
+/* --- reading ruler ----------------------------------------------------------
+   Component sets position/top/height inline; this supplies paint only. */
+.reading-ruler {
+  position: fixed;
+  pointer-events: none;
+  z-index: 90;
+  background: rgba(255, 220, 60, 0.14);
+  border-top: 1px solid rgba(255, 200, 40, 0.4);
+  border-bottom: 1px solid rgba(255, 200, 40, 0.4);
+}
+.report[data-mode="dark"] .reading-ruler {
+  background: rgba(255, 220, 60, 0.22);
+  border-top-color: rgba(255, 210, 60, 0.5);
+  border-bottom-color: rgba(255, 210, 60, 0.5);
 }

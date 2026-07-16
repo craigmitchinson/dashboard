@@ -1,8 +1,9 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { fonts } from "../theme";
 import { useTheme } from "../theme-context";
-import { IconDots, IconExpand } from "./icons";
+import { useDisplayPrefs } from "../a11y/prefs-context";
+import { Bionic } from "../a11y/Bionic";
 
 // ---------------------------------------------------------------------------
 // Visual toolkit for the report. Every page composes these so the look is
@@ -13,6 +14,8 @@ import { IconDots, IconExpand } from "./icons";
 // --- palette ---------------------------------------------------------------
 export function useViz() {
   const t = useTheme();
+  const { prefs } = useDisplayPrefs();
+  const cvd = prefs.colorVisionSafe;
   return {
     t,
     ink: t.ink,
@@ -23,11 +26,13 @@ export function useViz() {
     surface: t.paper,
     band: t.themeBand,
     // outcome semantics (reuse the deck's good / neutral / bad status palette)
-    completed: t.status.committed.dot,
-    business: t.status["not-committed"].dot,
-    system: t.status.blocked.dot,
-    good: t.status.committed.dot,
-    bad: t.status.blocked.dot,
+    // — swapped for the Okabe-Ito colour-blind-safe palette when the user's
+    // colour-vision-safe display preference is on.
+    completed: cvd ? "#009E73" : t.status.committed.dot,
+    business: cvd ? "#E69F00" : t.status["not-committed"].dot,
+    system: cvd ? "#D55E00" : t.status.blocked.dot,
+    good: cvd ? "#009E73" : t.status.committed.dot,
+    bad: cvd ? "#D55E00" : t.status.blocked.dot,
   };
 }
 
@@ -73,7 +78,7 @@ export function useSize() {
   return [ref, s] as const;
 }
 
-// --- visual card (a Power BI "visual" frame) -------------------------------
+// --- visual card ------------------------------------------------------------
 export function VisualCard({
   title,
   subtitle,
@@ -82,6 +87,7 @@ export function VisualCard({
   className,
   style,
   pad = true,
+  summary,
 }: {
   title: string;
   subtitle?: ReactNode;
@@ -90,8 +96,11 @@ export function VisualCard({
   className?: string;
   style?: CSSProperties;
   pad?: boolean;
+  summary?: string;
 }) {
   const t = useTheme();
+  const chartId = useId();
+  const chartLabel = typeof subtitle === "string" ? `${title} — ${subtitle}` : title;
   return (
     <section
       className={`viz-card${className ? " " + className : ""}`}
@@ -114,12 +123,20 @@ export function VisualCard({
           )}
         </div>
         {right}
-        <div className="viz-card__icons" style={{ display: "flex", gap: 4, color: t.inkSoft, flex: "0 0 auto" }}>
-          <span title="Focus mode" style={{ display: "grid", placeItems: "center", cursor: "default" }}><IconExpand size={14} /></span>
-          <span title="More options" style={{ display: "grid", placeItems: "center", cursor: "default" }}><IconDots size={14} /></span>
-        </div>
       </header>
-      <div style={{ flex: 1, minHeight: 0, padding: pad ? "0 14px 14px" : 0, display: "flex", flexDirection: "column" }}>{children}</div>
+      <div
+        role="img"
+        aria-label={chartLabel}
+        aria-describedby={summary ? `${chartId}-summary` : undefined}
+        style={{ flex: 1, minHeight: 0, padding: pad ? "0 14px 14px" : 0, display: "flex", flexDirection: "column" }}
+      >
+        {children}
+      </div>
+      {summary && (
+        <p id={`${chartId}-summary`} className="sr-only">
+          {summary}
+        </p>
+      )}
     </section>
   );
 }
@@ -133,6 +150,7 @@ export function KpiCard({
   delta,
   deltaGood = "up",
   spark,
+  target,
 }: {
   label: string;
   value: string;
@@ -141,8 +159,10 @@ export function KpiCard({
   delta?: number; // fractional change vs previous
   deltaGood?: "up" | "down";
   spark?: number[];
+  target?: { label: string; met: boolean }; // vs-target / SLA indicator
 }) {
   const t = useTheme();
+  const v = useViz();
   return (
     <div
       className="tile-lift kpi-card"
@@ -167,7 +187,49 @@ export function KpiCard({
         {delta !== undefined && <Delta value={delta} good={deltaGood} />}
         {sub && <span style={{ fontFamily: fonts.body, fontSize: 12, color: t.inkSoft }}>{sub}</span>}
       </span>
+      {target && (
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 5, marginTop: 1, fontFamily: fonts.mono, fontSize: 10, fontWeight: 700, letterSpacing: "0.03em", color: target.met ? v.good : v.bad }}>
+          <span style={{ width: 6, height: 6, borderRadius: "50%", background: target.met ? v.good : v.bad, flex: "0 0 auto" }} />
+          {target.label} · {target.met ? "On target" : "Off target"}
+        </span>
+      )}
+      <span className="sr-only">
+        {label}: {value}
+        {delta !== undefined ? `, ${delta >= 0 ? "up" : "down"} ${fmtPct(Math.abs(delta), 1)} vs previous period` : ""}
+        {target ? `, ${target.met ? "on target" : "off target"} (${target.label})` : ""}
+      </span>
     </div>
+  );
+}
+
+// Radial gauge with a target band.
+export function Gauge({ value, min = 0, max = 1, target, band, format, color, label }: { value: number; min?: number; max?: number; target?: number; band?: [number, number]; format: (n: number) => string; color: string; label?: string }) {
+  const t = useTheme();
+  const v = useViz();
+  const W = 168;
+  const H = 104;
+  const cx = W / 2;
+  const cy = H - 10;
+  const r = 74;
+  const a0 = Math.PI; // 180deg (left)
+  const frac = Math.max(0, Math.min(1, (value - min) / (max - min || 1)));
+  const pt = (f: number, rad: number) => [cx + Math.cos(a0 + f * Math.PI) * rad, cy + Math.sin(a0 + f * Math.PI) * rad] as const;
+  const arc = (f0: number, f1: number, rad: number) => {
+    const [x0, y0] = pt(f0, rad);
+    const [x1, y1] = pt(f1, rad);
+    return `M${x0.toFixed(1)} ${y0.toFixed(1)} A${rad} ${rad} 0 0 1 ${x1.toFixed(1)} ${y1.toFixed(1)}`;
+  };
+  const tf = (n: number) => Math.max(0, Math.min(1, (n - min) / (max - min || 1)));
+  const gaugeLabel = `${label ?? "Gauge"}: ${format(value)}${target !== undefined ? `, target ${format(target)}` : ""}`;
+  return (
+    <svg width={W} height={H} style={{ display: "block" }} role="img" aria-label={gaugeLabel}>
+      <path d={arc(0, 1, r)} fill="none" stroke={v.grid} strokeWidth={12} strokeLinecap="round" />
+      {band && <path d={arc(tf(band[0]), tf(band[1]), r)} fill="none" stroke={`${v.good}55`} strokeWidth={12} />}
+      <path d={arc(0, frac, r)} fill="none" stroke={color} strokeWidth={12} strokeLinecap="round" />
+      {target !== undefined && (() => { const [tx, ty] = pt(tf(target), r + 9); const [ix, iy] = pt(tf(target), r - 9); return <line x1={ix} y1={iy} x2={tx} y2={ty} stroke={t.ink} strokeWidth={2} />; })()}
+      <text x={cx} y={cy - 14} textAnchor="middle" fontFamily={fonts.display} fontSize={26} fontWeight={700} fill={t.ink}>{format(value)}</text>
+      {label && <text x={cx} y={cy + 6} textAnchor="middle" fontFamily={fonts.mono} fontSize={9.5} letterSpacing="0.06em" fill={t.inkSoft}>{label.toUpperCase()}</text>}
+    </svg>
   );
 }
 
@@ -225,6 +287,12 @@ export interface LineSeries {
   values: number[];
   dashed?: boolean;
   area?: boolean;
+  forecast?: boolean; // project this series into the forecast region
+}
+export interface RefLine {
+  value: number;
+  label?: string;
+  color?: string;
 }
 export function LineChart({
   labels,
@@ -233,6 +301,8 @@ export function LineChart({
   yFormat = fmtCompact,
   tipFormat = fmtInt,
   yLabel,
+  refLines,
+  forecast,
 }: {
   labels: string[];
   series: LineSeries[];
@@ -240,12 +310,26 @@ export function LineChart({
   yFormat?: (n: number) => string;
   tipFormat?: (n: number) => string;
   yLabel?: string;
+  refLines?: RefLine[];
+  forecast?: { periods: number; labelFor?: (k: number) => string };
 }) {
   const v = useViz();
+  const { prefs } = useDisplayPrefs();
+  const cvdSafe = prefs.colorVisionSafe;
   const [ref, size] = useSize();
   const w = size.w;
   const H = height ?? size.h;
   const [hi, setHi] = useState<number | null>(null);
+
+  // linear regression on a series, returns (slope, intercept) over index
+  const fit = (vals: number[]) => {
+    const k = vals.length;
+    let sx = 0, sy = 0, sxy = 0, sxx = 0;
+    vals.forEach((val, i) => { sx += i; sy += val; sxy += i * val; sxx += i * i; });
+    const d = k * sxx - sx * sx || 1;
+    const slope = (k * sxy - sx * sy) / d;
+    return { slope, intercept: (sy - slope * sx) / k };
+  };
 
   const padL = 46;
   const padR = 14;
@@ -254,28 +338,43 @@ export function LineChart({
   const iw = Math.max(10, w - padL - padR);
   const ih = Math.max(10, H - padT - padB);
   const n = labels.length;
+  const fp = forecast?.periods ?? 0;
+  const total = n + fp;
+
+  // forecast projections (per flagged series) via linear regression
+  const proj = new Map<string, number[]>();
+  if (fp > 0) {
+    series.forEach((s) => {
+      if (!s.forecast) return;
+      const { slope, intercept } = fit(s.values);
+      const arr: number[] = [];
+      for (let i = n; i < total; i++) arr.push(Math.max(0, slope * i + intercept));
+      proj.set(s.name, arr);
+    });
+  }
 
   // don't floor to 1 — that breaks small-magnitude series (e.g. £0.09 cost/case)
-  const rawMax = Math.max(0, ...series.flatMap((s) => s.values));
+  const rawMax = Math.max(0, ...series.flatMap((s) => s.values), ...[...proj.values()].flat(), ...(refLines?.map((r) => r.value) ?? []));
   const top = niceMax(rawMax);
-  const x = (i: number) => padL + (n <= 1 ? iw / 2 : (i / (n - 1)) * iw);
+  const x = (i: number) => padL + (total <= 1 ? iw / 2 : (i / (total - 1)) * iw);
   const y = (val: number) => padT + ih - (val / top) * ih;
   const ticks = 4;
+  const realW = total <= 1 ? iw : ((n - 1) / (total - 1)) * iw;
 
   const onMove = (e: React.MouseEvent<SVGRectElement>) => {
     const rect = (e.currentTarget as SVGRectElement).getBoundingClientRect();
     const px = e.clientX - rect.left - padL;
-    const idx = Math.round((px / iw) * (n - 1));
+    const idx = Math.round((px / Math.max(1, realW)) * (n - 1));
     setHi(Math.max(0, Math.min(n - 1, idx)));
   };
 
-  // thin x labels so they never collide
-  const step = Math.ceil(n / Math.max(2, Math.floor(iw / 64)));
+  const allLabels = [...labels, ...Array.from({ length: fp }, (_, k) => forecast?.labelFor?.(k) ?? "")];
+  const step = Math.ceil(total / Math.max(2, Math.floor(iw / 64)));
 
   return (
     <div ref={ref} style={{ width: "100%", height: height ?? "100%", minHeight: 0, position: "relative" }}>
       {w > 0 && H > 0 && (
-        <svg width={w} height={H} style={{ display: "block", fontFamily: fonts.mono }}>
+        <svg width={w} height={H} style={{ display: "block", fontFamily: fonts.mono }} aria-hidden="true" focusable="false">
           {/* gridlines + y labels */}
           {Array.from({ length: ticks + 1 }, (_, i) => {
             const val = (top / ticks) * i;
@@ -287,24 +386,65 @@ export function LineChart({
               </g>
             );
           })}
-          {/* x labels — step through, always show the last, and drop the
-              penultimate step label if it would collide with the last one */}
-          {labels.map((l, i) => {
-            const isLast = i === n - 1;
-            const isStep = i % step === 0 && n - 1 - i >= step * 0.6;
-            if (!isStep && !isLast) return null;
+          {/* forecast region shading + divider */}
+          {fp > 0 && (
+            <g>
+              <rect x={x(n - 1)} y={padT} width={x(total - 1) - x(n - 1)} height={ih} fill={v.soft} opacity={0.04} />
+              <line x1={x(n - 1)} x2={x(n - 1)} y1={padT} y2={padT + ih} stroke={v.soft} strokeWidth={1} strokeDasharray="2 3" opacity={0.5} />
+              <text x={(x(n - 1) + x(total - 1)) / 2} y={padT + 10} textAnchor="middle" fontSize={9} fill={v.soft} letterSpacing="0.08em">FORECAST</text>
+            </g>
+          )}
+          {/* reference / target lines */}
+          {refLines?.map((r) => (
+            <g key={r.label ?? r.value}>
+              <line x1={padL} x2={w - padR} y1={y(r.value)} y2={y(r.value)} stroke={r.color ?? v.accent} strokeWidth={1.4} strokeDasharray="6 4" opacity={0.9} />
+              {r.label && <text x={w - padR} y={y(r.value) - 4} textAnchor="end" fontSize={9.5} fill={r.color ?? v.accent} fontWeight={700}>{r.label}</text>}
+            </g>
+          ))}
+          {/* x labels */}
+          {allLabels.map((l, i) => {
+            const isLast = i === total - 1;
+            const isStep = i % step === 0 && total - 1 - i >= step * 0.6;
+            if ((!isStep && !isLast) || !l) return null;
             const anchor = isLast ? "end" : "middle";
             return (
               <text key={i} x={isLast ? w - padR : x(i)} y={H - 9} textAnchor={anchor} fontSize={10} fill={v.soft}>{l}</text>
             );
           })}
-          {/* series */}
-          {series.map((s) => {
-            const dPts = s.values.map((val, i) => `${i ? "L" : "M"}${x(i).toFixed(1)} ${y(val).toFixed(1)}`).join(" ");
+          {/* series (actual) */}
+          {series.map((s, i) => {
+            const dPts = s.values.map((val, k) => `${k ? "L" : "M"}${x(k).toFixed(1)} ${y(val).toFixed(1)}`).join(" ");
             return (
               <g key={s.name}>
                 {s.area && <path d={`${dPts} L${x(n - 1)} ${y(0)} L${x(0)} ${y(0)} Z`} fill={s.color} opacity={0.1} />}
-                <path d={dPts} fill="none" stroke={s.color} strokeWidth={2.2} strokeDasharray={s.dashed ? "5 5" : undefined} strokeLinecap="round" strokeLinejoin="round" />
+                <path
+                  className={`viz-series viz-series-${i % 4}`}
+                  d={dPts}
+                  fill="none"
+                  stroke={s.color}
+                  strokeWidth={2.2}
+                  strokeDasharray={s.dashed ? "5 5" : undefined}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                {cvdSafe && i > 0 && s.values.map((val, k) => (
+                  <circle key={k} cx={x(k)} cy={y(val)} r={2.6} fill={v.surface} stroke={s.color} strokeWidth={1.6} />
+                ))}
+              </g>
+            );
+          })}
+          {/* forecast projections (dashed + band) */}
+          {[...proj.entries()].map(([name, arr]) => {
+            const s = series.find((q) => q.name === name)!;
+            const startX = x(n - 1), startY = y(s.values[n - 1]);
+            const line = `M${startX.toFixed(1)} ${startY.toFixed(1)} ` + arr.map((val, k) => `L${x(n + k).toFixed(1)} ${y(val).toFixed(1)}`).join(" ");
+            const up = arr.map((val, k) => `${x(n + k).toFixed(1)} ${y(val * 1.12).toFixed(1)}`);
+            const dn = arr.map((val, k) => `${x(n + k).toFixed(1)} ${y(val * 0.88).toFixed(1)}`).reverse();
+            const band = `M${startX.toFixed(1)} ${startY.toFixed(1)} L${up.join(" L")} L${dn.join(" L")} Z`;
+            return (
+              <g key={name}>
+                <path d={band} fill={s.color} opacity={0.08} />
+                <path d={line} fill="none" stroke={s.color} strokeWidth={2} strokeDasharray="5 5" strokeLinecap="round" />
               </g>
             );
           })}
@@ -320,7 +460,7 @@ export function LineChart({
           {yLabel && (
             <text x={12} y={padT + ih / 2} textAnchor="middle" fontSize={10} fill={v.soft} transform={`rotate(-90 12 ${padT + ih / 2})`}>{yLabel}</text>
           )}
-          <rect x={padL} y={padT} width={iw} height={ih} fill="transparent" onMouseMove={onMove} onMouseLeave={() => setHi(null)} />
+          <rect x={padL} y={padT} width={realW} height={ih} fill="transparent" onMouseMove={onMove} onMouseLeave={() => setHi(null)} />
         </svg>
       )}
       {hi !== null && w > 0 && (
@@ -335,6 +475,7 @@ function Tooltip({ x, chartW, title, rows }: { x: number; chartW: number; title:
   const left = Math.min(Math.max(x + 12, 8), chartW - 168);
   return (
     <div
+      className="dropdown-panel"
       style={{
         position: "absolute",
         top: 6,
@@ -367,26 +508,52 @@ export function HBarChart({
   valueFormat = fmtCompact,
   barColor,
   height,
+  onRowClick,
+  activeId,
 }: {
-  rows: { label: string; value: number; sub?: string; color?: string }[];
+  rows: { label: string; value: number; sub?: string; color?: string; id?: string }[];
   valueFormat?: (n: number) => string;
   barColor?: string;
   height?: number | string;
+  onRowClick?: (id: string) => void;
+  activeId?: string;
 }) {
   const v = useViz();
   const max = niceMax(Math.max(1, ...rows.map((r) => r.value)));
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 7, height: height ?? "100%", minHeight: 0, justifyContent: rows.length > 1 ? "space-between" : "flex-start" }}>
-      {rows.map((r) => (
-        <div key={r.label} style={{ display: "grid", gridTemplateColumns: "150px 1fr 64px", alignItems: "center", gap: 10 }}>
-          <span style={{ fontFamily: fonts.body, fontSize: 12.5, color: v.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={r.label}>{r.label}</span>
-          <span style={{ height: 16, background: v.grid, borderRadius: 4, overflow: "hidden", position: "relative" }}>
-            <span style={{ position: "absolute", inset: 0, width: `${Math.max(1.5, (r.value / max) * 100)}%`, background: r.color ?? barColor ?? v.accent, borderRadius: 4 }} />
-            {r.sub && <span style={{ position: "absolute", right: 6, top: 0, lineHeight: "16px", fontFamily: fonts.mono, fontSize: 10, color: v.soft }}>{r.sub}</span>}
-          </span>
-          <span style={{ fontFamily: fonts.mono, fontSize: 12, fontWeight: 700, color: v.ink, textAlign: "right" }}>{valueFormat(r.value)}</span>
-        </div>
-      ))}
+      {rows.map((r) => {
+        const clickable = !!(onRowClick && r.id);
+        const active = !!(r.id && r.id === activeId);
+        return (
+          <div
+            key={r.label}
+            className={clickable ? "bar-row" : undefined}
+            onClick={clickable ? () => onRowClick!(r.id!) : undefined}
+            role={clickable ? "button" : undefined}
+            tabIndex={clickable ? 0 : undefined}
+            aria-pressed={clickable ? active : undefined}
+            onKeyDown={
+              clickable
+                ? (e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      if (e.key === " ") e.preventDefault();
+                      onRowClick!(r.id!);
+                    }
+                  }
+                : undefined
+            }
+            style={{ display: "grid", gridTemplateColumns: "150px 1fr 64px", alignItems: "center", gap: 10, cursor: clickable ? "pointer" : undefined, borderRadius: 5, padding: "1px 3px", margin: "0 -3px", background: active ? v.band : undefined }}
+          >
+            <span style={{ fontFamily: fonts.body, fontSize: 12.5, color: v.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontWeight: active ? 700 : 400 }} title={r.label}>{r.label}</span>
+            <span style={{ height: 16, background: v.grid, borderRadius: 4, overflow: "hidden", position: "relative" }}>
+              <span style={{ position: "absolute", inset: 0, width: `${Math.max(1.5, (r.value / max) * 100)}%`, background: r.color ?? barColor ?? v.accent, borderRadius: 4, opacity: activeId && !active ? 0.45 : 1 }} />
+              {r.sub && <span style={{ position: "absolute", right: 6, top: 0, lineHeight: "16px", fontFamily: fonts.mono, fontSize: 10, color: v.soft }}>{r.sub}</span>}
+            </span>
+            <span style={{ fontFamily: fonts.mono, fontSize: 12, fontWeight: 700, color: v.ink, textAlign: "right" }}>{valueFormat(r.value)}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -432,14 +599,13 @@ export function DataTable<T extends { [k: string]: any }>({
             {columns.map((c) => (
               <th
                 key={c.key}
-                onClick={() => toggle(c.key)}
+                aria-sort={sort.key === c.key ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
                 style={{
                   position: "sticky",
                   top: 0,
                   zIndex: 1,
                   background: t.paper,
-                  textAlign: c.align ?? "left",
-                  padding: "9px 12px",
+                  padding: 0,
                   fontFamily: fonts.mono,
                   fontSize: 10.5,
                   letterSpacing: "0.05em",
@@ -447,13 +613,29 @@ export function DataTable<T extends { [k: string]: any }>({
                   color: sort.key === c.key ? t.ink : t.inkSoft,
                   fontWeight: 700,
                   borderBottom: `1px solid ${t.ruleSoft}`,
-                  cursor: "pointer",
                   whiteSpace: "nowrap",
                   width: c.width,
                 }}
               >
-                {c.header}
-                <span style={{ opacity: sort.key === c.key ? 1 : 0.25, marginLeft: 5 }}>{sort.key === c.key ? (sort.dir === "asc" ? "▲" : "▼") : "▾"}</span>
+                <button
+                  type="button"
+                  onClick={() => toggle(c.key)}
+                  style={{
+                    display: "flex",
+                    width: "100%",
+                    justifyContent: c.align === "right" ? "flex-end" : "flex-start",
+                    textAlign: c.align ?? "left",
+                    background: "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    font: "inherit",
+                    color: "inherit",
+                    padding: "9px 12px",
+                  }}
+                >
+                  {c.header}
+                  <span style={{ opacity: sort.key === c.key ? 1 : 0.25, marginLeft: 5 }}>{sort.key === c.key ? (sort.dir === "asc" ? "▲" : "▼") : "▾"}</span>
+                </button>
               </th>
             ))}
           </tr>
@@ -480,7 +662,7 @@ export function DataTable<T extends { [k: string]: any }>({
           ))}
           {sorted.length === 0 && (
             <tr>
-              <td colSpan={columns.length} style={{ padding: "22px 12px", textAlign: "center", color: t.inkSoft, fontSize: 13 }}>No rows for the current filters.</td>
+              <td colSpan={columns.length} style={{ padding: "22px 12px", textAlign: "center", color: t.inkSoft, fontSize: 13 }}><Bionic>No rows for the current filters.</Bionic></td>
             </tr>
           )}
         </tbody>
@@ -526,8 +708,8 @@ export function CellBar({ value, max, color }: { value: number; max: number; col
   );
 }
 
-// Page body: fills the fixed report canvas (no scroll) and animates in. Rows
-// flagged flex:1 share the remaining height so every page fits a 16:9 page.
+// Page body: fills the available canvas height and animates in. Rows flagged
+// flex:1 share the remaining height so every page fits without scrolling.
 export function PageGrid({ children, style }: { children: ReactNode; style?: CSSProperties }) {
   return (
     <div className="anim-up" style={{ height: "100%", minHeight: 0, display: "flex", flexDirection: "column", gap: 12, ...style }}>

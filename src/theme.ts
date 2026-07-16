@@ -95,6 +95,8 @@ export interface ThemeTokens {
   accent: string;
   /** Warm accent red. */
   accentSoft: string;
+  /** Darker accent for FILLED controls carrying white text — must hold ≥4.5:1 vs #fff. */
+  accentFill: string;
   /** Strong rule under the title. */
   rule: string;
   /** Soft rule below the column headers. */
@@ -112,10 +114,11 @@ export const lightTheme: ThemeTokens = {
   page: "#ECE8E1",
   paper: swatch.paper,
   ink: swatch.teal,
-  inkSoft: "rgba(11,50,57,0.5)",
+  inkSoft: "rgba(11,50,57,0.68)", // ~4.94:1 vs paper #FAF7F2 (was 0.5 alpha / ~3.0:1 — failed AA)
   inkFaint: "rgba(11,50,57,0.15)",
   accent: swatch.red,
   accentSoft: swatch.redWarm,
+  accentFill: "#C81E2B", // white text on this = ~5.7:1 (brand red #FF222F is only ~3.6:1 — fails AA)
   rule: swatch.teal,
   ruleSoft: "rgba(11,50,57,0.15)",
   themeBand: "rgba(11,50,57,0.035)",
@@ -147,6 +150,7 @@ export const darkTheme: ThemeTokens = {
   inkFaint: "rgba(244,241,235,0.16)",
   accent: "#FF3B43",
   accentSoft: "#FF6A4D",
+  accentFill: "#D2262F", // white text on this = ~5.2:1; slightly brighter than light-mode fill to keep punch on the dark ground
   rule: "rgba(244,241,235,0.85)",
   ruleSoft: "rgba(244,241,235,0.18)",
   themeBand: "rgba(255,255,255,0.05)",

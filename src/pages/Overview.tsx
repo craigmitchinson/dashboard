@@ -1,7 +1,8 @@
 import { fonts } from "../theme";
 import { useTheme } from "../theme-context";
 import { useFilters } from "../filters-context";
-import { fmtDate } from "../rpaData";
+import { useNav } from "../nav-context";
+import { fmtDate, TARGETS } from "../rpaData";
 import {
   KpiCard,
   VisualCard,
@@ -19,10 +20,12 @@ import {
 } from "../components/viz";
 
 export function Overview() {
-  const { model } = useFilters();
+  const { model, filters, setFilters } = useFilters();
+  const nav = useNav();
   const m = model;
   const v = useViz();
   const t = useTheme();
+  const activeProc = filters.processId !== "All" ? filters.processId : undefined;
 
   const delta = (cur: number, prev: number) => (prev ? (cur - prev) / prev : 0);
   const completedSpark = m.daily.map((d) => d.completed);
@@ -52,8 +55,8 @@ export function Overview() {
         <KpiCard label="Colleague time saved" value={`${fmtCompact(m.timeSavedHours)} h`} accent={v.accent} delta={delta(m.timeSavedHours, m.prev.timeSavedHours)} sub="vs prev. period" />
         <KpiCard label="Exceptions" value={fmtCompact(m.exceptions)} accent={v.system} delta={delta(m.exceptions, m.prev.exceptions)} deltaGood="down" sub="vs prev. period" spark={excSpark} />
         <KpiCard label="FTE value released" value={`${m.fte.toFixed(1)} FTE`} accent={v.business} sub={`${fmtGBP(m.grossBenefit)} benefit`} />
-        <KpiCard label="Completion rate" value={fmtPct(m.completionPct, 1)} accent={v.good} delta={delta(m.completionPct, m.prev.completionPct)} sub="straight-through" />
-        <KpiCard label="Cost per completed case" value={fmtMoney2(m.costPerCase)} accent={v.accent} delta={delta(m.costPerCase, m.prev.costPerCase)} deltaGood="down" sub="automation runtime" />
+        <KpiCard label="Completion rate" value={fmtPct(m.completionPct, 1)} accent={v.good} delta={delta(m.completionPct, m.prev.completionPct)} sub="straight-through" target={{ label: `Target ≥ ${fmtPct(TARGETS.completionPct, 0)}`, met: m.completionPct >= TARGETS.completionPct }} />
+        <KpiCard label="Cost per completed case" value={fmtMoney2(m.costPerCase)} accent={v.accent} delta={delta(m.costPerCase, m.prev.costPerCase)} deltaGood="down" sub="fully-loaded estate" target={{ label: `Target ≤ ${fmtMoney2(TARGETS.costPerCase)}`, met: m.costPerCase <= TARGETS.costPerCase }} />
       </div>
 
       {/* outcome mix + daily flow */}
@@ -85,7 +88,7 @@ export function Overview() {
               </div>
             ))}
             <div style={{ marginTop: 2, paddingTop: 12, borderTop: `1px solid ${t.ruleSoft}`, display: "flex", justifyContent: "space-between", fontFamily: fonts.body, fontSize: 13, color: t.inkSoft }}>
-              <span>Automation cost (period)</span>
+              <span>Estate cost (period, apportioned)</span>
               <span style={{ fontFamily: fonts.mono, fontWeight: 700, color: t.ink }}>{fmtGBP(m.automationCost)}</span>
             </div>
           </div>
@@ -94,18 +97,34 @@ export function Overview() {
 
       {/* throughput by process + watchlist */}
       <Row cols="minmax(0,1.3fr) minmax(0,1fr)">
-        <VisualCard title="Throughput by process" subtitle="Completed cases in the selected period">
+        <VisualCard title="Throughput by process" subtitle="Click a bar to cross-filter every page">
           <HBarChart
             barColor={v.completed}
             valueFormat={fmtCompact}
-            rows={[...m.byProcess].sort((a, b) => b.completed - a.completed).slice(0, 7).map((p) => ({ label: p.name, value: p.completed }))}
+            activeId={activeProc}
+            onRowClick={(id) => setFilters({ processId: id })}
+            rows={[...m.byProcess].sort((a, b) => b.completed - a.completed).slice(0, 7).map((p) => ({ id: p.id, label: p.name, value: p.completed }))}
           />
         </VisualCard>
 
-        <VisualCard title="Watchlist" subtitle="Highest exception rate — and the cost behind it">
+        <VisualCard title="Watchlist" subtitle="Click a row to drill through to process detail">
           <div style={{ display: "flex", flexDirection: "column", justifyContent: "space-between", height: "100%" }}>
             {watch.map((p, i) => (
-              <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "7px 2px", borderTop: i ? `1px solid ${t.ruleSoft}` : undefined }}>
+              <div
+                key={p.id}
+                className="click-row"
+                role="button"
+                tabIndex={0}
+                onClick={() => { setFilters({ processId: p.id }); nav("process-detail"); }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setFilters({ processId: p.id });
+                    nav("process-detail");
+                  }
+                }}
+                style={{ display: "flex", alignItems: "center", gap: 12, padding: "7px 5px", margin: "0 -5px", borderRadius: 6, cursor: "pointer", borderTop: i ? `1px solid ${t.ruleSoft}` : undefined }}
+              >
                 <span style={{ flex: 1, minWidth: 0 }}>
                   <span style={{ display: "block", fontFamily: fonts.body, fontSize: 13.5, fontWeight: 600, color: t.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
                   <span style={{ fontFamily: fonts.mono, fontSize: 11, color: t.inkSoft }}>{p.queue} · {fmtInt(p.exceptions)} exceptions</span>

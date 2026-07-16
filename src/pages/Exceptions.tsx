@@ -22,7 +22,8 @@ function abbr(name: string) {
 }
 
 export function Exceptions() {
-  const { model } = useFilters();
+  const { model, filters, setFilters } = useFilters();
+  const activeProc = filters.processId !== "All" ? filters.processId : undefined;
   const m = model;
   const v = useViz();
   const t = useTheme();
@@ -85,8 +86,22 @@ export function Exceptions() {
               ))}
             </div>
             {processes.map((p, ri) => (
-              <div key={p.id} style={{ display: "grid", gridTemplateColumns: colW, gap: 2, marginBottom: 2 }}>
-                <span style={{ fontFamily: fonts.body, fontSize: 12, color: t.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", paddingRight: 6, display: "flex", alignItems: "center" }} title={p.name}>{p.name}</span>
+              <div key={p.id} style={{ display: "grid", gridTemplateColumns: colW, gap: 2, marginBottom: 2, opacity: activeProc && activeProc !== p.id ? 0.4 : 1 }}>
+                <span
+                  className="click-row"
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={activeProc === p.id}
+                  onClick={() => setFilters({ processId: activeProc === p.id ? "All" : p.id })}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setFilters({ processId: activeProc === p.id ? "All" : p.id });
+                    }
+                  }}
+                  style={{ fontFamily: fonts.body, fontSize: 12, fontWeight: activeProc === p.id ? 700 : 400, color: t.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", padding: "0 6px 0 4px", margin: "0 0 0 -4px", borderRadius: 5, cursor: "pointer", display: "flex", alignItems: "center" }}
+                  title={`Filter to ${p.name}`}
+                >{p.name}</span>
                 {types.map((ty, ci) => {
                   const val = cell[ri][ci];
                   const strong = max && val / max > 0.55;

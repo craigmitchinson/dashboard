@@ -5,16 +5,18 @@ import { useTheme } from "../theme-context";
 import { IconChevron } from "./icons";
 import { useFilters, DATA_MIN_ISO, DATA_MAX_ISO } from "../filters-context";
 import type { RangePreset } from "../filters-context";
-import { PROPOSITIONS, QUEUES, TAGS } from "../rpaData";
+import { SPOKES, SPOKE_INFO, QUEUES, TAGS } from "../rpaData";
+import { useReference } from "../reference/reference-context";
 
 const shortISO = (iso: string) => new Date(iso + "T00:00:00Z").toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
 
 // A slicer popover: a labelled trigger that opens a panel of options. Used for
 // every dropdown in the filter bar so they look and behave identically.
-function Slicer({ label, summary, active, children, width = 178 }: { label: string; summary: string; active: boolean; children: (close: () => void) => ReactNode; width?: number }) {
+function Slicer({ label, summary, active, children, width = 178, first }: { label: string; summary: string; active: boolean; children: (close: () => void) => ReactNode; width?: number; first?: boolean }) {
   const t = useTheme();
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
@@ -23,12 +25,27 @@ function Slicer({ label, summary, active, children, width = 178 }: { label: stri
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
   }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setOpen(false);
+        triggerRef.current?.focus();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
 
   return (
     <div ref={box} style={{ position: "relative" }}>
       <div style={{ fontFamily: fonts.mono, fontSize: 9.5, letterSpacing: "0.09em", textTransform: "uppercase", color: t.inkSoft, marginBottom: 3, fontWeight: 600 }}>{label}</div>
       <button
+        ref={triggerRef}
         onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        {...(first ? { "data-first-slicer": "true" } : {})}
         style={{
           width,
           display: "flex",
@@ -50,6 +67,7 @@ function Slicer({ label, summary, active, children, width = 178 }: { label: stri
       </button>
       {open && (
         <div
+          className="dropdown-panel"
           style={{
             position: "absolute",
             top: "calc(100% + 5px)",
@@ -78,6 +96,7 @@ function Option({ selected, onClick, children }: { selected: boolean; onClick: (
   return (
     <button
       onClick={onClick}
+      aria-pressed={selected}
       style={{
         display: "flex",
         alignItems: "center",
@@ -118,17 +137,53 @@ function defaultCustomFrom() {
   return d.toISOString().slice(0, 10);
 }
 
+// Spoke identity (SPOKES/SPOKE_INFO) is populated once from model.json at
+// load — a spoke added via Administration lives only in the reference-data
+// overlay until the next data build. Merging it in here (name + colour only —
+// it naturally has no processes/activity yet) is what makes "add a spoke in
+// Administration" plug-and-play for the slicer, per that page's spec.
+function useSlicerSpokes(): { names: string[]; info: Record<string, { short: string; light: string; dark: string }> } {
+  const { reference } = useReference();
+  const names = [...SPOKES];
+  const info = { ...SPOKE_INFO };
+  for (const s of reference.spokes) {
+    if (!names.includes(s.spokeName)) names.push(s.spokeName);
+    if (!info[s.spokeName]) info[s.spokeName] = { short: s.shortName, light: s.colorLight, dark: s.colorDark };
+  }
+  return { names, info };
+}
+
 export function FilterBar() {
-  const { filters, setFilters, processOptions } = useFilters();
+  const { filters, setFilters, processOptions, propositionOptions } = useFilters();
   const t = useTheme();
+  const { names: spokeNames, info: spokeInfo } = useSlicerSpokes();
 
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 14, alignItems: "flex-end" }}>
+      <Slicer label="Spoke" active={filters.spoke !== "All"} summary={filters.spoke === "All" ? "All spokes (hub)" : filters.spoke} width={190} first>
+        {(close) => (
+          <>
+            <Option selected={filters.spoke === "All"} onClick={() => { setFilters({ spoke: "All", proposition: "All", processId: "All", queue: "All" }); close(); }}>All spokes (hub)</Option>
+            {spokeNames.map((s) => {
+              const c = spokeInfo[s]?.[t.mode === "dark" ? "dark" : "light"];
+              return (
+                <Option key={s} selected={filters.spoke === s} onClick={() => { setFilters({ spoke: s, proposition: "All", processId: "All", queue: "All" }); close(); }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                    <span style={{ width: 9, height: 9, borderRadius: "50%", background: c, flex: "0 0 auto" }} />
+                    <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s}</span>
+                  </span>
+                </Option>
+              );
+            })}
+          </>
+        )}
+      </Slicer>
+
       <Slicer label="Proposition" active={filters.proposition !== "All"} summary={filters.proposition === "All" ? "All propositions" : filters.proposition}>
         {(close) => (
           <>
             <Option selected={filters.proposition === "All"} onClick={() => { setFilters({ proposition: "All", processId: "All", queue: "All" }); close(); }}>All propositions</Option>
-            {PROPOSITIONS.map((p) => (
+            {propositionOptions.map((p) => (
               <Option key={p} selected={filters.proposition === p} onClick={() => { setFilters({ proposition: p, processId: "All", queue: "All" }); close(); }}>{p}</Option>
             ))}
           </>

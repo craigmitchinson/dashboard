@@ -1,134 +1,93 @@
-# Innovation & modernisation pack
+# Intelligent Automation — Performance
 
-Fixed-dimension (1920×1080, 16:9) slides for a **navigable pack of innovation
-use cases**. React + Vite + TypeScript, no backend.
+A **data-ready** automation performance dashboard for a hub-and-spoke
+Intelligent Automation Centre of Excellence (IA CoE): one universal model
+every spoke can slice to its own estate, with the commercial story
+(grade-based benefit, spoke-level cost, ROI) built on the same rules as
+the SQL warehouse in [bp-sql-layer/](bp-sql-layer/).
 
-The pack opens on a **Contents** page that presents five bets in a deliberate
-sequence. Each bet is its own six-slide story arc you can open and walk, so the
-reader keeps the same rhythm throughout. Four bets are innovation, one
-(clicks-to-code) is modernisation.
+**Read [ARCHITECTURE.md](ARCHITECTURE.md) first** — it explains the end-to-end
+lineage (Blue Prism work queue activity, preferred via Elastic or, as a
+documented alternative, direct from the Blue Prism API → CSV → SQL →
+dashboard/Power BI) and the swap points. The one-line version:
+everything downstream is driven by a CSV in the exact `BPAWorkQueueItem`
+export schema; replace the mock CSV with a real extract and every visual
+follows.
 
-- **01 Observability** *(innovation)*: make the cross-system journey visible and
-  measurable, and stand up the event backbone the rest reuse.
-- **02 Capability agents** *(innovation)*: solve one high-volume task across the
-  whole estate rather than automating journeys one at a time.
-- **03 Decision-grounding** *(innovation)*: a read-only agent that answers over our
-  rules and shows the source behind each answer.
-- **04 Knowledge graph** *(innovation)*: resolve entities and relationships across
-  systems never built to reconcile.
-- **05 Clicks-to-code** *(modernisation)*: move business logic out of brittle UI
-  automation into governed, reusable services.
+**Read [PLAYBOOK.md](PLAYBOOK.md) for day-to-day operation** — Elastic /
+Blue Prism ingest setup, the SQL script tour, the reference data sync loop, adding a new spoke,
+roles/sign-in, performance/scale guidance, accessibility and troubleshooting.
+ARCHITECTURE.md is the technical shape; PLAYBOOK.md is the how-to for the team
+running this. It's generated from `src/pages/playbook-content.ts` (the same
+content backs the in-app **Playbook** page) — regenerate it after edits with
+`npm run docs:playbook`.
 
-The spine: observability leads, because it builds two pieces of shared
-infrastructure the others reuse, the persistent correlation identity (which the
-graph later resolves) and the Kafka event backbone (which the agents subscribe to
-and the decoupled services publish to). OpenTelemetry is the instrumentation
-standard, Kafka is the event backbone, and Dynatrace is the observation layer;
-the pack keeps the three distinct.
-
-Navigation: the **use-case rail** (Contents, then 01 to 05) switches bet; the
-**slide tabs** below move within the open bet; **left / right arrows** move
-between slides. The pack model lives in [src/App.tsx](src/App.tsx); the corner
-label per bet comes from [src/pack-context.ts](src/pack-context.ts). New bets live
-under [src/slides/](src/slides/) (prefixes: Cap, Dg, Gr for bets 2 to 4).
-
-## Use case 01 — Observability ([src/slides/](src/slides/))
-
-1. **Blind spot** ([src/slides/BlindSpot.tsx](src/slides/BlindSpot.tsx)) — opens on
-   a real case crossing the estate (public site → IVR → colleague desktop →
-   automation → forms → business-team queue → letters → finance) with the blind
-   handoffs marked. Today the picture is reconstructed by hand; no one owns or
-   measures the journey end to end.
-2. **The idea** ([src/slides/Idea.tsx](src/slides/Idea.tsx)) — one shared identifier
-   stamped on each step's event stitches the case into a single live timeline. What
-   that gives the business: where every case is, where they fail, what each stage
-   costs.
-3. **What we'd see** ([src/slides/Board.tsx](src/slides/Board.tsx)) — the operations
-   view: end-to-end KPIs, a "where the time goes" ribbon, a per-stage table (time,
-   wait between steps, cost, health) and an auto-detected anomaly + alert column.
-   Reads from [src/journeyData.ts](src/journeyData.ts).
-4. **Why back it** ([src/slides/WorthBacking.tsx](src/slides/WorthBacking.tsx)) —
-   proven tools (low technical risk), a new target (the value), correlation as the
-   real engineering; with the end-to-end pipeline (Origin → OTel → Kafka →
-   Collector → Dynatrace) alongside.
-5. **How we'd start** ([src/slides/Approach.tsx](src/slides/Approach.tsx)) — one
-   high-value segment sized by value, the de-risking first move (prove the
-   identifier carries), and the small specialist team paired to our estate.
-6. **Why it matters** ([src/slides/WhyItMatters.tsx](src/slides/WhyItMatters.tsx)) —
-   observability as management information, visible *and* defensible, a clear-eyed
-   look at the risks, and the ask.
-
-## Use case 02 — Clicks-to-code
-
-1. **Fragility** ([src/slides/CcFragility.tsx](src/slides/CcFragility.tsx)) — we
-   automate the screen, not the system: it breaks when screens change, and the
-   logic is trapped in the platform (the monolith).
-2. **The idea** ([src/slides/CcExtract.tsx](src/slides/CcExtract.tsx)) — lift the
-   logic into services; one service, many callers; drive APIs where they exist.
-3. **Target shape** ([src/slides/CcArchitecture.tsx](src/slides/CcArchitecture.tsx)) —
-   before/after: Blue Prism for UI only, Power Platform for what it's good at,
-   microservices for logic — plus the four commercial benefits.
-4. **Why back it** ([src/slides/CcModernisation.tsx](src/slides/CcModernisation.tsx)) —
-   modernisation, deliberately, not innovation: proven patterns, low risk, the
-   accurate word that survives Audit.
-5. **How we'd start** ([src/slides/CcApproach.tsx](src/slides/CcApproach.tsx)) —
-   selective decoupling, three named services and a pattern, paired delivery —
-   framed as the three risks it is built to handle.
-6. **Why it matters** ([src/slides/CcMatters.tsx](src/slides/CcMatters.tsx)) — how
-   it serves observability (services are observable by design), the baseline that
-   makes it fundable, and the ask.
-
-## The observability worked example
-
-The journey itself ([src/journeyData.ts](src/journeyData.ts)) is the realistic
-public→business-team path — public website, IVR, colleague desktop, automation,
-low-code forms, a business-team queue, human review, letters/email, finance —
-with illustrative times, costs and failure rates that the Dynatrace and Anomalies
-slides render. Edit that one file to change the worked example everywhere.
-
-## Deck chrome
-
-- **Tabs / arrow keys** navigate the deck; the active slide fills the fixed canvas.
-- **Present mode** ("Present") hides the editing chrome, enlarges the slide and
-  navigates by tabs or ←/→; Escape (or "Exit present") leaves.
-- **Spotlight** lifts any block (`data-spot`) above a scrim to focus the room on
-  one thing as you talk; click another to move it, click again to clear.
-- **Light / dark** toggle switches the whole slide and the surrounding chrome in
-  step; no component holds a literal colour.
-- **Export PPTX** captures every slide at 2× (3840×2160) using the browser's own
-  rendering and assembles a 16:9 `.pptx`, one full-bleed image per slide, so the
-  formatting is preserved exactly (slides are images, not editable PPTX text).
-  Uses two lazy-loaded, pure-JS packages (`html-to-image`, `pptxgenjs`).
-- **Persistence**: the active slide and light/dark mode are saved to
-  `localStorage` and restored on reload.
-
-## How it is built
-
-- **Shell + primitives** ([src/components/Shell.tsx](src/components/Shell.tsx)):
-  `SlideFrame` supplies the common header (eyebrow, display title with a red full
-  stop, standing brand mark + slide number). Slides compose small primitives
-  (`Panel`, `Bullets`, `Tag`, `StatBig`, `Arrow`, `Body`) so the look is defined
-  once and cannot drift.
-- **Journey strip** ([src/components/JourneyStrip.tsx](src/components/JourneyStrip.tsx)):
-  the five-system journey, rendered with the blind handoffs ("blind" mode) or the
-  single correlation thread ("thread" mode).
-- **Brand** ([src/theme.ts](src/theme.ts)): every colour, font and spacing token
-  lives in one file, in a light and a dark variant supplied through a small
-  context ([src/theme-context.ts](src/theme-context.ts)). The palette's five
-  nesting tones tint the architecture layers; its three states carry
-  success / neutral / failure semantics (`statusKey`). Fonts are self-hosted web
-  fonts ([src/fonts/](src/fonts/)): Gelasio (Georgia), Carlito (Calibri),
-  JetBrains Mono (Consolas).
-
-## Run
+## Run it
 
 ```bash
 npm install
-npm run dev      # open the printed localhost URL
-npm run build    # type-check + production build into dist/
+npm run data:all   # generate the mock CSV and bake /public/data from it
+npm run dev        # open the printed localhost URL
 ```
 
-The slide is centred on a neutral page and scaled to fit the viewport for
-on-screen viewing only. The internal layout is always authored at 1920×1080, so a
-capture of the `.slide-frame` element at `deviceScaleFactor: 2` (which is what the
-PPTX export does) produces a clean 3840×2160 image.
+- `npm run data:mock` — writes `data/mock/BPAWorkQueueItem.csv` (deterministic,
+  ~230k queue items over 18 months, 4 spokes — Insurance, Pensions & Investments;
+  Risk; Commercial; Consumer Lending — 14 processes, 15 queues).
+- `npm run data:build` — runs the SQL-parity transform over the CSV +
+  [data/reference/reference.json](data/reference/reference.json) and writes
+  `public/data/model.json` plus `public/data/views/vw_*.json` (1:1 ports of the
+  `report.vw_*` SQL views — the API contract).
+- `npm run data:build path/to/real-export.csv` — point it at any CSV in the
+  same schema.
+- `npm run build` — type-check + production build into `dist/`.
+
+To run off a live API instead of baked JSON: set `VITE_DATA_URL` to an endpoint
+returning the same `model.json` shape and rebuild. Deployment (Cloud Run):
+[deploy/gcp.md](deploy/gcp.md).
+
+Sign-in uses a fixed demo directory today: any of the seeded demo users with
+the shared passphrase **"demo"**. Users and roles (`admin`, `hub_lead`,
+`hub_member`, `business_user`) are managed from **Administration → Users &
+roles** in-app; see [PLAYBOOK.md](PLAYBOOK.md) for the full user list and the
+production Entra ID (Azure AD) setup.
+
+## What's in the app
+
+Nine report pages — Overview, Input & Outcome, Process Analysis, Exceptions,
+Process detail, VDI & Capacity, Commercial Performance, Administration (gated
+behind the `view_admin` permission), Data model — plus a **Playbook** page in
+the Reference group with the operational runbook. All share one slicer bar:
+**Spoke** (each spoke selects itself; "All spokes" is the hub view),
+Proposition, Process, Queue, Tags, Date range — plus:
+
+- **Saved views** (☆ in the top bar): name and reapply any combination of
+  slicers, rate assumption and page. Local to the user today; the `SavedView`
+  type is the contract if views move server-side.
+- **Reference data overlay**: the committed base `data/reference/reference.json`
+  can be edited in-browser from **Administration** (`src/pages/Admin.tsx`),
+  persisted per-user in localStorage on top of the base data, and exported
+  back out as a replacement `reference.json` or a SQL script for a DBA to run
+  — see [PLAYBOOK.md](PLAYBOOK.md) for the sync loop.
+- **Spoke colour schemes**: each spoke carries its own accent (validated for
+  CVD separation and contrast on both surfaces, light and dark). Selecting a
+  spoke re-skins the dashboard accent to that spoke's colour; the hub view
+  keeps the brand accent. Colours live in `reference.json` / `core.RefSpoke`.
+- **Human cost / SMV mechanism**: benefit = each process's SMV × the £/h of the
+  **grade it automates against**, at the rate in force on the item's outcome
+  date (date-effective rate card, hub-maintained). The Commercial page slider
+  is a flat what-if override on top.
+- **Spoke-true costs**: VDI class rates are universal (hub-set); each spoke
+  pays for its own VDIs; the IA CoE team pool is shared by worktime. All money
+  in the app is summed, never recomputed — rates were resolved in the pipeline.
+
+## Where things live
+
+| Path | What |
+|---|---|
+| `data/reference/reference.json` | Team-owned config: spokes, grade rate card, processes (SMV+grade), queue map, VDIs, cost histories. JSON twin of `07_seed_reference.sql`. |
+| `tools/` | Mock generator + the CSV→JSON transform pipeline |
+| `public/data/` | Baked dataset: `model.json`, `views/vw_*.json`, `manifest.json` |
+| `src/rpaData.ts` | Semantic model, populated from `model.json` before first render |
+| `src/filters-context.tsx` | Slicer state + client-side aggregation (sums only) |
+| `bp-sql-layer/` | The SQL warehouse: schemas, procs, report views, runbook, Elastic / Blue Prism API ingest |
+| `Dockerfile`, `deploy/` | Cloud Run hosting assets |

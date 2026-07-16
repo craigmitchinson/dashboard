@@ -3,3 +3,6 @@ dist
 *.local
 .DS_Store
 .claude
+
+# generated: mock CSV is deterministic — rebuild with `npm run data:mock`
+data/mock/*.csv

@@ -157,6 +157,13 @@ export const IconAlert = (p: IconProps) => (
   </Svg>
 );
 
+export const IconBell = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M12 3a5 5 0 0 0-5 5v3.5l-1.8 2.7a1 1 0 0 0 .8 1.55h12a1 1 0 0 0 .8-1.55L17 11.5V8a5 5 0 0 0-5-5z" />
+    <path d="M9.5 18a2.5 2.5 0 0 0 5 0" />
+  </Svg>
+);
+
 export const IconPulse = (p: IconProps) => (
   <Svg {...p}>
     <path d="M2.5 12h4l2-5 3 11 2.5-7 1.5 3h6" />
@@ -388,5 +395,44 @@ export const IconBrain = (p: IconProps) => (
   <Svg {...p}>
     <path d="M9 5.5a2.5 2.5 0 0 0-2.5 2.5 2.5 2.5 0 0 0-1 4.8A2.5 2.5 0 0 0 7 17.5a2.3 2.3 0 0 0 2.5 1.5V5.5z" />
     <path d="M15 5.5a2.5 2.5 0 0 1 2.5 2.5 2.5 2.5 0 0 1 1 4.8A2.5 2.5 0 0 1 17 17.5a2.3 2.3 0 0 1-2.5 1.5V5.5z" />
+  </Svg>
+);
+
+/* --- Seasonal accent (a11y header greeting) ------------------------------ */
+export const IconWinter = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M12 3v18M4.5 7.5l15 9M19.5 7.5l-15 9" />
+    <path d="M9 4.5l3 2 3-2M9 19.5l3-2 3 2M5 9.5l1 3.3-3 1M22 9.5l-1 3.3 3 1M5 14.5l1-3.3-3-1M22 14.5l-1-3.3 3-1" />
+  </Svg>
+);
+
+export const IconSpring = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M12 20v-9" />
+    <path d="M12 12c0-3.5-2.5-5.5-6-5.5 0 3.5 2.5 5.5 6 5.5z" />
+    <path d="M12 14c0-3.2 2.3-5 5.5-5 0 3.2-2.3 5-5.5 5z" />
+  </Svg>
+);
+
+export const IconSummer = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="4.2" />
+    <path d="M12 3.5v2.3M12 18.2v2.3M20.5 12h-2.3M5.8 12H3.5M17.7 6.3l-1.6 1.6M7.9 16.1l-1.6 1.6M17.7 17.7l-1.6-1.6M7.9 7.9 6.3 6.3" />
+  </Svg>
+);
+
+export const IconAutumn = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M12 4c4.5 1 7 4.8 7 9-4.5-1-7-4.8-7-9zM12 4c-4.5 1-7 4.8-7 9 4.5-1 7-4.8 7-9z" />
+    <path d="M12 4v16" />
+  </Svg>
+);
+
+/* --- Accessibility (a11y header trigger) ---------------------------------- */
+export const IconAccessibility = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <circle cx="12" cy="8.2" r="1.6" />
+    <path d="M7 11.4c2.7 1 7.3 1 10 0M12 10v5.5M9.5 19.3L12 15.5l2.5 3.8" />
   </Svg>
 );

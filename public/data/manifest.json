@@ -1,0 +1,27 @@
+{
+  "generatedAt": "2026-07-16T14:55:07.821Z",
+  "source": "data/mock/BPAWorkQueueItem.csv",
+  "sourceRows": 231660,
+  "window": [
+    "2025-01-01",
+    "2026-07-14"
+  ],
+  "views": {
+    "vw_DimSpoke": 4,
+    "vw_DimGradeRate": 22,
+    "vw_DimProcess": 14,
+    "vw_DimResource": 12,
+    "vw_EstateRateByDate": 560,
+    "vw_SpokeRateByDate": 2240,
+    "vw_DailyOutcomes": 17531,
+    "vw_MonthlyOutcomes": 266,
+    "vw_ExceptionDetail": 148,
+    "vw_ExceptionCost": 28,
+    "vw_ResourceUtil": 11,
+    "vw_Commercial": 14,
+    "vw_CommercialBySpoke": 4,
+    "vw_CommercialMonthly": 19,
+    "vw_CommercialOverall": 1,
+    "vw_KPIHeadline": 1
+  }
+}

@@ -3,6 +3,7 @@ import { fonts } from "../theme";
 import { useTheme } from "../theme-context";
 import { useFilters } from "../filters-context";
 import { fmtDate, monthKey } from "../rpaData";
+import { TARGETS } from "../rpaData";
 import { KpiCard, VisualCard, LineChart, Legend, PageGrid, Row, useViz, fmtInt, fmtCompact, fmtPct } from "../components/viz";
 
 type Grain = "daily" | "monthly";
@@ -89,11 +90,15 @@ export function InputOutcome() {
       </Row>
 
       <Row cols="minmax(0,1fr) minmax(0,1fr)">
-        <VisualCard title="Outcome split over time" subtitle={`${grain === "daily" ? "Daily" : "Monthly"} share of completed vs exceptions`}>
+        <VisualCard title="Outcome split over time" subtitle={`${grain === "daily" ? "Daily" : "Monthly"} share of completed vs exceptions, against SLA targets`}>
           <LineChart
             labels={labels}
             yFormat={(n) => `${Math.round(n)}%`}
             tipFormat={(n) => `${n.toFixed(1)}%`}
+            refLines={[
+              { value: TARGETS.completionPct * 100, label: `Completion target ${fmtPct(TARGETS.completionPct, 0)}`, color: v.good },
+              { value: TARGETS.exceptionRate * 100, label: `Exception ceiling ${fmtPct(TARGETS.exceptionRate, 0)}`, color: v.bad },
+            ]}
             series={[
               { name: "Completion %", color: v.completed, values: pts.map((p) => { const a = p.completed + p.business + p.system; return a ? (p.completed / a) * 100 : 0; }), area: true },
               { name: "Exception %", color: v.system, values: pts.map((p) => { const a = p.completed + p.business + p.system; return a ? ((p.business + p.system) / a) * 100 : 0; }) },

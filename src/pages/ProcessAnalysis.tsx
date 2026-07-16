@@ -2,6 +2,7 @@ import { useState } from "react";
 import { fonts } from "../theme";
 import { useTheme } from "../theme-context";
 import { useFilters } from "../filters-context";
+import { useNav } from "../nav-context";
 import { fmtDate, monthKey } from "../rpaData";
 import { VisualCard, LineChart, HBarChart, Legend, PageGrid, Row, useViz, fmtCompact, fmtInt, fmtPct, fmtMoney2 } from "../components/viz";
 
@@ -30,10 +31,12 @@ function Segmented<T extends string>({ value, onChange, options }: { value: T; o
 }
 
 export function ProcessAnalysis() {
-  const { model } = useFilters();
+  const { model, filters, setFilters } = useFilters();
+  const nav = useNav();
   const m = model;
   const v = useViz();
   const t = useTheme();
+  const activeProc = filters.processId !== "All" ? filters.processId : undefined;
   const [metric, setMetric] = useState<Metric>("time");
   const [grain, setGrain] = useState<"daily" | "monthly">("daily");
 
@@ -41,11 +44,11 @@ export function ProcessAnalysis() {
 
   const barRows = (() => {
     if (metric === "time")
-      return [...m.byProcess].sort((a, b) => b.avgCycleSec - a.avgCycleSec).map((p) => ({ label: p.name, value: p.avgCycleSec, sub: `${fmtCompact(p.completed)} cases`, color: v.accent }));
+      return [...m.byProcess].sort((a, b) => b.avgCycleSec - a.avgCycleSec).map((p) => ({ id: p.id, label: p.name, value: p.avgCycleSec, sub: `${fmtCompact(p.completed)} cases`, color: v.accent }));
     if (metric === "throughput")
-      return [...m.byProcess].sort((a, b) => b.completed - a.completed).map((p) => ({ label: p.name, value: p.completed, color: v.completed }));
+      return [...m.byProcess].sort((a, b) => b.completed - a.completed).map((p) => ({ id: p.id, label: p.name, value: p.completed, color: v.completed }));
     return [...m.byProcess]
-      .map((p) => ({ label: p.name, value: p.attempts ? (p.exceptions / p.attempts) * 100 : 0, sub: `${fmtInt(p.exceptions)} exc`, color: v.system }))
+      .map((p) => ({ id: p.id, label: p.name, value: p.attempts ? (p.exceptions / p.attempts) * 100 : 0, sub: `${fmtInt(p.exceptions)} exc`, color: v.system }))
       .sort((a, b) => b.value - a.value);
   })();
 
@@ -65,7 +68,7 @@ export function ProcessAnalysis() {
           subtitle={metric === "time" ? "Average digital-worker runtime per case, longest first" : metric === "throughput" ? "Completed cases per process" : "Share of attempts ending in an exception"}
           right={<Segmented value={metric} onChange={setMetric} options={METRICS} />}
         >
-          <HBarChart rows={barRows} valueFormat={barFormat} />
+          <HBarChart rows={barRows} valueFormat={barFormat} activeId={activeProc} onRowClick={(id) => setFilters({ processId: id })} />
         </VisualCard>
       </Row>
 
@@ -95,7 +98,21 @@ export function ProcessAnalysis() {
               <span>Process</span><span style={{ textAlign: "right" }}>Cycle</span><span style={{ textAlign: "right" }}>Exc %</span><span style={{ textAlign: "right" }}>Cost</span>
             </div>
             {[...m.byProcess].sort((a, b) => b.runtimeCost - a.runtimeCost).map((p) => (
-              <div key={p.id} style={{ display: "grid", gridTemplateColumns: "1fr 60px 56px 64px", gap: 8, padding: "8px 2px", alignItems: "center", borderBottom: `1px solid ${t.ruleSoft}` }}>
+              <div
+                key={p.id}
+                className="click-row"
+                role="button"
+                tabIndex={0}
+                onClick={() => { setFilters({ processId: p.id }); nav("process-detail"); }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setFilters({ processId: p.id });
+                    nav("process-detail");
+                  }
+                }}
+                style={{ display: "grid", gridTemplateColumns: "1fr 60px 56px 64px", gap: 8, padding: "8px 4px", margin: "0 -4px", borderRadius: 5, cursor: "pointer", alignItems: "center", borderBottom: `1px solid ${t.ruleSoft}` }}
+              >
                 <span style={{ fontFamily: fonts.body, fontSize: 12.5, color: t.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={p.name}>{p.name}</span>
                 <span style={{ textAlign: "right", fontFamily: fonts.mono, fontSize: 12, color: t.ink }}>{Math.round(p.avgCycleSec)}s</span>
                 <span style={{ textAlign: "right", fontFamily: fonts.mono, fontSize: 12, color: p.attempts && p.exceptions / p.attempts > 0.1 ? v.bad : t.ink }}>{fmtPct(p.attempts ? p.exceptions / p.attempts : 0, 1)}</span>
