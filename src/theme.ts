@@ -1,6 +1,8 @@
 // ---------------------------------------------------------------------------
 // Brand theme tokens
 // ---------------------------------------------------------------------------
+import type { CSSProperties } from "react";
+
 // Every colour, font and spacing value lives here so the look is defined once
 // and cannot drift. Fonts, spacing and the type scale are shared across modes;
 // colours come in a light and a dark variant. Components never use literal
@@ -195,3 +197,42 @@ export const type = {
   value: 14,
   control: 13,
 } as const;
+
+// ---------------------------------------------------------------------------
+// Liquid-glass surface tokens
+// ---------------------------------------------------------------------------
+// CSS custom properties consumed by `.liquid-glass` in src/styles.css. Most
+// consumers of that class live inside `.report` and get the right variant for
+// free from the `.report[data-mode="dark"] .liquid-glass` cascade there; this
+// helper exists only for the two dialogs (src/a11y/DisplayPanel.tsx, the
+// keyboard-shortcuts sheet in src/App.tsx) that render as *siblings* of
+// `.report`, not descendants, so that cascade can't reach them — the same
+// reason dialogStyle() in DisplayPanel.tsx already computes background/shadow
+// inline from `t` instead of leaning on a `.report[data-mode=...]` selector.
+// Values must stay byte-for-byte in sync with the two blocks in styles.css
+// (the base `.liquid-glass` rule and its `.report[data-mode="dark"]`
+// override) — this is not derived at runtime from the paper/ink tokens above
+// because the scrim alpha and rim/sheen opacities were tuned by hand against
+// a computed worst-case contrast check (see the comment above the CSS rule),
+// not by a formula that could safely regenerate them from `paper` alone.
+export function liquidGlassVars(t: ThemeTokens): CSSProperties {
+  return (
+    t.mode === "dark"
+      ? {
+          "--lg-bg": "linear-gradient(135deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0) 35%), rgba(12,35,41,0.68)",
+          "--lg-backdrop": "blur(2px) saturate(1.6) brightness(0.9)",
+          "--lg-shadow": "0 2px 6px rgba(0,0,0,0.4), 0 24px 60px rgba(0,0,0,0.5)",
+          "--lg-rim":
+            "inset 0 1px 0 rgba(255,255,255,0.55), inset 0 0 0 1px rgba(255,255,255,0.22), inset 0 0 16px 0 rgba(255,255,255,0.1)",
+          "--lg-solid": "#0C2329",
+        }
+      : {
+          "--lg-bg": "linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0) 35%), rgba(250,247,242,0.62)",
+          "--lg-backdrop": "blur(2px) saturate(1.7) brightness(1.06)",
+          "--lg-shadow": "0 2px 6px rgba(11,50,57,0.18), 0 24px 60px rgba(11,50,57,0.22)",
+          "--lg-rim":
+            "inset 0 1px 0 rgba(255,255,255,0.45), inset 0 0 0 1px rgba(255,255,255,0.5), inset 0 0 16px 0 rgba(255,255,255,0.22)",
+          "--lg-solid": "#FAF7F2",
+        }
+  ) as CSSProperties;
+}

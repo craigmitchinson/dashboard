@@ -93,14 +93,19 @@ export function ThresholdsSection({ reference, update, actor, can, isAdmin }: Se
   const overrides = reference.thresholdOverrides ?? [];
 
   const editableSpokes = useMemo(() => reference.spokes.filter((s) => can("edit_spoke_reference", s.spokeName)), [reference.spokes, can]);
-  const editableProcessesBySpoke = useMemo(() => {
+  // Grouped by "Spoke — Proposition" (user requirement: propositions must be
+  // mapped to processes in the picker, so an override can't be attached
+  // ambiguously — a process name alone "could relate to anything").
+  const editableProcessGroups = useMemo(() => {
     const groups = new Map<string, { processId: number; processName: string }[]>();
     for (const p of reference.processes) {
       const spoke = spokeOfProcess(reference, String(p.processId));
       if (!spoke || !can("edit_spoke_reference", spoke)) continue;
-      const list = groups.get(spoke) ?? [];
+      const proposition = reference.propositions.find((pr) => pr.propositionId === p.propositionId)?.propositionName ?? "Unassigned";
+      const key = `${spoke} — ${proposition}`;
+      const list = groups.get(key) ?? [];
       list.push({ processId: p.processId, processName: p.processName });
-      groups.set(spoke, list);
+      groups.set(key, list);
     }
     return groups;
   }, [reference, can]);
@@ -145,7 +150,7 @@ export function ThresholdsSection({ reference, update, actor, can, isAdmin }: Se
     if (next === "spoke") {
       setScopeTarget(editableSpokes[0]?.spokeName ?? "");
     } else {
-      const firstGroup = [...editableProcessesBySpoke.values()][0];
+      const firstGroup = [...editableProcessGroups.values()][0];
       setScopeTarget(firstGroup?.[0] ? String(firstGroup[0].processId) : "");
       // utilMin/utilMax are never selectable at process scope (see metricOptions
       // below) — if the metric field still holds one of them from a prior
@@ -329,8 +334,8 @@ export function ThresholdsSection({ reference, update, actor, can, isAdmin }: Se
               <select id="to-scope-target" style={inputStyle(t)} value={scopeTarget} onChange={(e) => setScopeTarget(e.target.value)}>
                 {scopeType === "spoke"
                   ? editableSpokes.map((s) => <option key={s.spokeId} value={s.spokeName}>{s.spokeName}</option>)
-                  : [...editableProcessesBySpoke.entries()].map(([spokeName, procs]) => (
-                      <optgroup key={spokeName} label={spokeName}>
+                  : [...editableProcessGroups.entries()].map(([groupLabel, procs]) => (
+                      <optgroup key={groupLabel} label={groupLabel}>
                         {procs.map((p) => <option key={p.processId} value={String(p.processId)}>{p.processName}</option>)}
                       </optgroup>
                     ))}

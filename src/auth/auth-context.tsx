@@ -17,6 +17,10 @@ interface AuthContextValue {
   user: User | null;
   signIn: (credentials?: { userId: string; passphrase: string }) => Promise<void>;
   signOut: () => void;
+  /** Re-read the session from the provider — call after editing the user
+   * directory (Administration → Users & roles) so a signed-in user's own
+   * name/roles update live instead of waiting for a sign-out/sign-in. */
+  refreshSession: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue>({
@@ -24,6 +28,7 @@ const AuthContext = createContext<AuthContextValue>({
   user: null,
   signIn: async () => {},
   signOut: () => {},
+  refreshSession: () => {},
 });
 
 /**
@@ -47,7 +52,11 @@ export function AuthContextProvider({ children }: { children: ReactNode }) {
     setSession(null);
   }, []);
 
-  return <AuthContext.Provider value={{ session, user: session?.user ?? null, signIn, signOut }}>{children}</AuthContext.Provider>;
+  const refreshSession = useCallback(() => {
+    setSession(provider.getSession());
+  }, []);
+
+  return <AuthContext.Provider value={{ session, user: session?.user ?? null, signIn, signOut, refreshSession }}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth(): AuthContextValue {

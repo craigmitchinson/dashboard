@@ -165,6 +165,14 @@ export function inputStyle(t: ReturnType<typeof useTheme>, extra?: CSSProperties
     color: t.ink,
     outline: "none",
     width: "100%",
+    // Belt-and-suspenders alongside the :root[data-theme] color-scheme rule in
+    // styles.css: makes every select/input/textarea built from this atom
+    // request dark-or-light native chrome (option popup, date-input calendar
+    // icon) for itself, so it's correct even if this render happens to beat
+    // prefs-context.tsx's effect that stamps data-theme onto <html>. t.mode is
+    // "dark" for high-contrast too (see ThemedReport in App.tsx), which
+    // matches that theme's own :root-level color-scheme: dark.
+    colorScheme: t.mode === "dark" ? "dark" : "light",
     ...extra,
   };
 }
@@ -424,7 +432,7 @@ export function ConfirmDialog({
 
   return (
     <div className="modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}>
-      <div ref={dialogRef} role="alertdialog" aria-modal="true" aria-labelledby="admin-confirm-title" className="modal-dialog" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
+      <div ref={dialogRef} role="alertdialog" aria-modal="true" aria-labelledby="admin-confirm-title" className="modal-dialog liquid-glass" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
           <h2 id="admin-confirm-title" style={{ margin: 0, fontFamily: fonts.display, fontSize: 17, fontWeight: 700, color: t.ink }}>{title}</h2>
           <button aria-label="Cancel" onClick={onCancel} className="a11y-seg-btn">

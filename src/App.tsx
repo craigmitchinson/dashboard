@@ -2,11 +2,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ComponentType } from "react";
 import { themes } from "./theme";
 import type { Mode } from "./theme";
-import { fonts } from "./theme";
+import { fonts, liquidGlassVars } from "./theme";
 import { ThemeProvider, useTheme } from "./theme-context";
 import { FiltersProvider, useFilters, RATE_AUTO } from "./filters-context";
 import type { SavedView } from "./filters-context";
 import { NavContext } from "./nav-context";
+import { PAGE_LABELS } from "./page-labels";
 import { FilterBar } from "./components/Slicers";
 import { fmtDateFull, DATE_MAX, META, SPOKE_INFO } from "./rpaData";
 import { AuthContextProvider, useAuth, usePermissions } from "./auth/auth-context";
@@ -25,6 +26,7 @@ import {
   IconFlow,
   IconBars,
   IconAlert,
+  IconBell,
   IconServer,
   IconCoins,
   IconRefresh,
@@ -37,6 +39,8 @@ import {
   IconBook,
 } from "./components/icons";
 import { NotificationBell } from "./alerts/NotificationBell";
+import { AlertsProvider, useAlerts } from "./alerts/alerts-context";
+import { AlertsPage } from "./alerts/AlertsPage";
 import { Overview } from "./pages/Overview";
 import { InputOutcome } from "./pages/InputOutcome";
 import { ProcessAnalysis } from "./pages/ProcessAnalysis";
@@ -67,13 +71,14 @@ interface Page {
 }
 
 const PAGES: Page[] = [
-  { id: "overview", label: "Overview", group: "Monitor", Icon: IconGrid, Component: Overview, blurb: "Headline performance, outcome mix and the operational watchlist" },
+  { id: "overview", label: PAGE_LABELS.overview, group: "Monitor", Icon: IconGrid, Component: Overview, blurb: "Headline performance, outcome mix and the operational watchlist" },
+  { id: "alerts", label: PAGE_LABELS.alerts, group: "Monitor", Icon: IconBell, Component: AlertsPage, blurb: "Threshold breaches and early warnings across the estate" },
   { id: "input-outcome", label: "Input & Outcome", group: "Monitor", Icon: IconFlow, Component: InputOutcome, blurb: "Case flow in and out, by outcome, daily or monthly" },
   { id: "process", label: "Process Analysis", group: "Monitor", Icon: IconBars, Component: ProcessAnalysis, blurb: "Completion time, throughput and exception trends by process" },
-  { id: "exceptions", label: "Exceptions", group: "Monitor", Icon: IconAlert, Component: Exceptions, blurb: "Exception heatmap and searchable detail" },
-  { id: "process-detail", label: "Process detail", group: "Monitor", Icon: IconRoute, Component: ProcessDetail, blurb: "Drill-through — one process in depth (click a process anywhere)" },
-  { id: "capacity", label: "VDI & Capacity", group: "Optimise", Icon: IconServer, Component: Capacity, blurb: "Digital-worker utilisation, idle time and estate cost" },
-  { id: "commercial", label: "Commercial Performance", group: "Optimise", Icon: IconCoins, Component: Commercial, blurb: "Cost per case, grade-based benefit and cumulative ROI" },
+  { id: "exceptions", label: PAGE_LABELS.exceptions, group: "Monitor", Icon: IconAlert, Component: Exceptions, blurb: "Exception heatmap and searchable detail" },
+  { id: "process-detail", label: PAGE_LABELS["process-detail"], group: "Monitor", Icon: IconRoute, Component: ProcessDetail, blurb: "Drill-through — one process in depth (click a process anywhere)" },
+  { id: "capacity", label: PAGE_LABELS.capacity, group: "Optimise", Icon: IconServer, Component: Capacity, blurb: "Digital-worker utilisation, idle time and estate cost" },
+  { id: "commercial", label: PAGE_LABELS.commercial, group: "Optimise", Icon: IconCoins, Component: Commercial, blurb: "Cost per case, grade-based benefit and cumulative ROI" },
   { id: "admin", label: "Administration", group: "Manage", Icon: IconShield, Component: Admin, blurb: "Reference data, users and roles — every edit here updates the dashboards instantly", permission: "view_admin", noSlicers: true },
   { id: "model", label: "Data model", group: "Reference", Icon: IconGraph, Component: DataModel, blurb: "Architecture, star schema and the data contract under every visual", permission: "view_docs", noSlicers: true },
   { id: "playbook", label: "Playbook", group: "Reference", Icon: IconBook, Component: Playbook, blurb: "How to run, extend and troubleshoot this dashboard — plain-English operations guide", permission: "view_docs", noSlicers: true },
@@ -166,7 +171,9 @@ function ThemedReport() {
 
   return (
     <ThemeProvider value={theme}>
-      <Report />
+      <AlertsProvider>
+        <Report />
+      </AlertsProvider>
     </ThemeProvider>
   );
 }
@@ -269,12 +276,13 @@ function ViewsMenu({ pageId, setPageId }: { pageId: string; setPageId: (id: stri
         className="bar-btn"
         aria-expanded={open}
         aria-haspopup="menu"
-        style={{ border: `1px solid ${t.ruleSoft}`, color: t.inkSoft }}
+        style={btn(t)}
       >
-        ☆ Views{views.length ? ` (${views.length})` : ""}
+        <span aria-hidden="true" style={{ fontSize: 12, lineHeight: 1 }}>☆</span>
+        Views{views.length ? ` (${views.length})` : ""}
       </button>
       {open && (
-        <div ref={panelRef} className="dropdown-panel" style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 60, width: 262, background: t.paper, border: `1px solid ${t.ruleSoft}`, borderRadius: 10, boxShadow: t.shadow, padding: 6 }}>
+        <div ref={panelRef} className="dropdown-panel liquid-glass" style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 60, width: 262, border: `1px solid ${t.ruleSoft}`, padding: 6 }}>
           {views.length === 0 && (
             <div style={{ fontFamily: fonts.body, fontSize: 12.5, color: t.inkSoft, padding: "8px 9px", textTransform: "none", letterSpacing: 0 }}>
               <Bionic>No saved views yet. Set your spoke and slicers, then save them as a named view.</Bionic>
@@ -392,7 +400,7 @@ function UserMenu({ user, signOut }: { user: User; signOut: () => void }) {
         className="bar-btn"
         aria-expanded={open}
         aria-haspopup="menu"
-        style={{ display: "inline-flex", alignItems: "center", gap: 7, border: `1px solid ${t.ruleSoft}`, color: t.ink, textTransform: "none", letterSpacing: 0 }}
+        style={{ ...btn(t), gap: 7, color: t.ink, textTransform: "none", letterSpacing: 0, padding: "4px 12px 4px 5px" }}
       >
         <span style={{ display: "grid", placeItems: "center", width: 20, height: 20, borderRadius: "50%", background: t.accentFill, color: "#fff", fontFamily: fonts.mono, fontSize: 10, fontWeight: 700, flex: "0 0 auto" }}>
           {user.name.charAt(0).toUpperCase()}
@@ -401,7 +409,7 @@ function UserMenu({ user, signOut }: { user: User; signOut: () => void }) {
         <span style={{ fontFamily: fonts.mono, fontSize: 9, letterSpacing: "0.05em", textTransform: "uppercase", color: t.inkSoft }}>{highestRoleLabel(user.roles)}</span>
       </button>
       {open && (
-        <div ref={panelRef} className="dropdown-panel" style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 60, minWidth: 180, background: t.paper, border: `1px solid ${t.ruleSoft}`, borderRadius: 10, boxShadow: t.shadow, padding: 6 }}>
+        <div ref={panelRef} className="dropdown-panel liquid-glass" style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 60, minWidth: 180, border: `1px solid ${t.ruleSoft}`, padding: 6 }}>
           <div style={{ padding: "7px 9px", fontFamily: fonts.body, fontSize: 12, color: t.inkSoft, borderBottom: `1px solid ${t.ruleSoft}`, marginBottom: 4 }}>{user.email}</div>
           <button
             onClick={() => {
@@ -435,6 +443,7 @@ function Report() {
   const { reset, filters, peopleRate } = useFilters();
   const { user, signOut } = useAuth();
   const { can } = usePermissions();
+  const { unackedCount } = useAlerts();
   const { prefs, cycleTheme } = useDisplayPrefs();
   // High-contrast is a black/white CSS overlay (see styles.css) layered on top
   // of the dark-mode JS tokens — there is no separate "high-contrast" Mode in
@@ -563,6 +572,8 @@ function Report() {
                 {!collapsed && <div style={{ fontFamily: fonts.mono, fontSize: 9, letterSpacing: "0.12em", textTransform: "uppercase", color: t.inkSoft, padding: "6px 10px 4px", opacity: 0.8 }}>{g}</div>}
                 {visiblePages.filter((p) => p.group === g).map((p) => {
                   const on = p.id === pageId;
+                  const isAlerts = p.id === "alerts";
+                  const showBadge = isAlerts && unackedCount > 0;
                   return (
                     <button
                       key={p.id}
@@ -587,10 +598,25 @@ function Report() {
                         fontFamily: fonts.body,
                         fontSize: 13.5,
                         fontWeight: on ? 700 : 500,
+                        position: "relative",
                       }}
                     >
                       <p.Icon size={18} />
                       {!collapsed && <span style={{ minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.label}</span>}
+                      {showBadge && (
+                        <span
+                          aria-hidden
+                          className="nav-badge"
+                          style={{
+                            background: on ? "#fff" : t.accentFill,
+                            color: on ? t.accent : "#fff",
+                            ...(collapsed ? { position: "absolute", top: 4, right: 4 } : { marginLeft: "auto" }),
+                          }}
+                        >
+                          {unackedCount > 9 ? "9+" : unackedCount}
+                        </span>
+                      )}
+                      {showBadge && <span className="sr-only">, {unackedCount} unacknowledged</span>}
                     </button>
                   );
                 })}
@@ -620,17 +646,20 @@ function Report() {
               </p>
             </div>
             <div style={{ flex: 1 }} />
-            <span style={{ fontFamily: fonts.mono, fontSize: 10.5, letterSpacing: "0.04em", color: t.inkSoft, textAlign: "right", whiteSpace: "nowrap" }} title={`Source: ${META.source} · ${META.sourceRows.toLocaleString()} queue items · built ${META.generatedAt.slice(0, 16).replace("T", " ")}`}>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: t.status.committed.dot }} className="pulse-soft" /> Data through</span>
-              <br />
-              {fmtDateFull(DATE_MAX)} · {META.sourceRows.toLocaleString()} items
+            {/* Right cluster: data-freshness pill · greeting · clocks — each a
+                SINGLE line, centre-aligned in the 56px band, separated by
+                hairline dividers. Detail (source, build time, full date,
+                season) lives in tooltips, not extra visual lines. */}
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: fonts.mono, fontSize: 10.5, letterSpacing: "0.04em", color: t.inkSoft, whiteSpace: "nowrap" }} title={`Data through ${fmtDateFull(DATE_MAX)} · Source: ${META.source} · ${META.sourceRows.toLocaleString()} queue items · built ${META.generatedAt.slice(0, 16).replace("T", " ")}`}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: t.status.committed.dot, flex: "0 0 auto" }} className="pulse-soft" />
+              Data to {fmtDateFull(DATE_MAX)} · {META.sourceRows.toLocaleString()}
             </span>
+            <span aria-hidden="true" style={{ width: 1, height: 18, background: t.ruleSoft, flex: "0 0 auto" }} />
             {/* Personalisation: greeting + live clocks, grouped near the user
                 chip since both are per-user rather than per-page content. */}
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3, minWidth: 0 }}>
-              <Welcome name={user!.name} />
-              <Clocks />
-            </div>
+            <Welcome name={user!.name} />
+            <span aria-hidden="true" style={{ width: 1, height: 18, background: t.ruleSoft, flex: "0 0 auto" }} />
+            <Clocks />
             <ViewsMenu pageId={pageId} setPageId={setPageId} />
             <button onClick={reset} className="hdr-btn" style={btn(t)} title="Clear all slicers">
               <IconRefresh size={13} /> Reset{activeFilters ? ` (${activeFilters})` : ""}
@@ -641,14 +670,14 @@ function Report() {
               className="bar-btn"
               aria-label="Accessibility and display settings"
               title="Accessibility & display (Shift+A)"
-              style={{ display: "inline-flex", alignItems: "center", border: `1px solid ${t.ruleSoft}`, color: t.inkSoft }}
+              style={{ ...btn(t), padding: "6px 9px" }}
             >
               <IconAccessibility size={15} />
             </button>
             <button
               onClick={cycleTheme}
               className="bar-btn"
-              style={{ border: `1px solid ${t.ruleSoft}`, color: t.inkSoft }}
+              style={btn(t)}
               title="Cycle theme (light / dark / high contrast)"
             >
               {prefs.theme === "light" ? "Light" : prefs.theme === "dark" ? "Dark" : "High contrast"}
@@ -708,7 +737,14 @@ function ShortcutsDialog({ shortcuts, onClose }: { shortcuts: ShortcutEntry[]; o
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div role="dialog" aria-modal="true" aria-labelledby="shortcuts-dialog-title" className="modal-dialog" onClick={(e) => e.stopPropagation()}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="shortcuts-dialog-title"
+        className="modal-dialog liquid-glass"
+        style={liquidGlassVars(t)}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
           <h2 id="shortcuts-dialog-title" style={{ margin: 0, fontFamily: fonts.display, fontSize: 19, fontWeight: 700, color: t.ink }}>
             Keyboard shortcuts

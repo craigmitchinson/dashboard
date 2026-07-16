@@ -152,6 +152,30 @@ for (const r of model.dayRows) {
 // either (items only exist where there's activity), so this is the correct
 // apples-to-apples check.
 
+// --- exception cost parity: reworkGBP = SMV minutes x grade rate in force on
+// the exception's OWN date — this does NOT depend on worktime/estate-pool
+// apportionment (unlike benefit/cost above), so it's exact at ANY grain,
+// including model.excRows' (date, process, reason) grain. Matches SQL's
+// report.vw_ExceptionCost.ReworkCostGBP (bp-sql-layer/scripts/08_report_views.sql)
+// exactly — NOT the worktime x estate £/bot-second formula used for
+// automationCost, which vw_ExceptionCost does not aggregate for exceptions.
+let recomputedExceptionCost = 0;
+for (const r of model.excRows) {
+  const meta = procMeta.get(String(r.p));
+  if (!meta) continue;
+  recomputedExceptionCost += r.n * (meta.smvMinutes / 60) * gradeRate(meta.grade, r.d);
+}
+
+const VW_EXCEPTION_COST_PATH = join(root, "public", "data", "views", "vw_ExceptionCost.json");
+let bakedExceptionCost = 0;
+try {
+  const vwExceptionCost = JSON.parse(readFileSync(VW_EXCEPTION_COST_PATH, "utf8"));
+  for (const row of vwExceptionCost) bakedExceptionCost += row.ReworkCostGBP ?? 0;
+} catch (err) {
+  console.error(`Could not read ${VW_EXCEPTION_COST_PATH} — run \`npm run data:build\` first. (${err.message})`);
+  process.exit(1);
+}
+
 function pctDiff(a, b) {
   const denom = Math.abs(b) || 1;
   return (Math.abs(a - b) / denom) * 100;
@@ -159,9 +183,10 @@ function pctDiff(a, b) {
 
 const benefitDiffPct = pctDiff(recomputedBenefit, bakedBenefit);
 const costDiffPct = pctDiff(recomputedCost, bakedCost);
+const exceptionCostDiffPct = pctDiff(recomputedExceptionCost, bakedExceptionCost);
 const THRESHOLD_PCT = 0.5;
 
-const ok = benefitDiffPct <= THRESHOLD_PCT && costDiffPct <= THRESHOLD_PCT;
+const ok = benefitDiffPct <= THRESHOLD_PCT && costDiffPct <= THRESHOLD_PCT && exceptionCostDiffPct <= THRESHOLD_PCT;
 
 function fmt(n) {
   return n.toLocaleString("en-GB", { maximumFractionDigits: 2 });
@@ -173,10 +198,12 @@ if (!ok) {
   console.error("----------------|----------------|----------------|----------------|--------");
   console.error(`benefit (gb)    | ${fmt(bakedBenefit).padEnd(14)} | ${fmt(recomputedBenefit).padEnd(14)} | ${fmt(Math.abs(recomputedBenefit - bakedBenefit)).padEnd(14)} | ${benefitDiffPct.toFixed(3)}%`);
   console.error(`estate cost (ec)| ${fmt(bakedCost).padEnd(14)} | ${fmt(recomputedCost).padEnd(14)} | ${fmt(Math.abs(recomputedCost - bakedCost)).padEnd(14)} | ${costDiffPct.toFixed(3)}%`);
+  console.error(`exception cost  | ${fmt(bakedExceptionCost).padEnd(14)} | ${fmt(recomputedExceptionCost).padEnd(14)} | ${fmt(Math.abs(recomputedExceptionCost - bakedExceptionCost)).padEnd(14)} | ${exceptionCostDiffPct.toFixed(3)}%`);
   process.exit(1);
 }
 
 console.log(`benefit:     baked £${fmt(bakedBenefit)} vs recomputed £${fmt(recomputedBenefit)} (${benefitDiffPct.toFixed(4)}% diff)`);
 console.log(`estate cost: baked £${fmt(bakedCost)} vs recomputed £${fmt(recomputedCost)} (${costDiffPct.toFixed(4)}% diff)`);
+console.log(`exception cost: baked £${fmt(bakedExceptionCost)} vs recomputed £${fmt(recomputedExceptionCost)} (${exceptionCostDiffPct.toFixed(4)}% diff)`);
 console.log("PARITY OK");
 process.exit(0);

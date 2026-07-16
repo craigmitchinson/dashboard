@@ -373,6 +373,30 @@ body {
   padding: 9px 10px;
   border-radius: 8px;
 }
+/* Login always renders in the dark theme variant (App.tsx wraps it in
+   <ThemeProvider value={themes.dark}> unconditionally, before anyone has
+   signed in to have a `data-theme` preference stored) — so unlike every
+   other screen, it can't rely on the :root[data-theme="dark"] rule above.
+   The select/input elements themselves already get correct inline
+   background/color from Login.tsx's own t.themeBand/t.ink, so the only real
+   gap is <option>, which never receives inline styles and otherwise falls
+   back to the browser's light-chrome default (confirmed empirically:
+   color-scheme alone, with no matching option{} rule, was NOT enough to fix
+   the popup in Chromium — the explicit content colour below is what does
+   it). Hardcoded to dark values (not theme-conditional) because this
+   screen never varies. !important because `data-theme` on <html> can be
+   stale from a *previous* signed-in session (DisplayPrefsProvider's effect
+   sets it but never clears it on sign-out — see prefs-context.tsx) — if the
+   last session was light-themed, the plain :root[data-theme="light"] option
+   rule below has higher specificity than .login alone and would otherwise
+   win, even though this screen is always dark. */
+.login select,
+.login option,
+.login input {
+  color-scheme: dark !important;
+  background-color: #0C2329 !important; /* darkTheme.paper, src/theme.ts */
+  color: #F4F1EB !important; /* darkTheme.ink, src/theme.ts */
+}
 .login__error {
   font-family: var(--font-body);
   font-size: 12.5px;
@@ -565,6 +589,72 @@ html {
   zoom: var(--text-scale, 1);
 }
 
+/* --- native form-control colour-scheme + fallback colours -------------------
+   Root cause of the "grade dropdown unreadable in dark mode" bug: the OPEN
+   option list of a native <select> (and a native date input's calendar icon/
+   placeholder chrome) is painted by the OS/browser, not by this stylesheet —
+   and it defaults to LIGHT chrome regardless of any inline dark colour the
+   author already put on the <select>/<input> itself (every such control in
+   this app already sets an explicit background+color pair via inputStyle() in
+   src/pages/admin/shared.tsx, so that part was never the problem). That left
+   the popup showing pale-grey-on-white option rows in the middle of an
+   otherwise all-dark page.
+   `color-scheme` is the standards-correct signal for this and is declared
+   once at :root (inherited everywhere) so every native control's chrome
+   participates — but verified empirically headless Chromium's <select>
+   popup does NOT reliably recolour from `color-scheme` alone. What actually
+   repaints the popup is giving <option> itself an explicit background/color,
+   below — <option> never receives an inline style anywhere in this app, so
+   it was always falling back to the UA default. Both are kept: color-scheme
+   for the other native chrome it does affect (date-input calendar icon,
+   spin buttons) plus standards compliance in browsers that do honour it for
+   selects, and the explicit option colours as the layer that is actually
+   load-bearing for the popup itself. High-contrast already declared
+   color-scheme (below); dark/light did not. Lower specificity than any
+   inline style, so this never overrides the per-control theming that's
+   already correct; also lower specificity than the high-contrast !important
+   block below, so the two can never fight — they're mutually exclusive by
+   attribute value in any case.
+   NOTE: src/pages/Login.tsx renders in the dark theme variant unconditionally,
+   even before anyone has signed in to have a `data-theme` preference stored
+   (that attribute is only ever set by src/a11y/prefs-context.tsx, which only
+   mounts post sign-in), so it can't rely on this attribute selector — see the
+   dedicated `.login option` rule in the login screen section above instead.
+   `optgroup` (src/pages/admin/ThresholdsSection.tsx's process-scope picker
+   groups options by spoke/proposition) is the same bug on a different tag:
+   its group-label row is rendered by the browser, not by <option>'s own
+   style, and was found still popping up white/light during verification —
+   included here for the same reason as <option>. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+/* input types excluded below render their own native box/track chrome from
+   background-color (checkbox/radio ticks, the color swatch, the range
+   track) rather than a text field — forcing our text-field paper/ink pair
+   onto them would repaint those controls with an unintended fill instead of
+   fixing anything (they were never part of the reported bug: no popup, no
+   text content to go invisible). Text-like inputs (text/number/date/etc,
+   the default when no [type] is set) are unaffected by this exclusion. */
+:root[data-theme="dark"] select,
+:root[data-theme="dark"] option,
+:root[data-theme="dark"] optgroup,
+:root[data-theme="dark"] input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"]),
+:root[data-theme="dark"] textarea {
+  background-color: #0C2329; /* darkTheme.paper, src/theme.ts */
+  color: #F4F1EB; /* darkTheme.ink, src/theme.ts */
+}
+:root[data-theme="light"] select,
+:root[data-theme="light"] option,
+:root[data-theme="light"] optgroup,
+:root[data-theme="light"] input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"]),
+:root[data-theme="light"] textarea {
+  background-color: #FAF7F2; /* lightTheme.paper, src/theme.ts */
+  color: #0B3239; /* lightTheme.ink, src/theme.ts */
+}
+
 /* --- high-contrast theme ----------------------------------------------------
    Verified WCAG contrast ratios for this palette (do not recompute):
      #000 bg vs #fff text            = 21:1
@@ -612,12 +702,16 @@ html {
 :root[data-theme="high-contrast"] .modal-dialog,
 :root[data-theme="high-contrast"] button,
 :root[data-theme="high-contrast"] input,
-:root[data-theme="high-contrast"] select {
+:root[data-theme="high-contrast"] select,
+:root[data-theme="high-contrast"] textarea {
   border-color: #fff !important;
 }
 :root[data-theme="high-contrast"] button,
 :root[data-theme="high-contrast"] input,
-:root[data-theme="high-contrast"] select {
+:root[data-theme="high-contrast"] select,
+:root[data-theme="high-contrast"] option,
+:root[data-theme="high-contrast"] optgroup,
+:root[data-theme="high-contrast"] textarea {
   background: #000 !important;
   color: #fff !important;
 }
@@ -639,6 +733,17 @@ html {
 :root[data-theme="high-contrast"] :focus-visible {
   outline: 2px solid #00E5FF !important;
   outline-offset: 2px !important;
+}
+/* .liquid-glass (below, near .dropdown-panel) adds a ::before rim/specular
+   pseudo-element that the .dropdown-panel/.modal-dialog reset above doesn't
+   reach (it only resets those two real elements' own background/box-shadow,
+   which already fully covers the pseudo since it's opaque #000). This one
+   extra rule (higher specificity than plain `.liquid-glass::before` — no
+   !important needed, so it doesn't add to the "!important only in this
+   section" set above) removes the pseudo outright so no rim highlight can
+   show over the solid black surface. */
+:root[data-theme="high-contrast"] .liquid-glass::before {
+  content: none;
 }
 
 /* --- CVD-safe series dash patterns ------------------------------------------
@@ -696,11 +801,15 @@ html {
   box-shadow: 0 24px 60px rgba(11, 50, 57, 0.28);
   padding: 24px 26px;
 }
-.report[data-mode="dark"] .modal-dialog {
+.report[data-mode="dark"] .modal-dialog:not(.liquid-glass) {
   background: #0c2329;
   color: #f4f1eb;
   border-color: rgba(244, 241, 235, 0.18);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+}
+.report[data-mode="dark"] .modal-dialog.liquid-glass {
+  color: #f4f1eb;
+  border-color: rgba(244, 241, 235, 0.18);
 }
 
 /* --- accessibility & display panel settings groups -------------------------- */
@@ -844,10 +953,226 @@ html {
 }
 
 /* --- shared dropdown-panel chrome hook --------------------------------------
-   Base positioning/visual style for these popovers (Views menu, User menu,
-   slicer dropdowns, chart-hover tooltip) is set per-component; this class
-   just gives high-contrast mode something concrete to target (see section
-   above), so no base rule is needed here. */
+   Base positioning is set per-component (Views menu, User menu, the
+   notifications preview); background/shadow visuals now come from
+   `.liquid-glass` below. High-contrast mode still has something concrete to
+   target regardless (see section above). */
+
+/* --- liquid glass (floating-surface material) -------------------------------
+   Applied to: `.dropdown-panel` (ViewsMenu/UserMenu in src/App.tsx,
+   NotificationBell's preview in src/alerts/NotificationBell.tsx) and
+   `.modal-dialog` (the keyboard-shortcuts sheet in src/App.tsx, DisplayPanel,
+   ConfirmDialog in src/pages/admin/shared.tsx) — never `.modal-backdrop`,
+   which stays the plain full-screen dim. Deliberately NOT applied to
+   `.tip__bubble`: that surface is ~40px tall with 11.5px reference text: the
+   rim + specular read as noise at that scale and a translucent scrim risks
+   legibility against whatever's behind it for content that's often read in a
+   hurry, so it keeps its existing solid t.paper/t.shadow treatment.
+
+   This is optically-clear "liquid glass", not frosted glass: a small, fixed
+   blur (2px) keeps the centre of the panel legible and highly saturated, while
+   the visual "glass" read comes from three things layered on top of a
+   translucent paper-colour scrim — a diagonal sheen, a crisp rim line + soft
+   inner glow at the edge, and a 1px top specular highlight — plus a two-layer
+   (tight + diffuse) drop shadow for real depth.
+
+   Values are carried as custom properties (--lg-*) rather than hardcoded on
+   `.liquid-glass` itself so the two dialogs that render as siblings of
+   `.report` (DisplayPanel, the keyboard-shortcuts sheet — see the theming
+   note atop src/a11y/DisplayPanel.tsx; `.report[data-mode="dark"]` scoping
+   can't reach them) can supply the dark variant inline from `t`, exactly like
+   they already do for --a11y-focus-color, while everything inside `.report`
+   (the two dropdown panels, admin's ConfirmDialog) gets it for free via the
+   `.report[data-mode="dark"] .liquid-glass` cascade below. Every colour here
+   reuses src/theme.ts's actual paper/ink/shadow rgba components (see the
+   contrast + shadow-derivation notes below), never an invented colour.
+
+   Rim technique: masked backdrop-filter (a ::before with a padding-box/
+   border-box double mask so only a thin ring re-blurs more strongly) was
+   deliberately NOT used. Chromium's backdrop-filter, when a second
+   backdrop-filter is nested inside an element that itself sits inside (or
+   behind, in paint order) another backdrop-filtered/composited layer, is
+   well known to sometimes sample the wrong backdrop snapshot (an
+   already-filtered intermediate rather than the true page backdrop) —
+   compositing order for stacked/masked backdrop-filters is not reliably
+   consistent across Chromium versions, and every floating surface here (a
+   dropdown over the canvas, a modal over its backdrop) is exactly that
+   nested case. The inset-box-shadow-ring + gradient-sheen fallback the task
+   describes is deterministic, has none of that nested-compositing risk, and
+   is what shipped for every surface, not only as a defensive fallback. */
+.liquid-glass {
+  position: relative;
+  border-radius: 16px;
+  background: var(
+    --lg-bg,
+    linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0) 35%),
+    rgba(250, 247, 242, 0.62)
+  );
+  backdrop-filter: var(--lg-backdrop, blur(2px) saturate(1.7) brightness(1.06));
+  -webkit-backdrop-filter: var(--lg-backdrop, blur(2px) saturate(1.7) brightness(1.06));
+  box-shadow: var(--lg-shadow, 0 2px 6px rgba(11, 50, 57, 0.18), 0 24px 60px rgba(11, 50, 57, 0.22));
+}
+/* Edge refraction rim + specular highlight. A separate pseudo-element (rather
+   than folding these insets into .liquid-glass's own box-shadow) so the
+   high-contrast rule above can delete just this and nothing else. */
+.liquid-glass::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: var(
+    --lg-rim,
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.5),
+    inset 0 0 16px 0 rgba(255, 255, 255, 0.22)
+  );
+}
+/* Dark variant. brightness is tuned to 0.9 (below 1, per the task's guidance)
+   so the backdrop doesn't wash out the way a >=1 brightness would on a dark
+   ground; saturate is pulled back slightly from the light variant's 1.7 to
+   1.6 for the same reason. Shadow + scrim reuse darkTheme's actual rgba
+   components from src/theme.ts (paper #0C2329 -> 12,35,41; shadow ->
+   rgba(0,0,0,0.5) diffuse, a matching rgba(0,0,0,0.4) derived for the tight
+   layer) — see the contrast worked example below for the 0.68 scrim alpha. */
+.report[data-mode="dark"] .liquid-glass {
+  --lg-bg: linear-gradient(135deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0) 35%), rgba(12, 35, 41, 0.68);
+  --lg-backdrop: blur(2px) saturate(1.6) brightness(0.9);
+  --lg-shadow: 0 2px 6px rgba(0, 0, 0, 0.4), 0 24px 60px rgba(0, 0, 0, 0.5);
+  --lg-rim: inset 0 1px 0 rgba(255, 255, 255, 0.55), inset 0 0 0 1px rgba(255, 255, 255, 0.22),
+    inset 0 0 16px 0 rgba(255, 255, 255, 0.1);
+  --lg-solid: #0c2329;
+}
+/* Worst-case scrim contrast (standard WCAG relative-luminance formula,
+   compositing done in sRGB space the way the browser paints it: C = a*scrim +
+   (1-a)*backdrop per channel, then luminance of C):
+
+   LIGHT — scrim rgba(250,247,242,0.62) vs ink #0B3239 text, worst-case
+   backdrop = pure black (black is the true worst case here: ink is dark, so
+   a darker backdrop showing through the translucent scrim only pulls the
+   composited surface darker, toward the text colour, shrinking contrast;
+   white/bright backdrops only help). At a=0.62 over #000, composited channels
+   -> (155,153,150)/255 = (0.608,0.601,0.588) sRGB.
+     linearised: R=0.3282 G=0.3193 B=0.3055
+     L = 0.2126*0.3282 + 0.7152*0.3193 + 0.0722*0.3055 = 0.3202
+   Ink #0B3239 linearised: R=0.00335 G=0.0319 B=0.0409
+     L = 0.2126*0.00335 + 0.7152*0.0319 + 0.0722*0.0409 = 0.0265
+   Contrast = (0.3202+0.05)/(0.0265+0.05) = 0.3702/0.0765 = 4.84:1 (>=4.5 AA).
+
+   DARK — scrim rgba(12,35,41,0.68) vs ink #F4F1EB text, worst-case backdrop =
+   pure white (the mirror case: ink is light, so a bright backdrop bleeding
+   through the translucent scrim pulls the composited surface lighter, toward
+   the text colour, shrinking contrast; black backdrops only help). At
+   a=0.68 over #fff, composited channels -> c_r=1-0.9529*0.68=0.3520,
+   c_g=1-0.8627*0.68=0.4134, c_b=1-0.8392*0.68=0.4293 (sRGB, 0-1).
+     linearised: R=0.1016 G=0.1425 B=0.1543
+     L = 0.2126*0.1016 + 0.7152*0.1425 + 0.0722*0.1543 = 0.1347
+   Ink #F4F1EB linearised: R=0.9049 G=0.8797 B=0.8308
+     L = 0.2126*0.9049 + 0.7152*0.8797 + 0.0722*0.8308 = 0.8817
+   Contrast = (0.8817+0.05)/(0.1347+0.05) = 0.9317/0.1847 = 5.05:1 (>=4.5 AA).
+
+   Both extremes (#000 and #fff) bound every possible backdrop luminance, so
+   these are the true worst cases, not estimates for a "typical" backdrop.
+
+   The above ignores the diagonal sheen gradient layered on top of the scrim
+   (the first `background` layer) — it also affects the worst-case corner
+   pixel and must be folded in:
+   LIGHT sheen (5% white, top-left, over the #000-backdrop worst case) only
+   lightens the surface further away from the dark ink colour, which
+   *increases* contrast, so 4.84:1 still holds as the true worst case.
+   DARK sheen (4% white, chosen — not 7% — specifically to keep this
+   comfortable) makes things worse: it lightens the already-lightened
+   white-backdrop worst case, pulling the surface toward the light ink and
+   shrinking contrast. Compositing the sheen's un-faded 0% stop (a=0.04) on
+   top of the prior dark worst-case sRGB triple (0.352,0.4134,0.4293):
+     C = 0.04*1 + 0.96*C_prior -> (0.3779,0.4369,0.4521)
+     linearised: R=0.1180 G=0.1602 B=0.1723
+     L = 0.2126*0.1180 + 0.7152*0.1602 + 0.0722*0.1723 = 0.1521
+   Contrast = (0.8817+0.05)/(0.1521+0.05) = 0.9317/0.2021 = 4.61:1 (>=4.5 AA,
+   still holds — this is why the dark sheen was capped at 4%, the low end of
+   the 4-6% spec range, rather than 7%; at 7% this drops under 4.5). This
+   corner pixel also sits under the dialog's ~24px padding, before any real
+   title text starts, so real rendered contrast is better than this bound. */
+
+/* No backdrop-filter support (old Safari/Firefox) and the explicit
+   prefers-reduced-transparency override both fall back to the same thing: a
+   fully solid paper surface, no blur, no rim/sheen — i.e. "no glass". The
+   dark-mode branch is written out explicitly (equal specificity to, and
+   placed after, the `.report[data-mode="dark"] .liquid-glass` block above) so
+   it wins the tie in dark mode too. */
+@supports not (backdrop-filter: blur(1px)) {
+  .liquid-glass,
+  .report[data-mode="dark"] .liquid-glass {
+    background: var(--lg-solid, #faf7f2);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .liquid-glass::before {
+    content: none;
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .liquid-glass,
+  .report[data-mode="dark"] .liquid-glass {
+    background: var(--lg-solid, #faf7f2);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .liquid-glass::before {
+    content: none;
+  }
+}
+
+/* User-facing "Liquid glass" toggle (src/a11y/DisplayPanel.tsx), default on.
+   Same "no glass" fallback as the two blocks above, reusing --lg-solid as the
+   single source of truth rather than duplicating its scrim value. Placed
+   after both existing fallback blocks and left unconditioned on data-theme
+   (same as they are) so it doesn't jump ahead of them in the cascade; the
+   high-contrast `!important` rule targets `:root[data-theme="high-contrast"]`
+   directly and keeps winning regardless of data-glass. */
+:root[data-glass="off"] .liquid-glass,
+:root[data-glass="off"] .report[data-mode="dark"] .liquid-glass {
+  background: var(--lg-solid, #faf7f2);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+:root[data-glass="off"] .liquid-glass::before {
+  content: none;
+}
+
+/* --- alerts nav badge (src/App.tsx) -----------------------------------------
+   Structural/sizing only — background/color are set inline per-instance from
+   the active theme's tokens (t.accentFill etc.), matching this app's existing
+   convention of CSS for structural/pseudo-class concerns, inline for theme
+   colour. Positioned absolutely (corner dot) when the nav is collapsed,
+   inline (trailing pill, marginLeft:auto) when expanded — see App.tsx. */
+.nav-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+
+/* --- alerts feed row (src/alerts/AlertsPage.tsx) ----------------------------
+   Row actions render always-visible (never hover-only) per the feed's a11y
+   requirement; this is just a quiet hover/focus-within polish on top, not a
+   visibility toggle. */
+.alert-row:hover,
+.alert-row:focus-within {
+  background: rgba(127, 127, 127, 0.07);
+}
+.report[data-mode="dark"] .alert-row:hover,
+.report[data-mode="dark"] .alert-row:focus-within {
+  background: rgba(244, 241, 235, 0.06);
+}
 
 /* --- reading ruler ----------------------------------------------------------
    Component sets position/top/height inline; this supplies paint only. */

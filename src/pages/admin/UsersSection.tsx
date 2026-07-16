@@ -21,12 +21,18 @@ function slugId(name: string): string {
 
 export function UsersSection({ reference }: SectionProps) {
   const t = useTheme();
-  const { user: me } = useAuth();
+  const { user: me, refreshSession } = useAuth();
   const { announce, Announcer } = useSaveAnnounce();
   const [users, setUsers] = useState<User[]>(() => listUsers());
   const spokeOptions = reference.spokes.map((s) => s.spokeName);
 
-  const refresh = () => setUsers(listUsers());
+  // Also re-resolve the signed-in session from the directory: without this,
+  // editing your own name/roles here wouldn't update the header chip or
+  // greeting until the next sign-in (the session stores a user snapshot).
+  const refresh = () => {
+    setUsers(listUsers());
+    refreshSession();
+  };
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft>(blankDraft());

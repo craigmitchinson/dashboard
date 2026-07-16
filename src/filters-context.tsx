@@ -19,7 +19,7 @@ import {
 } from "./rpaData";
 import type { DayRow, OutcomeKey } from "./rpaData";
 import { ReferenceProvider, useReference } from "./reference/reference-context";
-import { availableDaysInWindow, benefitForRow, buildRateTables, costForRow, costForResRow } from "./reference/economics";
+import { availableDaysInWindow, benefitForRow, buildRateTables, costForRow, costForResRow, reworkCostForRow } from "./reference/economics";
 import type { RateTables } from "./reference/economics";
 import type { ReferenceJson } from "./reference/reference-store";
 
@@ -71,6 +71,7 @@ export interface ProcessAgg {
   avgCycleSec: number; // bot runtime per completed item, from the data
   timeSavedHours: number;
   runtimeCost: number; // apportioned estate cost (hub pool + spoke infra), time-correct
+  exceptionCostGBP: number; // rework-valued exception cost for this process, see reworkCostForRow
 }
 
 export interface ExceptionAgg {
@@ -80,6 +81,7 @@ export interface ExceptionAgg {
   pct: number;
   lastSeenTs: number;
   avgTimeToFailSec: number;
+  costGBP: number; // rework-valued cost (upper bound), see reworkCostForRow — EXACT, not apportioned
 }
 
 export interface VdiAgg {
@@ -131,6 +133,15 @@ export interface Model {
   // "cost attributable to work that ran"). automationCost + unattributedCostGBP
   // = total estate spend, for P&L reconciliation.
   unattributedCostGBP: number;
+  // Rework-valued cost of exceptions in the window — SMV x grade rate in
+  // force on each exception's own date (an UPPER BOUND per
+  // bp-sql-layer/scripts/08_report_views.sql's report.vw_ExceptionCost
+  // comment: some retried items later completed, so no human actually
+  // reworked them). NOT the worktime x estate £/bot-second automation cost
+  // (automationCost) — the SQL twin never aggregates that for exceptions.
+  exceptionCostGBP: number;
+  exceptionCostBusinessGBP: number;
+  exceptionCostSystemGBP: number;
   // breakdowns
   daily: SeriesPoint[];
   monthly: SeriesPoint[];
@@ -231,7 +242,7 @@ function aggregate(
     // per process
     let pa = procMap.get(p.id);
     if (!pa) {
-      pa = { id: p.id, name: p.name, spoke: p.spoke, proposition: p.proposition, queue: p.queue, completed: 0, business: 0, system: 0, exceptions: 0, attempts: 0, completionPct: 0, avgCycleSec: 0, timeSavedHours: 0, runtimeCost: 0, completedWt: 0 };
+      pa = { id: p.id, name: p.name, spoke: p.spoke, proposition: p.proposition, queue: p.queue, completed: 0, business: 0, system: 0, exceptions: 0, attempts: 0, completionPct: 0, avgCycleSec: 0, timeSavedHours: 0, runtimeCost: 0, exceptionCostGBP: 0, completedWt: 0 };
       procMap.set(p.id, pa);
     }
     pa.completed += r.completed;
@@ -274,6 +285,34 @@ function aggregate(
   const attempts = completed + exceptions;
   const completionPct = attempts ? completed / attempts : 0;
 
+  // exception types: REAL reasons from the work queue data. Cost is the
+  // rework valuation (see reworkCostForRow) — EXACT per row since ExcRow
+  // already carries date + processId, no apportionment needed. Runs BEFORE
+  // byProcess is built below so pa.exceptionCostGBP is populated before it's
+  // spread into the byProcess entries (byProcess copies procMap's values into
+  // new objects — mutating procMap after that point would not be reflected).
+  let exceptionCostGBP = 0;
+  let exceptionCostBusinessGBP = 0;
+  let exceptionCostSystemGBP = 0;
+  const typeAgg = new Map<string, { volume: number; wt: number; last: number; cost: number }>();
+  for (const e of excRows) {
+    let ta = typeAgg.get(e.reason);
+    if (!ta) typeAgg.set(e.reason, (ta = { volume: 0, wt: 0, last: 0, cost: 0 }));
+    const ep = PROCESS_BY_ID.get(e.processId);
+    const cost = ep ? reworkCostForRow(e, ep, tables) : 0;
+    ta.volume += e.count;
+    ta.wt += e.worktimeSec;
+    ta.last = Math.max(ta.last, e.ts);
+    ta.cost += cost;
+
+    exceptionCostGBP += cost;
+    if (e.category === "business") exceptionCostBusinessGBP += cost;
+    else exceptionCostSystemGBP += cost;
+
+    const pa = procMap.get(e.processId);
+    if (pa) pa.exceptionCostGBP += cost;
+  }
+
   const byProcess = [...procMap.values()].map(({ completedWt, ...p }) => ({
     ...p,
     completionPct: p.attempts ? p.completed / p.attempts : 0,
@@ -284,15 +323,6 @@ function aggregate(
   const daily = [...dayMap.values()].sort((a, b) => a.ts - b.ts);
   const monthly = [...monthMap.values()].sort((a, b) => a.ts - b.ts);
 
-  // exception types: REAL reasons from the work queue data
-  const typeAgg = new Map<string, { volume: number; wt: number; last: number }>();
-  for (const e of excRows) {
-    let ta = typeAgg.get(e.reason);
-    if (!ta) typeAgg.set(e.reason, (ta = { volume: 0, wt: 0, last: 0 }));
-    ta.volume += e.count;
-    ta.wt += e.worktimeSec;
-    ta.last = Math.max(ta.last, e.ts);
-  }
   const totalExc = exceptions || 1;
   const byException: ExceptionAgg[] = EXCEPTION_TYPES.filter((ty) => typeAgg.has(ty.name)).map((ty) => {
     const ta = typeAgg.get(ty.name)!;
@@ -303,6 +333,7 @@ function aggregate(
       pct: ta.volume / totalExc,
       lastSeenTs: ta.last,
       avgTimeToFailSec: ta.volume ? ta.wt / ta.volume : 0,
+      costGBP: ta.cost,
     };
   }).sort((a, b) => b.volume - a.volume);
 
@@ -386,6 +417,9 @@ function aggregate(
     netBenefit: grossBenefit - estateCost,
     costPerCase: completed ? estateCost / completed : 0,
     unattributedCostGBP,
+    exceptionCostGBP,
+    exceptionCostBusinessGBP,
+    exceptionCostSystemGBP,
     daily,
     monthly,
     byProcess,

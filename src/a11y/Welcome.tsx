@@ -47,38 +47,24 @@ export function Welcome({
   const showSeasonal = prefs.seasonalAccent === true && prefs.theme !== "high-contrast";
   const season = showSeasonal ? seasonFor(new Date().getMonth()) : null;
 
+  // Single line only — the header is a fixed 56px band (--header-h) and this
+  // sits beside the data pill and clocks; the full date and season name live
+  // in the tooltip + sr-only text rather than a second visual line.
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 1, lineHeight: 1.25 }}>
-      <div
-        style={{
-          fontFamily: fonts.body,
-          fontSize: 13.5,
-          fontWeight: 600,
-          color: t.ink,
-        }}
-      >
-        {greeting}
-      </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontFamily: fonts.body, fontSize: 11, color: t.inkSoft }}>{dateStr}</span>
-        {season && (
-          <span
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 5,
-              fontFamily: fonts.mono,
-              fontSize: 10.5,
-              letterSpacing: "0.04em",
-              textTransform: "uppercase",
-              color: t.inkSoft,
-            }}
-          >
-            <season.Icon size={15} />
-            {season.label}
-          </span>
-        )}
-      </div>
+    <div
+      style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}
+      title={`${dateStr}${season ? ` · ${season.label}` : ""}`}
+    >
+      {season && (
+        <span style={{ display: "inline-flex", color: t.inkSoft }} aria-hidden="true">
+          <season.Icon size={14} />
+        </span>
+      )}
+      <span style={{ fontFamily: fonts.body, fontSize: 12.5, fontWeight: 600, color: t.ink }}>{greeting}</span>
+      <span className="sr-only">
+        {dateStr}
+        {season ? `, ${season.label}` : ""}
+      </span>
     </div>
   );
 }

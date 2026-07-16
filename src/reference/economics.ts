@@ -18,7 +18,7 @@
 //   Idle time is never a denominator (idle cost rides on the work that ran).
 // ---------------------------------------------------------------------------
 import { PROCESS_BY_ID } from "../rpaData";
-import type { DayRow, ProcessDim, ResRow, VdiDim } from "../rpaData";
+import type { DayRow, ExcRow, ProcessDim, ResRow, VdiDim } from "../rpaData";
 import type { ReferenceJson, ResourceRef } from "./reference-store";
 
 const DAY_MS = 86400000;
@@ -269,4 +269,26 @@ export function costForResRow(row: ResRow, vdi: VdiDim, process: ProcessDim, tab
   const hubShare = totalWt ? tables.hubPoolPerDay(row.date) / totalWt : 0;
   const spokeShare = spokeWt ? tables.spokeInfraPerDay(process.spoke, row.date) / spokeWt : 0;
   return row.worktimeSec * (hubShare + spokeShare);
+}
+
+/**
+ * Exception "rework" cost — SMV x grade rate in force on the exception's OWN
+ * date (row.date), valuing the manual redo effort a failed item would take a
+ * colleague. Same shape as benefitForRow's formula, applied to exception
+ * counts instead of completions. Mirrors bp-sql-layer/scripts/08_report_views.sql's
+ * report.vw_ExceptionCost.ReworkCostGBP EXACTLY (SUM of per-item
+ * SMVMinutes x grade-hourly-rate-in-force) — an explicit UPPER BOUND per that
+ * view's own comment: some retried items later completed, so no human
+ * actually reworked them. This is NOT worktime x estate £/bot-second (that's
+ * costForRow/automation cost) — vw_ExceptionCost never aggregates
+ * EstateCostGBP for exceptions, only ReworkGBP, so this does the same.
+ *
+ * Because ExcRow already carries its own date + processId (grain: date x
+ * process x reason), this is EXACT at every grain — no worktime-share
+ * apportionment needed (unlike costForRow, grade rate doesn't depend on a
+ * day's total worktime denominator).
+ */
+export function reworkCostForRow(row: ExcRow, process: ProcessDim, tables: RateTables): number {
+  const hours = (row.count * process.smvMinutes) / 60;
+  return hours * tables.gradeRateOn(process.grade, row.date);
 }

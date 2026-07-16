@@ -7,10 +7,6 @@ import type { ExceptionAgg } from "../filters-context";
 import { KpiCard, VisualCard, DataTable, SearchBox, PageGrid, Row, useViz, fmtInt, fmtCompact, fmtPct, fmtGBP } from "../components/viz";
 import type { Column } from "../components/viz";
 
-// average manual effort to triage/rework an exception (mins) — the cost lever
-// behind the exception count.
-const REWORK_MIN = 10;
-
 function abbr(name: string) {
   return name
     .split(/[\s/]+/)
@@ -29,9 +25,6 @@ export function Exceptions() {
   const t = useTheme();
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<"all" | "system" | "business">("all");
-
-  const reworkHours = (m.exceptions * REWORK_MIN) / 60;
-  const reworkCost = reworkHours * m.peopleRate;
 
   const { processes, types, cell, max } = m.matrix;
 
@@ -60,6 +53,7 @@ export function Exceptions() {
     },
     { key: "volume", header: "Volume", align: "right", render: (r) => fmtInt(r.volume) },
     { key: "pct", header: "% of total", align: "right", render: (r) => fmtPct(r.pct, 1) },
+    { key: "costGBP", header: "Cost", align: "right", render: (r) => fmtGBP(r.costGBP) },
     { key: "lastSeenTs", header: "Most recent", align: "right", render: (r) => (r.lastSeenTs ? fmtDate(r.lastSeenTs) : "—") },
   ];
 
@@ -71,7 +65,7 @@ export function Exceptions() {
         <KpiCard label="Total exceptions" value={fmtCompact(m.exceptions)} accent={v.accent} delta={m.prev.exceptions ? (m.exceptions - m.prev.exceptions) / m.prev.exceptions : 0} deltaGood="down" sub="vs prev. period" />
         <KpiCard label="System exceptions" value={fmtCompact(m.system)} accent={v.system} sub={`${fmtPct(m.exceptions ? m.system / m.exceptions : 0, 0)} of exceptions`} />
         <KpiCard label="Business exceptions" value={fmtCompact(m.business)} accent={v.business} sub={`${fmtPct(m.exceptions ? m.business / m.exceptions : 0, 0)} of exceptions`} />
-        <KpiCard label="Est. manual rework cost" value={fmtGBP(reworkCost)} accent={v.bad} sub={`${fmtCompact(reworkHours)} h at ${REWORK_MIN}m each`} />
+        <KpiCard label="Exception cost (period)" value={fmtGBP(m.exceptionCostGBP)} accent={v.bad} sub={`${fmtGBP(m.exceptionCostBusinessGBP)} business · ${fmtGBP(m.exceptionCostSystemGBP)} system`} />
       </div>
 
       <Row cols="1fr" style={{ flex: 1.7 }}>

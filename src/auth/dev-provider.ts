@@ -7,7 +7,10 @@ import type { Role, Session, User } from "./types";
 // swap for EntraAuthProvider (entra-provider.ts) once Entra ID is wired up.
 // ---------------------------------------------------------------------------
 
-const USERS_KEY = "bp-users-v1";
+// v2: re-seeds the directory (admin demo user renamed). Bumping the key is a
+// deliberate wipe of any locally-edited demo directory — it's a prototype
+// fixture, not real user data.
+const USERS_KEY = "bp-users-v2";
 const SESSION_KEY = "bp-session-v1";
 
 interface DirectoryEntry {
@@ -27,8 +30,8 @@ const SEED_DIRECTORY: DirectoryEntry[] = [
   {
     user: {
       id: "u-admin",
-      name: "Priya Anand",
-      email: "priya.anand@bp-coe.example",
+      name: "Nigel Spriggs",
+      email: "nigel.spriggs@bp-coe.example",
       roles: ["admin"],
       spokeIds: [],
     },
@@ -191,7 +194,15 @@ export class DevAuthProvider implements AuthProvider {
       if (!raw) return null;
       const parsed = JSON.parse(raw);
       if (!parsed || typeof parsed !== "object" || !parsed.user) return null;
-      return parsed as Session;
+      const session = parsed as Session;
+      // The stored session is a snapshot from sign-in time. The user's
+      // identity (name, roles, spokes) must come from the CURRENT directory,
+      // or renames/role changes made in Administration only show up after a
+      // sign-out/sign-in. Re-resolve by id; a user deleted from the
+      // directory means the session is no longer valid.
+      const current = listUsers().find((u) => u.id === session.user.id);
+      if (!current) return null;
+      return { ...session, user: current };
     } catch {
       return null;
     }

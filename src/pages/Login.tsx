@@ -59,7 +59,7 @@ export function Login() {
               setUserId(e.target.value);
               setError(null);
             }}
-            style={{ background: t.themeBand, color: t.ink, border: `1px solid ${t.ruleSoft}` }}
+            style={{ background: t.themeBand, color: t.ink, border: `1px solid ${t.ruleSoft}`, colorScheme: "dark" }}
           >
             {users.map((u) => (
               <option key={u.id} value={u.id}>
@@ -78,7 +78,7 @@ export function Login() {
               setPassphrase(e.target.value);
               setError(null);
             }}
-            style={{ background: t.themeBand, color: t.ink, border: `1px solid ${t.ruleSoft}` }}
+            style={{ background: t.themeBand, color: t.ink, border: `1px solid ${t.ruleSoft}`, colorScheme: "dark" }}
           />
 
           {error && (

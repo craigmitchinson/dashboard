@@ -13,6 +13,10 @@ const shortISO = (iso: string) => new Date(iso + "T00:00:00Z").toLocaleDateStrin
 // A slicer popover: a labelled trigger that opens a panel of options. Used for
 // every dropdown in the filter bar so they look and behave identically.
 function Slicer({ label, summary, active, children, width = 178, first }: { label: string; summary: string; active: boolean; children: (close: () => void) => ReactNode; width?: number; first?: boolean }) {
+  // `width` now only sizes the dropdown *panel* (a sensible floor for its
+  // content) — the trigger button itself stretches to fill its grid track
+  // (see FilterBar's grid-template-columns) so the six slicers share the
+  // full bar width proportionally instead of sitting at fixed pixel widths.
   const t = useTheme();
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
@@ -38,7 +42,7 @@ function Slicer({ label, summary, active, children, width = 178, first }: { labe
   }, [open]);
 
   return (
-    <div ref={box} style={{ position: "relative" }}>
+    <div ref={box} style={{ position: "relative", minWidth: 0 }}>
       <div style={{ fontFamily: fonts.mono, fontSize: 9.5, letterSpacing: "0.09em", textTransform: "uppercase", color: t.inkSoft, marginBottom: 3, fontWeight: 600 }}>{label}</div>
       <button
         ref={triggerRef}
@@ -47,7 +51,8 @@ function Slicer({ label, summary, active, children, width = 178, first }: { labe
         aria-haspopup="listbox"
         {...(first ? { "data-first-slicer": "true" } : {})}
         style={{
-          width,
+          width: "100%",
+          minWidth: 0,
           display: "flex",
           alignItems: "center",
           gap: 8,
@@ -159,7 +164,20 @@ export function FilterBar() {
   const { names: spokeNames, info: spokeInfo } = useSlicerSpokes();
 
   return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 14, alignItems: "flex-end" }}>
+    <div
+      style={{
+        display: "grid",
+        // Six slicers share the bar's full width proportionally instead of
+        // sitting at fixed pixel widths with a long empty run to the right.
+        // Fields with longer content (process name, custom date range) get a
+        // slightly larger fraction; each still floors at a legible minimum so
+        // nothing clips at narrower viewports.
+        gridTemplateColumns:
+          "minmax(150px,1fr) minmax(150px,1fr) minmax(170px,1.3fr) minmax(140px,0.85fr) minmax(140px,0.85fr) minmax(160px,1.15fr)",
+        gap: 14,
+        alignItems: "end",
+      }}
+    >
       <Slicer label="Spoke" active={filters.spoke !== "All"} summary={filters.spoke === "All" ? "All spokes (hub)" : filters.spoke} width={190} first>
         {(close) => (
           <>
@@ -270,11 +288,6 @@ export function FilterBar() {
           </>
         )}
       </Slicer>
-
-      <div style={{ flex: 1 }} />
-      <span style={{ alignSelf: "center", fontFamily: fonts.mono, fontSize: 10.5, letterSpacing: "0.06em", textTransform: "uppercase", color: t.inkSoft }}>
-        Slicers cross-filter every page
-      </span>
     </div>
   );
 }

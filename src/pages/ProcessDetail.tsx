@@ -78,7 +78,7 @@ export function ProcessDetail() {
             ]}
           />
         </VisualCard>
-        <VisualCard title="Top exceptions" subtitle="By volume for this process">
+        <VisualCard title="Top exceptions" subtitle={`By volume for this process · ${fmtGBP(pa?.exceptionCostGBP ?? 0)} exception cost (period)`}>
           <HBarChart rows={excRows} valueFormat={fmtCompact} />
         </VisualCard>
       </Row>

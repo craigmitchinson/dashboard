@@ -252,3 +252,58 @@ export function evaluateAlerts(reference: ReferenceJson): Alert[] {
 
   return alerts;
 }
+
+/**
+ * Per-alert trailing daily series (oldest first, WINDOW_DAYS entries) in the
+ * same units as Alert.value, for the Alerts page's inline trend sparkline.
+ * Recomputes the SAME aggregate evaluateAlerts() uses for that alert's scope,
+ * narrowed to one day at a time, over the identical trailing window ending at
+ * DATE_MAX.
+ *
+ * Day-bucketing choice: ROWS/RES_ROWS are built by rpaData.ts's initData() via
+ * `ts: tsOf(r.d)`, where tsOf parses each row's date string as exact UTC
+ * midnight (`Date.parse(d + "T00:00:00Z")`). Every row is one-per-(date,
+ * process/resource) at that exact boundary — there is no sub-day timestamp
+ * drift and no local-timezone/DST involved (parsing is always against the
+ * UTC "Z" suffix), so exact `ts === dayTs` equality is a safe, simplest
+ * bucket key here. A bucket-index form (`Math.floor((r.ts - lo)/DAY_MS)`)
+ * would be needed only if rows could carry intra-day timestamps or a
+ * non-UTC calendar — neither is true of this dataset.
+ */
+export function dailySeriesFor(alert: Alert, reference: ReferenceJson, tables?: ReturnType<typeof buildRateTables>): number[] {
+  const hi = DATE_MAX;
+  tables ??= buildRateTables(reference, ROWS, DATA_MIN_ISO, DATA_MAX_ISO, DAY_WORKTIME_TOTALS, SPOKE_DAY_WORKTIME_TOTALS);
+
+  const out: number[] = [];
+  for (let i = WINDOW_DAYS - 1; i >= 0; i--) {
+    const dayTs = hi - i * DAY_MS;
+
+    if (alert.metric === "utilisation") {
+      // Correlate back to the VDI via scopeLabel (== vdi.name, set at
+      // construction above) — VDI names are effectively unique in this fixed
+      // dataset (one row per VdiDim, sourced 1:1 from resources.json), so
+      // this lookup is safe as a correlating key.
+      const vdi = VDIS.find((v) => v.name === alert.scopeLabel);
+      if (!vdi) {
+        out.push(0);
+        continue;
+      }
+      const dayResRows = RES_ROWS.filter((r) => r.ts === dayTs && r.resource === vdi.id);
+      const activeHours = dayResRows.reduce((sum, r) => sum + r.worktimeSec, 0) / 3600;
+      const availableHours = availableDaysInWindow(vdi, reference, dayTs, dayTs) * VDI_OPERATING_HOURS;
+      out.push(availableHours ? Math.min(1, activeHours / availableHours) : 0);
+      continue;
+    }
+
+    let dayRows = ROWS.filter((r) => r.ts === dayTs);
+    if (alert.scope === "spoke") {
+      dayRows = dayRows.filter((r) => PROCESS_BY_ID.get(r.processId)?.spoke === alert.spokeFilter);
+    } else if (alert.scope === "process") {
+      dayRows = dayRows.filter((r) => r.processId === alert.processFilter);
+    }
+    // estate scope: no additional filter beyond the day itself.
+    const agg = aggregateRates(dayRows, tables);
+    out.push(agg[alert.metric as RateMetric]);
+  }
+  return out;
+}

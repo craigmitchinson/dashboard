@@ -26,6 +26,7 @@ export interface DisplayPrefs {
   reduceMotion: "system" | "on";
   seasonalAccent: boolean; // default true
   clocks: boolean; // default true
+  liquidGlass: boolean; // default true
 }
 
 export const SHORTCUT_THEME_CYCLE: DisplayTheme[] = ["light", "dark", "high-contrast"];
@@ -68,6 +69,7 @@ function defaultPrefs(): DisplayPrefs {
     reduceMotion: "system",
     seasonalAccent: true,
     clocks: true,
+    liquidGlass: true,
   };
 }
 
@@ -125,6 +127,7 @@ export function DisplayPrefsProvider({ userId, children }: { userId: string | un
     else el.removeAttribute("data-reduce-motion");
     if (prefs.colorVisionSafe) el.setAttribute("data-cvd-safe", "true");
     else el.removeAttribute("data-cvd-safe");
+    el.setAttribute("data-glass", prefs.liquidGlass ? "on" : "off");
   }, [prefs]);
 
   return <DisplayPrefsContext.Provider value={{ prefs, setPrefs, cycleTheme }}>{children}</DisplayPrefsContext.Provider>;

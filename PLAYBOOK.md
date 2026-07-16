@@ -254,7 +254,7 @@ A demo directory of 6 seeded users, all sharing the passphrase "demo" (fine for 
 
 | Name | Role | Spoke(s) |
 | --- | --- | --- |
-| Priya Anand | admin | — |
+| Nigel Spriggs | admin | — |
 | Callum Ferris | hub_lead | Insurance, Pensions & Investments |
 | Naomi Whitfield | hub_lead | Risk |
 | Dev Kapoor | hub_member | — |

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import { fonts } from "../theme";
+import { fonts, liquidGlassVars } from "../theme";
 import { useTheme } from "../theme-context";
 import type { ThemeTokens } from "../theme";
 import { IconClose } from "../components/icons";
@@ -29,25 +29,31 @@ import { useDisplayPrefs } from "./prefs-context";
 
 const FOCUSABLE_SELECTOR = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
-// Dialog chrome. Contrast vs the active `t.paper` background:
-//   light: ink #0B3239 on paper #FAF7F2   = 12.85:1
-//   dark:  ink #F4F1EB on paper #0C2329   = 14.46:1
+// Dialog chrome. Text contrast vs the active `t.paper`-based glass surface:
+//   light: ink #0B3239 on paper #FAF7F2 (~4.84:1 worst-case scrim, see the
+//          liquid-glass comment in styles.css) — was 12.85:1 solid.
+//   dark:  ink #F4F1EB on paper #0C2329 (~5.05:1 worst-case scrim) — was
+//          14.46:1 solid.
 // (high-contrast mode is untouched by this — its `!important` rules in
 // styles.css already target `.modal-dialog` via `:root[data-theme=...]`,
 // which — unlike `.report[data-mode=...]` — matches regardless of the
 // panel's DOM position, so it keeps winning over these inline styles.)
 function dialogStyle(t: ThemeTokens): CSSProperties {
   return {
-    background: t.paper,
     color: t.ink,
     borderColor: t.ruleSoft,
-    boxShadow: t.shadow,
     // Also repaints the focus ring for every focusable control inside this
     // dialog (see the `var(--a11y-focus-color, ...)` fallback rules in
     // styles.css) — the global :focus-visible rule is scoped to `.report`
     // for its dark variant and, like the rest of this panel, never reached
     // this subtree; that left a ~1.2:1 (invisible) ring in dark mode.
     ["--a11y-focus-color" as string]: t.ink,
+    // background/box-shadow/rim now come from `.liquid-glass` (styles.css);
+    // this dialog renders as a *sibling* of `.report` (see the file header
+    // note above), so the `.report[data-mode="dark"] .liquid-glass` cascade
+    // can't reach it — liquidGlassVars() supplies the same --lg-* values
+    // inline instead, exactly like --a11y-focus-color just above.
+    ...liquidGlassVars(t),
   } as CSSProperties;
 }
 
@@ -133,7 +139,7 @@ export function DisplayPanel({ onClose }: { onClose: () => void }): JSX.Element 
         role="dialog"
         aria-modal="true"
         aria-labelledby="a11y-panel-title"
-        className="modal-dialog"
+        className="modal-dialog liquid-glass"
         style={dialogStyle(t)}
         onClick={(e) => e.stopPropagation()}
       >
@@ -168,6 +174,13 @@ export function DisplayPanel({ onClose }: { onClose: () => void }): JSX.Element 
           <p className="a11y-desc" style={{ fontFamily: fonts.body, color: t.inkSoft }}>
             High contrast uses true black and white with visible borders and no reliance on colour or shadow alone.
           </p>
+          <Switch
+            id="a11y-liquid-glass"
+            label="Liquid glass"
+            description="Translucent, light-bending surfaces on menus and dialogs. Turn off for solid panels."
+            checked={prefs.liquidGlass}
+            onChange={(checked) => setPrefs({ liquidGlass: checked })}
+          />
         </section>
 
         <section className="a11y-panel__section" style={{ borderTopColor: t.ruleSoft }}>

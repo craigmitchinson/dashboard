@@ -66,14 +66,30 @@ export function Capacity() {
         </VisualCard>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
-          <VisualCard title="VDI capacity table" subtitle="Sortable — default by utilisation" style={{ flex: 1.45 }}>
+          {/* Both cards here have inherently fixed-size content — a table of
+              (typically ~11) digital workers and a gauge + 3 summary rows —
+              neither has anything elastic (like a chart) that legitimately
+              grows to fill extra height. Giving either flex:1 just relocates
+              the dead-space bug: an earlier version tried flex:1 on the table
+              so it would "absorb" the leftover height from the now
+              auto-sized summary card below, but on tall viewports (1920×1080)
+              that just left the *same* empty void inside the table's own
+              bordered box, below its last row, instead of inside the summary
+              card. Both flex:"0 0 auto" (content-sized) is the actual fix:
+              any surplus row height becomes plain canvas below this column
+              (which has no border/background of its own) rather than dead
+              space inside either card. The left-hand "Utilisation by digital
+              worker" card still legitimately fills the full row height via
+              its own flex:1 list + paragraph, so the page doesn't look empty
+              overall — just this one shorter column, which is fine. */}
+          <VisualCard title="VDI capacity table" subtitle="Sortable — default by utilisation" style={{ flex: "0 0 auto" }}>
             <DataTable columns={columns} rows={m.vdis} initialSort={{ key: "utilPct", dir: "desc" }} />
           </VisualCard>
 
           <VisualCard
             title="Capacity & cost summary"
             subtitle="Utilisation vs healthy band, and where the spend goes"
-            style={{ flex: 1 }}
+            style={{ flex: "0 0 auto" }}
             summary={`Average utilisation ${fmtPct(avgUtil, 0)}, target ${fmtPct(TARGETS.utilMax, 0)}. Licensed capacity ${fmtCompact(totalAvail)} hours. Productive bot time ${fmtCompact(totalActive)} hours. Estate cost, apportioned, ${fmtGBP(totalCost)}.`}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 16, height: "100%", paddingTop: 2 }}>

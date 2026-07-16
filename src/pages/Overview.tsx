@@ -73,21 +73,33 @@ export function Overview() {
         </VisualCard>
 
         <VisualCard title="Outcome mix" subtitle={`${fmtInt(m.attempts)} cases attempted`}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 12, paddingTop: 6 }}>
-            <div style={{ display: "flex", height: 26, borderRadius: 7, overflow: "hidden", gap: 2 }}>
+          {/* Content (bar + legend rows + footer) is inherently short next to
+              the line chart it sits beside, which previously left a large
+              empty void below the footer at tall viewports — the card's
+              content area (VisualCard's own flex:1 wrapper) always stretched
+              to the row's full height, but this inner div never grew to
+              claim it, just top-aligned its own natural height. flex:1 here
+              lets it fill that height, and justify-content:space-between
+              spaces the three logical groups (bar / legend rows / footer)
+              out across it so the card reads as deliberately composed at any
+              height instead of leaving dead space at the bottom. */}
+          <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, justifyContent: "space-between", paddingTop: 6 }}>
+            <div style={{ display: "flex", height: 26, borderRadius: 7, overflow: "hidden", gap: 2, flex: "0 0 auto" }}>
               {outcomeMix.map((o) => (
                 <div key={o.label} title={`${o.label} · ${fmtInt(o.value)}`} style={{ width: `${(o.value / mixTotal) * 100}%`, background: o.color, minWidth: 2 }} />
               ))}
             </div>
-            {outcomeMix.map((o) => (
-              <div key={o.label} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{ width: 11, height: 11, borderRadius: 3, background: o.color, flex: "0 0 auto" }} />
-                <span style={{ flex: 1, fontFamily: fonts.body, fontSize: 13, color: t.ink }}>{o.label}</span>
-                <span style={{ fontFamily: fonts.mono, fontSize: 13, fontWeight: 700, color: t.ink }}>{fmtInt(o.value)}</span>
-                <span style={{ width: 52, textAlign: "right", fontFamily: fonts.mono, fontSize: 12, color: t.inkSoft }}>{fmtPct(o.value / mixTotal, 1)}</span>
-              </div>
-            ))}
-            <div style={{ marginTop: 2, paddingTop: 12, borderTop: `1px solid ${t.ruleSoft}`, display: "flex", justifyContent: "space-between", fontFamily: fonts.body, fontSize: 13, color: t.inkSoft }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {outcomeMix.map((o) => (
+                <div key={o.label} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ width: 11, height: 11, borderRadius: 3, background: o.color, flex: "0 0 auto" }} />
+                  <span style={{ flex: 1, fontFamily: fonts.body, fontSize: 13, color: t.ink }}>{o.label}</span>
+                  <span style={{ fontFamily: fonts.mono, fontSize: 13, fontWeight: 700, color: t.ink }}>{fmtInt(o.value)}</span>
+                  <span style={{ width: 52, textAlign: "right", fontFamily: fonts.mono, fontSize: 12, color: t.inkSoft }}>{fmtPct(o.value / mixTotal, 1)}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ paddingTop: 12, borderTop: `1px solid ${t.ruleSoft}`, display: "flex", justifyContent: "space-between", fontFamily: fonts.body, fontSize: 13, color: t.inkSoft, flex: "0 0 auto" }}>
               <span>Estate cost (period, apportioned)</span>
               <span style={{ fontFamily: fonts.mono, fontWeight: 700, color: t.ink }}>{fmtGBP(m.automationCost)}</span>
             </div>
