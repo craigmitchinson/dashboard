@@ -71,7 +71,14 @@ const PROCESS_METRIC_PAGE: Record<RateMetric, string> = {
 function classify(value: number, threshold: number, direction: "min" | "max"): "breach" | "warn" | null {
   if (direction === "min") {
     if (value < threshold) return "breach";
-    if (value < threshold * (1 + WARN_MARGIN)) return "warn";
+    // Warn band's upper edge is WARN_MARGIN of the remaining headroom above
+    // the threshold up to the natural ceiling (1.0), NOT threshold*(1+WARN_MARGIN) —
+    // that multiplicative form collapses to "always warn, never clear" once
+    // threshold >= ~0.909 (a 91%+ floor target, which completion-rate targets
+    // commonly are), since threshold*(1+WARN_MARGIN) would exceed 1.0 and the
+    // value can never clear it. This form stays well-defined at any threshold.
+    const warnCeiling = threshold + (1 - threshold) * WARN_MARGIN;
+    if (value < warnCeiling) return "warn";
     return null;
   }
   if (value > threshold) return "breach";

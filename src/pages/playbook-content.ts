@@ -348,6 +348,7 @@ export const PLAYBOOK_SECTIONS: PlaybookSection[] = [
         "@azure/msal-browser / @azure/msal-react are not installed (check package.json — only react/react-dom are dependencies today); wiring real sign-in means adding one of these.",
         "The three EntraAuthProvider methods need to actually call MSAL instead of throwing.",
         "Token validation belongs on a server, not in the browser. A static single-page app cannot safely validate an ID token or decide what data a user is allowed to see — that has to happen server-side. The right production shape is a small API (see section 8) that validates the Entra token on every request and serves data scoped to what that user's role/spokes are allowed to see; the static-JSON model this dashboard uses today is a demo/prototype simplification, not a production security boundary.",
+        "Threshold alerts (section 11) are in-app only — the bell has no email/Teams/webhook push. The same small production API is the right place to add scheduled evaluation + outbound notification once it exists.",
       ]),
     ],
   },
@@ -486,6 +487,44 @@ export const PLAYBOOK_SECTIONS: PlaybookSection[] = [
       heading("Where to look, generally", 3),
       prose(
         "The browser devtools console (schema-version warnings, reference load errors); Administration → Data & sync's changelog (who changed what reference data, and when); public/data/manifest.json (which build is actually live — generatedAt, source, sourceRows); and in production, the usp_RunPull PRINT output (row-count deltas and unmapped-queue warnings) after every scheduled pull."
+      ),
+    ],
+  },
+  {
+    id: "thresholds-alerting",
+    title: "11. Thresholds & alerting",
+    blocks: [
+      prose(
+        "A threshold-alerting layer (src/alerts/engine.ts, src/alerts/NotificationBell.tsx) evaluates the dashboard's own KPI targets against the trailing week of data and surfaces breaches/warnings via a bell icon in the header. This is deliberately separate from the static target reference lines already drawn on Overview/Capacity/Commercial/Input & Outcome — those come from the data build's baked targets and don't move when you edit thresholds here; the bell's targets are a live, editable layer on top."
+      ),
+      heading("The threshold model", 3),
+      prose(
+        "Six global targets live in reference.targets (TargetsRef): completionPct, exceptionRate, systemRate, costPerCase, utilMin, utilMax. Any of the four rate metrics — completionPct, exceptionRate, systemRate, costPerCase — can additionally be overridden per spoke or per process via reference.thresholdOverrides[], each one a {scope: \"spoke\"|\"process\", scopeId, metric, value} record. Resolution precedence for a given metric (resolveThreshold() in reference-store.ts): a matching PROCESS override wins; else that process's own SPOKE override wins; else the global target."
+      ),
+      callout(
+        "info",
+        "Utilisation (utilMin/utilMax) can only be overridden at spoke (or left at the global/estate) level, never per process. VDIs are spoke-owned, not tied to any single process, so the alert engine's vdi-scope evaluation only ever resolves utilMin/utilMax via scope=\"spoke\" — a process-scoped utilisation override would never be read. The Administration UI enforces this going forward: the metric picker excludes utilMin/utilMax whenever you're adding a process-scoped override. Because thresholdOverrides is an additive field that doesn't force a schema-version bump, a process-scoped utilisation override created before this restriction existed (or a hand-edited JSON import) can still be sitting in the data — the UI detects and flags any such row inline as \"not evaluated\" rather than pretending it's live."
+      ),
+      heading("Where to configure it", 3),
+      prose(
+        "Administration → Targets & thresholds (always visible to anyone who can reach Administration at all). Admins edit the six global targets directly. hub_leads (and admins) add or remove spoke/process overrides, but only for spokes they're assigned to (edit_spoke_reference) and that spoke's own processes — a hub_lead can't touch the global targets or another spoke's overrides."
+      ),
+      heading("How evaluation works", 3),
+      list([
+        "Window: the trailing 7 full days ending at the data build's data-through date (WINDOW_DAYS = 7 in engine.ts) — anchored to the last data build, not the browser's actual today.",
+        "Scopes: estate-wide, each spoke, each process, and each VDI (utilisation only) — evaluateAlerts() walks all four every time it runs.",
+        "Severity: past the threshold is a \"breach\"; within WARN_MARGIN (10%, a named constant in engine.ts, not a magic number) of the threshold but not yet past it is a \"warn\"; anything further from the threshold than that produces no alert.",
+        "Minimum-volume guard: a process is skipped from evaluation entirely if it has fewer than MIN_ALERT_VOLUME (30 in engine.ts) completed+exception items in the trailing window — a 1-item process hitting 100% exceptions is noise, not a signal. This guard applies at process scope only; a spoke is skipped only if it has literally zero attempts in the window, and estate scope is always evaluated.",
+        "Re-evaluation trigger: alerts recompute only when reference data changes or a new data build lands (evaluateAlerts(reference) is memoized on the reference object alone) — never when the dashboard's slicers change. Alerts are estate/spoke/process/vdi-scoped facts, not filter-relative.",
+      ]),
+      heading("The bell", 3),
+      prose(
+        "The header bell (NotificationBell.tsx) shows an unacknowledged-count badge (capped at \"9+\"), listing alerts sorted breach-before-warn, then estate → spoke → process → vdi. Acknowledgements are per-user (localStorage, keyed by user id) and expire naturally with each new data build: every alert's id embeds the data-through date (metric|scope|scopeId|dataThroughISO), so once a new data build moves that date, an old acknowledged alert's id no longer matches anything current and its acknowledgement is pruned automatically — there's no separate expiry timer, the id fingerprint does the work on its own. Clicking \"View\" on an alert navigates to the right page for its scope (e.g. Overview for an estate-wide completion-rate breach, Process detail for a process-scoped one, Capacity for a VDI utilisation alert) and sets the spoke/process slicers — and resets proposition/queue alongside them — to match."
+      ),
+      heading("Honesty note", 3),
+      callout(
+        "warn",
+        "Alerting is in-app only today — the bell is a browser-side notification; nothing pushes to email, Teams, or anywhere else. Like the rest of this dashboard's more ambitious production plans (see section 6's Entra ID gap list), a real push channel needs a small server-side component: something that runs this evaluation logic on a schedule and calls out to an email/Teams/webhook API. The static client-side dashboard has no mechanism to do that itself — not built yet; the path is the same small production API described elsewhere in this playbook (sections 6 and 8), which is the natural place to add scheduled evaluation and outbound notification once it exists."
       ),
     ],
   },

@@ -6,3 +6,4 @@ dist
 
 # generated: mock CSV is deterministic — rebuild with `npm run data:mock`
 data/mock/*.csv
+__pycache__/

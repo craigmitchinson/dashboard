@@ -127,6 +127,11 @@ All of it lives in `data/reference/reference.json` (JSON twin of
 - `public/data/views/vw_*.json` are 1:1 ports of the SQL report views —
   they define the API response shapes for the production data service, and
   `manifest.json` records source + row counts for auditability.
+- **Threshold alerting** (`src/alerts/engine.ts`, `src/alerts/NotificationBell.tsx`):
+  evaluates `reference.targets`/`thresholdOverrides` against the trailing
+  7-day window at estate/spoke/process/vdi scope and surfaces breach/warn
+  alerts in a header bell; in-app only today, no email/Teams push — see
+  `PLAYBOOK.md` section 11.
 
 Power BI is not embedded in this app — there is no render-mode toggle. It is a
 valid *external* consumer that connects directly to the same `report.vw_*` SQL

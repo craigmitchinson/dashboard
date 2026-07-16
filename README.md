@@ -68,6 +68,10 @@ Proposition, Process, Queue, Tags, Date range — plus:
   persisted per-user in localStorage on top of the base data, and exported
   back out as a replacement `reference.json` or a SQL script for a DBA to run
   — see [PLAYBOOK.md](PLAYBOOK.md) for the sync loop.
+- **Thresholds & alerting**: the header bell evaluates global/spoke/process
+  KPI targets (`Administration → Targets & thresholds`) against the trailing
+  week of data and flags breaches/warnings — in-app only today; see
+  [PLAYBOOK.md](PLAYBOOK.md) section 11.
 - **Spoke colour schemes**: each spoke carries its own accent (validated for
   CVD separation and contrast on both surfaces, light and dark). Selecting a
   spoke re-skins the dashboard accent to that spoke's colour; the hub view
