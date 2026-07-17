@@ -35,6 +35,33 @@ CREATE TABLE core.RefSpoke (
 GO
 
 /* =====================================================================
+   RefGrade - the grade CODE dimension + SCOPE (which spokes may select it).
+   Separate from RefGradeRate below: this table says who may automate
+   against a grade at all; RefGradeRate's own SpokeId (below) says whether
+   one dated RATE ROW for a grade is universal or a spoke-specific override.
+   RefGradeSpoke is the junction: NO rows for a grade = universal (every
+   spoke may use it); one or more rows = only those spokes may.
+   EDIT THIS to add a new grade code, rename one, or change its spoke scope.
+   ===================================================================== */
+IF OBJECT_ID('core.RefGradeSpoke') IS NOT NULL DROP TABLE core.RefGradeSpoke;
+GO
+IF OBJECT_ID('core.RefGrade') IS NOT NULL DROP TABLE core.RefGrade;
+GO
+CREATE TABLE core.RefGrade (
+    GradeCode        NVARCHAR(10)  NOT NULL PRIMARY KEY,
+    GradeName        NVARCHAR(100) NOT NULL
+);
+GO
+CREATE TABLE core.RefGradeSpoke (
+    GradeCode        NVARCHAR(10)  NOT NULL
+        REFERENCES core.RefGrade(GradeCode),
+    SpokeId          INT           NOT NULL
+        REFERENCES core.RefSpoke(SpokeId),
+    CONSTRAINT PK_RefGradeSpoke PRIMARY KEY (GradeCode, SpokeId)
+);
+GO
+
+/* =====================================================================
    RefGradeRate - the date-effective GRADE RATE CARD (hub-owned).
 
    THE HUMAN COST / SMV MECHANISM: a process does not carry a hard-coded
@@ -46,17 +73,38 @@ GO
      - spokes that automate against different grades price differently
        with zero per-spoke configuration
      - one rate card, maintained once, universally true across the hub
+
+   SPOKE-SCOPED RATE OVERRIDES: SpokeId (NVARCHAR(20), a spokeId AS A
+   STRING — same convention as RefPeopleCostHistory.OwnerId) optionally
+   scopes ONE rate row to a single spoke; NULL = universal, applies to
+   every spoke automating against that grade. RESOLUTION for
+   (GradeCode, spoke, day): the row with the latest EffectiveFrom<=day
+   among SpokeId-matching rows wins outright over any universal row; else
+   the latest EffectiveFrom<=day among SpokeId-IS-NULL rows. Mirrored
+   byte-for-byte in src/reference/economics.ts's gradeRateOn and
+   tools/build-dashboard-data.mjs's gradeRate() — see report.vw_DimProcess
+   and report.vw_FactItemEconomics in 08_report_views.sql for the SQL twin.
+
+   PRIMARY KEY NOTE: because SpokeId is NULLable (SQL Server PRIMARY KEY
+   columns must be NOT NULL), uniqueness is enforced via a surrogate
+   IDENTITY key + a UNIQUE constraint on (GradeCode, EffectiveFrom, SpokeId)
+   instead of a natural composite PK — a UNIQUE constraint (unlike PRIMARY
+   KEY) allows multiple NULLs, which is exactly what letting one universal
+   row coexist with per-spoke override rows at the same GradeCode+
+   EffectiveFrom requires.
    EDIT THIS on pay reviews: INSERT new rows with the new EffectiveFrom;
    never edit old rows.
    ===================================================================== */
 IF OBJECT_ID('core.RefGradeRate') IS NOT NULL DROP TABLE core.RefGradeRate;
 GO
 CREATE TABLE core.RefGradeRate (
+    GradeRateId      INT           NOT NULL IDENTITY(1,1) PRIMARY KEY,
     GradeCode        NVARCHAR(10)  NOT NULL,
     GradeName        NVARCHAR(100) NOT NULL,
     EffectiveFrom    DATE          NOT NULL,
     HourlyCostGBP    DECIMAL(8,2)  NOT NULL,   -- fully loaded £/h for the grade
-    CONSTRAINT PK_RefGradeRate PRIMARY KEY (GradeCode, EffectiveFrom)
+    SpokeId          NVARCHAR(20)  NULL,       -- scopes this rate row to one spoke; NULL = universal
+    CONSTRAINT UQ_RefGradeRate UNIQUE (GradeCode, EffectiveFrom, SpokeId)
 );
 GO
 
@@ -194,14 +242,27 @@ GO
    EDIT THIS when the per-VDI prod or test cost changes; insert a new row
    with the date the new rate took effect, do not edit old rows.
    Figures are blended ANNUALISED costs per single VDI of that class.
+
+   SPOKE-SCOPED CLASS-RATE OVERRIDES: SpokeId (NVARCHAR(20), a spokeId AS
+   A STRING, same convention as RefGradeRate.SpokeId above) optionally
+   scopes ONE class-rate row to a single spoke; NULL = universal, applies
+   to every spoke's VDIs of that class. RESOLUTION for (CostClass, VDI's
+   own spoke, day): spoke-matching rows win outright over universal rows,
+   same precedence as RefGradeRate — see report.fn_VdiDailyCost in
+   08_report_views.sql and src/reference/economics.ts's vdiClassRate.
+   PRIMARY KEY NOTE: same reasoning as RefGradeRate above — SpokeId is
+   NULLable, so uniqueness moves to a surrogate IDENTITY key + a UNIQUE
+   constraint (which, unlike PRIMARY KEY, permits multiple NULLs).
    ===================================================================== */
 IF OBJECT_ID('core.RefVDICostHistory') IS NOT NULL DROP TABLE core.RefVDICostHistory;
 GO
 CREATE TABLE core.RefVDICostHistory (
+    VDICostHistoryId INT           NOT NULL IDENTITY(1,1) PRIMARY KEY,
     CostClass        NVARCHAR(10)  NOT NULL,   -- 'prod' or 'test'
     EffectiveFrom    DATE          NOT NULL,
     AnnualCostPerVDIGBP DECIMAL(12,2) NOT NULL,
-    CONSTRAINT PK_RefVDICostHistory PRIMARY KEY (CostClass, EffectiveFrom),
+    SpokeId          NVARCHAR(20)  NULL,       -- scopes this class-rate row to one spoke; NULL = universal
+    CONSTRAINT UQ_RefVDICostHistory UNIQUE (CostClass, EffectiveFrom, SpokeId),
     CONSTRAINT CK_RefVDICostHistory_Class CHECK (CostClass IN ('prod','test'))
 );
 GO
@@ -254,11 +315,13 @@ GO
    here). A pay award or headcount change is a NEW row with the new
    EffectiveFrom; history is never re-valued by editing an old row.
 
-   OwnerId can ALSO be a spoke id (as a string, e.g. '1'), carried purely
-   as INFORMATIONAL reference data for a spoke's own reporting — spoke
-   people cost is NEVER charged into estate economics (only a spoke's VDI
-   infra cost is; see RefResource.SpokeId). Do not join spoke rows here
-   into any cost view.
+   OwnerId can ALSO be a spoke id (as a string, e.g. '1'). AS OF D5 (spoke
+   people cost), a spoke's own row here IS CHARGED into estate economics —
+   report.vw_SpokeInfraRateByDate reads it, in force by EffectiveFrom, and
+   folds it into that spoke's pool/day alongside its VDI infra, apportioned
+   within the spoke by worktime exactly like infra (see RefResource.SpokeId
+   for the VDI side). It is no longer informational-only; do not describe it
+   that way in comments, UI copy, or documentation.
 
    SENSITIVITY: only BLENDED, AGGREGATE figures go in this table, same as
    RefEstateCostHistory. Never enter individual people or their salaries.
@@ -268,7 +331,7 @@ GO
 IF OBJECT_ID('core.RefPeopleCostHistory') IS NOT NULL DROP TABLE core.RefPeopleCostHistory;
 GO
 CREATE TABLE core.RefPeopleCostHistory (
-    OwnerId          NVARCHAR(20)  NOT NULL,   -- 'HUB', or a spokeId as a string (informational only)
+    OwnerId          NVARCHAR(20)  NOT NULL,   -- 'HUB', or a spokeId as a string (charged into that spoke's pool, D5)
     Headcount        INT           NOT NULL,
     AnnualCostGBP    DECIMAL(14,2) NOT NULL,   -- blended, pooled, never per-person
     EffectiveFrom    DATE          NOT NULL,

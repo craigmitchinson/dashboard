@@ -22,11 +22,14 @@
 //   3. HUB & SPOKE COST ENGINE (08_report_views.sql):
 //        benefit  = SMV x the GRADE rate in force on the item's outcome date
 //                   (date-effective rate card; a pay award never re-values history)
-//        cost     = worktime x ( hub £/bot-second  +  spoke infra £/bot-second )
-//          hub pool/day    = CoE team run-rate + hub-owned (unassigned) VDIs,
+//        cost     = worktime x ( hub £/bot-second  +  spoke pool £/bot-second )
+//          hub pool/day  = CoE team run-rate + hub-owned (unassigned) VDIs,
 //                            apportioned by worktime across ALL spokes
-//          spoke infra/day = the spoke's own live VDIs at class rates in force,
-//                            apportioned by worktime WITHIN the spoke
+//          spoke pool/day  = the spoke's own live VDIs at class rates in force
+//                            + that spoke's OWN peopleCostHistory record-in-
+//                            force/365.25 (spoke people cost is now CHARGED,
+//                            not merely informational — see peopleCostHistory's
+//                            comment), apportioned by worktime WITHIN the spoke
 //   4. the report views.
 //
 // Run: npm run data:build   (optionally: node tools/build-dashboard-data.mjs path/to/export.csv)
@@ -131,8 +134,23 @@ const inForce = (history, date) => {
   for (const h of history) if (h.effectiveFrom <= date && (!best || h.effectiveFrom > best.effectiveFrom)) best = h;
   return best;
 };
-const gradeRate = (grade, date) => inForce(ref.gradeRates.filter((g) => g.grade === grade), date)?.hourlyCostGBP ?? 0;
-const gradeName = (grade) => ref.gradeRates.find((g) => g.grade === grade)?.gradeName ?? grade;
+// spoke-first resolution: for (grade, spokeId, day), the latest
+// effectiveFrom<=day among spokeId-matching rows wins; else the latest
+// effectiveFrom<=day among rows with no spokeId (universal). Byte-for-byte
+// mirrored in src/reference/economics.ts's gradeRateOn and
+// 08_report_views.sql's grade-rate CROSS APPLYs. `spokeId` is the process's
+// own numeric spokeId (via its proposition), or null/undefined for none.
+const gradeRate = (grade, spokeId, date) => {
+  const rows = ref.gradeRates.filter((g) => g.grade === grade);
+  const sid = spokeId != null ? String(spokeId) : null;
+  const spokeRows = sid != null ? rows.filter((g) => g.spokeId === sid) : [];
+  const viaSpoke = inForce(spokeRows, date);
+  if (viaSpoke) return viaSpoke.hourlyCostGBP;
+  return inForce(rows.filter((g) => g.spokeId == null), date)?.hourlyCostGBP ?? 0;
+};
+// gradeName: reference.grades[] is the canonical name source (SCHEMA_VERSION
+// 3); fall back to a matching gradeRates row's own gradeName for back-compat.
+const gradeName = (grade) => (ref.grades ?? []).find((g) => g.grade === grade)?.gradeName ?? ref.gradeRates.find((g) => g.grade === grade)?.gradeName ?? grade;
 
 // pattern fallback, ordered exactly as the SQL: Priority DESC, LEN(pattern) DESC
 const patterns = [...ref.exceptionPatterns]
@@ -189,7 +207,16 @@ for (const it of items) {
 }
 
 // per-day rates: hub pool (team + hub-owned VDIs) and per-spoke infra
-const vdiRate = (costClass, date) => inForce(ref.vdiCostHistory.filter((v) => v.costClass === costClass), date)?.annualCostPerVDIGBP ?? 0;
+// spoke-first resolution — same shape as gradeRate above; spokeId is the
+// VDI's own numeric spokeId (null/undefined = hub-owned -> universal only).
+const vdiRate = (costClass, date, spokeId) => {
+  const rows = ref.vdiCostHistory.filter((v) => v.costClass === costClass);
+  const sid = spokeId != null ? String(spokeId) : null;
+  const spokeRows = sid != null ? rows.filter((v) => v.spokeId === sid) : [];
+  const viaSpoke = inForce(spokeRows, date);
+  if (viaSpoke) return viaSpoke.annualCostPerVDIGBP;
+  return inForce(rows.filter((v) => v.spokeId == null), date)?.annualCostPerVDIGBP ?? 0;
+};
 // peopleCostOn: the SOLE source of truth for the hub's people run-rate — see
 // D2 in the reference-data schema. estateCostHistory's teamAnnualCostGBP is
 // retained for schema parity with bp-sql-layer's core.RefEstateCostHistory
@@ -222,7 +249,7 @@ function vdiDailyCost(vdi, dateISO) {
   const { start, end } = coverageWindow(vdi, cs);
   if (dateTs < start || dateTs >= end) return 0; // zero cost AND zero capacity that day
   const windowDays = Math.round((end - start) / DAY);
-  const annual = vdi.annualCostGBP ?? vdiRate(vdi.costClass, dateOnly(cs));
+  const annual = vdi.annualCostGBP ?? vdiRate(vdi.costClass, dateOnly(cs), vdi.spokeId);
   return windowDays > 0 ? annual / windowDays : 0;
 }
 
@@ -241,7 +268,15 @@ for (let ts = tsMin; ts <= tsMax; ts += DAY) {
   }
   const hubPerDay = teamAnnual / 365.25 + hubInfraPerDay;
   const totalWt = dayWt.get(date) ?? 0;
+  // D5 (spoke people cost): spoke pool/day = spoke VDI infra/day (s.perDay so
+  // far, above) + that spoke's OWN peopleCostHistory record-in-force/365.25,
+  // apportioned within the spoke by worktime exactly like infra. `perDay`/
+  // `infraAnnual`/`cps` keep their names for output-contract stability
+  // (views.vw_EstateRateByDate/vw_SpokeRateByDate below read them under
+  // those names), but the VALUE is now the whole spoke pool, VDI + people —
+  // hub people-cost handling (teamAnnual above) is unchanged.
   for (const [sid, s] of spokes) {
+    s.perDay += peopleCostOn(String(sid), date) / 365.25;
     s.infraAnnual = s.perDay * 365.25; // annualized estimate, for reporting only
     const swt = spokeDayWt.get(`${sid}|${date}`) ?? 0;
     s.cps = swt ? s.perDay / swt : 0;
@@ -261,7 +296,7 @@ for (let ts = tsMin; ts <= tsMax; ts += DAY) {
 for (const it of items) {
   const p = it.processId ? procById.get(it.processId) : null;
   const rd = rateByDate.get(it.outcomeDate);
-  it.hourlyRate = p ? gradeRate(p.grade, it.outcomeDate) : 0;
+  it.hourlyRate = p ? gradeRate(p.grade, it.spokeId, it.outcomeDate) : 0;
   it.benefitGBP = p && it.outcome === "Completed" ? (p.smvMinutes * it.hourlyRate) / 60 : 0;
   it.reworkGBP = p && it.outcome === "Exception" ? (p.smvMinutes * it.hourlyRate) / 60 : 0;
   const spokeCPS = it.spokeId != null ? rd.spokes.get(it.spokeId)?.cps ?? 0 : 0;
@@ -300,6 +335,7 @@ views.vw_DimGradeRate = ref.gradeRates.map((g) => ({
   GradeName: g.gradeName,
   EffectiveFrom: g.effectiveFrom,
   HourlyCostGBP: g.hourlyCostGBP,
+  SpokeId: g.spokeId != null ? Number(g.spokeId) : null,
 }));
 
 views.vw_DimProcess = ref.processes.map((p) => {
@@ -318,7 +354,7 @@ views.vw_DimProcess = ref.processes.map((p) => {
     SMVMinutes: p.smvMinutes,
     Grade: p.grade,
     GradeName: gradeName(p.grade),
-    CurrentHourlyRateGBP: gradeRate(p.grade, dateOnly(tsMax)),
+    CurrentHourlyRateGBP: gradeRate(p.grade, prop.spokeId, dateOnly(tsMax)),
   };
 });
 
@@ -584,6 +620,31 @@ for (const e of excItems) {
   if (!reasonSet.has(r)) reasonSet.set(r, { reason: r, type: e.exceptionType, code: ref.exceptionDisplayCodes[r] ?? r.split(/\s+/).map((w) => w[0]).join("").slice(0, 3).toUpperCase() });
 }
 
+// --- resourceActivity: per-VDI first/last-seen + item count + spokes served,
+// computed from ALL items (including unmapped-queue rows — a resource still
+// "did work" even if its queue isn't mapped to a process yet; those items
+// just contribute no spoke to spokesServed). Twin of report.vw_ResourceActivity
+// in 08_report_views.sql. Consumed by src/alerts/engine.ts's stale-VDI check.
+const resourceActivityMap = new Map();
+for (const it of items) {
+  if (!it.resource) continue;
+  let a = resourceActivityMap.get(it.resource);
+  if (!a) {
+    a = { firstSeen: it.outcomeDate, lastSeen: it.outcomeDate, items: 0, spokesServed: new Set() };
+    resourceActivityMap.set(it.resource, a);
+  }
+  if (it.outcomeDate < a.firstSeen) a.firstSeen = it.outcomeDate;
+  if (it.outcomeDate > a.lastSeen) a.lastSeen = it.outcomeDate;
+  a.items += 1;
+  if (it.spokeId != null) a.spokesServed.add(spokeById.get(it.spokeId).spokeName);
+}
+const resourceActivity = Object.fromEntries(
+  [...resourceActivityMap.entries()].map(([name, a]) => [
+    name,
+    { firstSeen: a.firstSeen, lastSeen: a.lastSeen, items: a.items, spokesServed: [...a.spokesServed].sort() },
+  ]),
+);
+
 // True per-day worktime totals across ALL items (including unmapped-queue
 // items, which model.dayRows excludes) — the client economics engine's hub
 // share denominator must match this, not a recomputation from dayRows alone,
@@ -606,7 +667,10 @@ const model = {
     dateMax: dateOnly(tsMax),
     unmappedQueues: [...unmappedQueues],
   },
-  targets: ref.targets,
+  // vdiStaleDays defaults to 14 if a reference.json predates the field —
+  // app-side config, same convention as thresholds/targets generally (see
+  // reference-store.ts's TargetsRef.vdiStaleDays comment).
+  targets: { vdiStaleDays: 14, ...ref.targets },
   vdiOperatingHoursPerDay: ref.vdiOperatingHoursPerDay,
   spokes: ref.spokes.map((s) => ({ id: s.spokeId, name: s.spokeName, short: s.shortName, colorLight: s.colorLight, colorDark: s.colorDark })),
   propositions: ref.propositions.map((p) => ({ name: p.propositionName, spoke: spokeById.get(p.spokeId).spokeName })),
@@ -624,7 +688,7 @@ const model = {
       smvMinutes: p.smvMinutes,
       grade: p.grade,
       gradeName: gradeName(p.grade),
-      currentHourly: gradeRate(p.grade, dateOnly(tsMax)),
+      currentHourly: gradeRate(p.grade, prop.spokeId, dateOnly(tsMax)),
       icon: p.icon,
       tags: p.tags,
     };
@@ -636,6 +700,7 @@ const model = {
     vdi: r.vdiName,
     class: r.costClass,
     spoke: r.spokeId != null ? spokeById.get(r.spokeId).spokeName : "Hub",
+    spokeId: r.spokeId ?? null,
     activeFrom: r.activeFrom,
     activeTo: r.activeTo,
     notes: r.notes,
@@ -655,6 +720,10 @@ const model = {
   resRows,
   dayWorktimeTotals,
   spokeDayWorktimeTotals,
+  // Per-VDI activity discovery (D6 — stale-VDI flagging): firstSeen/lastSeen/
+  // items/spokesServed, computed from ALL items. See rpaData.ts's
+  // RESOURCE_ACTIVITY and alerts/engine.ts's stale-VDI check.
+  resourceActivity,
   // Full base reference object (unmodified data/reference/reference.json) so
   // the client can overlay browser-side edits onto it — see src/reference/.
   reference: ref,

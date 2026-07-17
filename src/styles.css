@@ -746,6 +746,106 @@ html {
   content: none;
 }
 
+/* --- Administration atoms (src/pages/admin/shared.tsx, src/pages/Admin.tsx) -
+   Every Admin section is built from the same handful of shared atoms, which
+   render with pure inline styles and no className outside this block — the
+   className hooks added to shared.tsx/Admin.tsx exist ONLY so the rules below
+   have something to target. Two of these atoms (DangerButton and SavedPill/
+   LockBadge) carry real accent colour (red / green) as their only visual
+   signal outside HC; in HC that colour must not be the only distinguishing
+   cue, so DangerButton is made visually IDENTICAL to Primary/GhostButton
+   (colour never carries meaning there — button TEXT/icon does), and the
+   pill/badge keep their dot+text/icon+tooltip content while losing their
+   colour coding. */
+:root[data-theme="high-contrast"] .adm-table,
+:root[data-theme="high-contrast"] .adm-th,
+:root[data-theme="high-contrast"] .adm-td {
+  background: #000 !important;
+  color: #fff !important;
+  border-color: #fff !important;
+}
+/* Belt-and-braces over the generic `button` rule above: forces PrimaryButton/
+   GhostButton/DangerButton to render pixel-identically to one another in HC
+   (DangerButton's `${t.accent}55` red border/text must not survive). */
+:root[data-theme="high-contrast"] .adm-btn {
+  background: #000 !important;
+  color: #fff !important;
+  border: 1px solid #fff !important;
+}
+:root[data-theme="high-contrast"] .adm-badge,
+:root[data-theme="high-contrast"] .adm-pill {
+  background: #000 !important;
+  color: #fff !important;
+  border: 1px solid #fff !important;
+}
+:root[data-theme="high-contrast"] .adm-banner {
+  background: #000 !important;
+  color: #fff !important;
+  border: 1px solid #fff !important;
+}
+/* .adm-tab buttons are real <button> elements with `border: "none"` inline
+   (Admin.tsx), so the generic `button` HC rule's border-color-only override
+   has nothing to colour — border-style stays "none" and no border renders.
+   Set style+width explicitly here (not just colour) so the inactive tabs get
+   a visible 1px rule; active tab keeps the same yellow-on-black treatment as
+   `.nav-item.is-active` above for consistency. */
+:root[data-theme="high-contrast"] .adm-tabs .adm-tab {
+  background: #000 !important;
+  color: #fff !important;
+  border-color: #fff !important;
+  border-style: solid !important;
+  border-width: 1px !important;
+}
+:root[data-theme="high-contrast"] .adm-tabs .adm-tab.is-active {
+  background: #FFD400 !important;
+  color: #000 !important;
+  border-color: #FFD400 !important;
+}
+/* Admin.tsx's tabpanel wrapper and VdiSection's review-queue panel both set an
+   inline `background: t.paper`/`t.themeBand`/gradient with no prior class
+   hook, so they painted over the forced-black canvas even with
+   `data-theme="high-contrast"` set (reported as "still seeing dark mode
+   background in the admin section despite contrast mode being enabled").
+   `.adm-panel` gives both a hook the HC overlay can reach. */
+:root[data-theme="high-contrast"] .adm-panel {
+  background: #000 !important;
+  background-image: none !important;
+  color: #fff !important;
+  border-color: #fff !important;
+}
+/* LockBadge's tooltip bubble (`.tip__bubble`, src/pages/admin/shared.tsx)
+   likewise carries an inline theme-coloured background with no HC hook.
+   General-purpose class (used outside Admin too), which is fine — tooltips
+   should be black-on-white-border in HC everywhere, not just in Admin. */
+:root[data-theme="high-contrast"] .tip__bubble {
+  background: #000 !important;
+  color: #fff !important;
+  border-color: #fff !important;
+}
+
+/* --- Alerts inline trend sparkline (src/alerts/AlertsPage.tsx AlertTrend) ---
+   Colours come from theme tokens (t.accent/t.inkSoft/t.inkFaint), which are
+   HC-safe for everything on this row EXCEPT the dashed threshold reference
+   line: darkTheme.inkFaint is rgba(244,241,235,0.16), and this row's ancestor
+   (.report__canvas) is forced to solid #000 in HC (see the bulk background
+   rule above) — at that low an alpha against true black the line computes to
+   only ~1.4:1 contrast, well under this theme's own 3:1 non-text bar. Push it
+   to solid white, and give the trend line/dot a colour clearly distinct from
+   both the white threshold line and each other's severities (breach vs warn
+   stays colour-only here, which is acceptable since the row already carries
+   a text severity label via severityLabelFor()). */
+:root[data-theme="high-contrast"] .alert-trend__threshold {
+  stroke: #fff !important;
+}
+:root[data-theme="high-contrast"] .alert-trend__series {
+  stroke: #00E5FF !important;
+  fill: #00E5FF !important;
+}
+:root[data-theme="high-contrast"] .alert-trend__series--breach {
+  stroke: #fff !important;
+  fill: #fff !important;
+}
+
 /* --- CVD-safe series dash patterns ------------------------------------------
    CSS overrides the SVG stroke-dasharray presentation attribute set inline in
    JSX; presentation attributes lose to any CSS rule, so no !important. */

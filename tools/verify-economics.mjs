@@ -39,8 +39,26 @@ const inForce = (history, date) => {
   for (const h of history) if (h.effectiveFrom <= date && (!best || h.effectiveFrom > best.effectiveFrom)) best = h;
   return best;
 };
-const gradeRate = (grade, date) => inForce(ref.gradeRates.filter((g) => g.grade === grade), date)?.hourlyCostGBP ?? 0;
-const vdiRate = (costClass, date) => inForce(ref.vdiCostHistory.filter((v) => v.costClass === costClass), date)?.annualCostPerVDIGBP ?? 0;
+// spoke-first resolution — byte-for-byte identical to economics.ts's
+// gradeRateOn/vdiClassRate and build-dashboard-data.mjs's gradeRate/vdiRate:
+// a rate row scoped to the matching spokeId wins over a universal
+// (spokeId-absent) row whenever both are in force, regardless of date.
+const gradeRate = (grade, spokeId, date) => {
+  const rows = ref.gradeRates.filter((g) => g.grade === grade);
+  const sid = spokeId != null ? String(spokeId) : null;
+  const spokeRows = sid != null ? rows.filter((g) => g.spokeId === sid) : [];
+  const viaSpoke = inForce(spokeRows, date);
+  if (viaSpoke) return viaSpoke.hourlyCostGBP;
+  return inForce(rows.filter((g) => g.spokeId == null), date)?.hourlyCostGBP ?? 0;
+};
+const vdiRate = (costClass, date, spokeId) => {
+  const rows = ref.vdiCostHistory.filter((v) => v.costClass === costClass);
+  const sid = spokeId != null ? String(spokeId) : null;
+  const spokeRows = sid != null ? rows.filter((v) => v.spokeId === sid) : [];
+  const viaSpoke = inForce(spokeRows, date);
+  if (viaSpoke) return viaSpoke.annualCostPerVDIGBP;
+  return inForce(rows.filter((v) => v.spokeId == null), date)?.annualCostPerVDIGBP ?? 0;
+};
 const peopleCostOn = (ownerId, date) => inForce(ref.peopleCostHistory.filter((p) => p.ownerId === ownerId), date)?.annualCostGBP ?? 0;
 
 // --- D3: VDI renewal / coverage-window algorithm (byte-for-byte identical to
@@ -64,7 +82,7 @@ function vdiDailyCost(vdi, dateISO) {
   const { start, end } = coverageWindow(vdi, cs);
   if (dateTs < start || dateTs >= end) return 0;
   const windowDays = Math.round((end - start) / DAY);
-  const annual = vdi.annualCostGBP ?? vdiRate(vdi.costClass, dateOnly(cs));
+  const annual = vdi.annualCostGBP ?? vdiRate(vdi.costClass, dateOnly(cs), vdi.spokeId);
   return windowDays > 0 ? annual / windowDays : 0;
 }
 
@@ -114,7 +132,11 @@ for (let ts = tsMin; ts <= tsMax; ts += DAY) {
   }
   const hubPerDay = teamAnnual / 365.25 + hubInfraPerDay;
   const totalWt = dayWt.get(date) ?? 0;
+  // D5 (spoke people cost): spoke pool/day = spoke VDI infra/day (s.perDay so
+  // far) + that spoke's OWN peopleCostHistory record-in-force/365.25 —
+  // mirrors build-dashboard-data.mjs/economics.ts exactly.
   for (const [sid, s] of spokes) {
+    s.perDay += peopleCostOn(String(sid), date) / 365.25;
     const spokeName = ref.spokes.find((sp) => sp.spokeId === sid)?.spokeName;
     const swt = spokeName ? spokeDayWt.get(`${spokeName}|${date}`) ?? 0 : 0;
     s.cps = swt ? s.perDay / swt : 0;
@@ -136,9 +158,9 @@ for (const r of model.dayRows) {
   const meta = procMeta.get(String(r.p));
   if (!meta) continue;
   const rd = rateByDate.get(r.d);
-  const hours = (r.c * meta.smvMinutes) / 60;
-  const benefit = hours * gradeRate(meta.grade, r.d);
   const spokeId = spokeIdByName.get(meta.spoke);
+  const hours = (r.c * meta.smvMinutes) / 60;
+  const benefit = hours * gradeRate(meta.grade, spokeId, r.d);
   const spokeCPS = spokeId != null ? rd.spokes.get(spokeId)?.cps ?? 0 : 0;
   const cost = r.w * (rd.hubCPS + spokeCPS);
   recomputedBenefit += benefit;
@@ -163,7 +185,8 @@ let recomputedExceptionCost = 0;
 for (const r of model.excRows) {
   const meta = procMeta.get(String(r.p));
   if (!meta) continue;
-  recomputedExceptionCost += r.n * (meta.smvMinutes / 60) * gradeRate(meta.grade, r.d);
+  const spokeId = spokeIdByName.get(meta.spoke);
+  recomputedExceptionCost += r.n * (meta.smvMinutes / 60) * gradeRate(meta.grade, spokeId, r.d);
 }
 
 const VW_EXCEPTION_COST_PATH = join(root, "public", "data", "views", "vw_ExceptionCost.json");

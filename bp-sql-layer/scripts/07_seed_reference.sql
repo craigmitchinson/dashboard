@@ -12,14 +12,20 @@
    that file is this script's JSON twin and drives the mock/demo pipeline.
    In particular, the RefPeopleCostHistory block below must stay an exact
    mirror of reference.json's peopleCostHistory[] array (same rows, same
-   values) — see PLAYBOOK.md section 4 for the sync loop.
+   values), and RefGrade/RefGradeSpoke must mirror reference.json's
+   grades[] array (same grade codes/names/spoke scope) — see PLAYBOOK.md
+   section 4 for the sync loop.
 
    This file is safe to re-run: it clears and repopulates the Ref tables
    and does NOT touch the fact table.
 
    HUB & SPOKE OWNERSHIP:
-     Hub owns:    RefSpoke, RefGradeRate (the rate card), RefVDICostHistory
-                  (per-class VDI £, universally true), RefEstateCostHistory
+     Hub owns:    RefSpoke, RefGrade/RefGradeSpoke (grade codes + spoke
+                  scope), RefGradeRate (the rate card — spoke-scoped
+                  override rows are proposed by a spoke but the rate card
+                  itself is hub-maintained), RefVDICostHistory (per-class
+                  VDI £, universal by default, spoke-scoped override rows
+                  possible), RefEstateCostHistory
                   (working assumptions; TeamAnnualCostGBP is schema-parity
                   only, see 03_core_dimensions.sql), RefPeopleCostHistory's
                   OwnerId='HUB' rows (the CoE team pool — the real source of
@@ -28,8 +34,8 @@
                   grade automated against), their RefQueueMap rows, their
                   RefResource rows (which VDIs the spoke pays for, plus each
                   VDI's renewal/coverage-window fields), and RefPeopleCostHistory's
-                  OwnerId=<spokeId> rows (informational only — never charged
-                  into estate economics).
+                  OwnerId=<spokeId> rows (CHARGED into estate economics as of
+                  D5 — feeds that spoke's pool/day alongside its VDI infra).
    ===================================================================== */
 USE BPAnalytics;
 GO
@@ -39,7 +45,9 @@ DELETE FROM core.RefQueueMap;
 DELETE FROM core.RefProcess;
 DELETE FROM core.RefProposition;
 DELETE FROM core.RefResource;
+DELETE FROM core.RefGradeSpoke; -- FKs to RefSpoke + RefGrade: delete before both
 DELETE FROM core.RefSpoke;
+DELETE FROM core.RefGrade;
 INSERT INTO core.RefSpoke (SpokeId, SpokeName, ShortName, ColorHexLight, ColorHexDark) VALUES
     (1, 'Insurance, Pensions & Investments', 'IP&I', '#2a78d6', '#3987e5'),
     (2, 'Risk',                              'RSK',  '#d29200', '#c98500'),
@@ -47,33 +55,61 @@ INSERT INTO core.RefSpoke (SpokeId, SpokeName, ShortName, ColorHexLight, ColorHe
     (4, 'Consumer Lending',                  'CLD',  '#006b00', '#008300');
 GO
 
+/* ---- Grade dimension + scope (hub-owned): which grade codes exist and
+        which spokes may select each one (empty junction rows = universal).
+        CL-SUP is the SCOPED-GRADE EXAMPLE: scoped to Consumer Lending only,
+        attached to no process, so it changes no number anywhere. KEEP IN
+        STEP with data/reference/reference.json's grades[] array. ---- */
+INSERT INTO core.RefGrade (GradeCode, GradeName) VALUES
+    ('OPS3', 'Ops Grade 3'),
+    ('SOPS', 'Senior Ops'),
+    ('PSPC', 'Pensions Specialist'),
+    ('PANL', 'Pensions Analyst'),
+    ('UWSP', 'Underwriting Support'),
+    ('IANL', 'Investment Analyst'),
+    ('KYCS', 'KYC Specialist'),
+    ('RANL', 'Risk Analyst'),
+    ('CUAS', 'Commercial Underwriting Assistant'),
+    ('FANL', 'Finance Analyst'),
+    ('LOPS', 'Lending Ops'),
+    ('CL-SUP', 'Consumer Lending Support');
+GO
+INSERT INTO core.RefGradeSpoke (GradeCode, SpokeId) VALUES
+    ('CL-SUP', 4); -- Consumer Lending only; every other grade above has no row here (universal)
+GO
+
 /* ---- Grade rate card: date-effective £/h per grade (hub-owned).
         Benefit is valued at the rate in force on each item's outcome date.
-        The 2026-04-01 rows model a pay review: history keeps the old rate. ---- */
+        The 2026-04-01 rows model a pay review: history keeps the old rate.
+        SpokeId NULL on every row below = universal (no spoke-scoped rate
+        override seeded yet); CL-SUP's single row is likewise universal —
+        only its GRADE is spoke-scoped (via RefGradeSpoke above), not its
+        rate. ---- */
 DELETE FROM core.RefGradeRate;
-INSERT INTO core.RefGradeRate (GradeCode, GradeName, EffectiveFrom, HourlyCostGBP) VALUES
-    ('OPS3', 'Ops Grade 3',          '2023-01-01', 28.00),
-    ('OPS3', 'Ops Grade 3',          '2026-04-01', 29.00),
-    ('SOPS', 'Senior Ops',           '2023-01-01', 32.00),
-    ('SOPS', 'Senior Ops',           '2026-04-01', 33.20),
-    ('PSPC', 'Pensions Specialist',  '2023-01-01', 38.00),
-    ('PSPC', 'Pensions Specialist',  '2026-04-01', 39.40),
-    ('PANL', 'Pensions Analyst',     '2023-01-01', 30.00),
-    ('PANL', 'Pensions Analyst',     '2026-04-01', 31.10),
-    ('UWSP', 'Underwriting Support', '2023-01-01', 42.00),
-    ('UWSP', 'Underwriting Support', '2026-04-01', 43.50),
-    ('IANL', 'Investment Analyst',   '2023-01-01', 36.00),
-    ('IANL', 'Investment Analyst',   '2026-04-01', 37.30),
-    ('KYCS', 'KYC Specialist',       '2023-01-01', 40.00),
-    ('KYCS', 'KYC Specialist',       '2026-04-01', 41.40),
-    ('RANL', 'Risk Analyst',         '2023-01-01', 34.00),
-    ('RANL', 'Risk Analyst',         '2026-04-01', 35.20),
-    ('CUAS', 'Commercial Underwriting Assistant', '2023-01-01', 36.00),
-    ('CUAS', 'Commercial Underwriting Assistant', '2026-04-01', 37.30),
-    ('FANL', 'Finance Analyst',      '2023-01-01', 32.00),
-    ('FANL', 'Finance Analyst',      '2026-04-01', 33.10),
-    ('LOPS', 'Lending Ops',          '2023-01-01', 27.00),
-    ('LOPS', 'Lending Ops',          '2026-04-01', 28.00);
+INSERT INTO core.RefGradeRate (GradeCode, GradeName, EffectiveFrom, HourlyCostGBP, SpokeId) VALUES
+    ('OPS3', 'Ops Grade 3',          '2023-01-01', 28.00, NULL),
+    ('OPS3', 'Ops Grade 3',          '2026-04-01', 29.00, NULL),
+    ('SOPS', 'Senior Ops',           '2023-01-01', 32.00, NULL),
+    ('SOPS', 'Senior Ops',           '2026-04-01', 33.20, NULL),
+    ('PSPC', 'Pensions Specialist',  '2023-01-01', 38.00, NULL),
+    ('PSPC', 'Pensions Specialist',  '2026-04-01', 39.40, NULL),
+    ('PANL', 'Pensions Analyst',     '2023-01-01', 30.00, NULL),
+    ('PANL', 'Pensions Analyst',     '2026-04-01', 31.10, NULL),
+    ('UWSP', 'Underwriting Support', '2023-01-01', 42.00, NULL),
+    ('UWSP', 'Underwriting Support', '2026-04-01', 43.50, NULL),
+    ('IANL', 'Investment Analyst',   '2023-01-01', 36.00, NULL),
+    ('IANL', 'Investment Analyst',   '2026-04-01', 37.30, NULL),
+    ('KYCS', 'KYC Specialist',       '2023-01-01', 40.00, NULL),
+    ('KYCS', 'KYC Specialist',       '2026-04-01', 41.40, NULL),
+    ('RANL', 'Risk Analyst',         '2023-01-01', 34.00, NULL),
+    ('RANL', 'Risk Analyst',         '2026-04-01', 35.20, NULL),
+    ('CUAS', 'Commercial Underwriting Assistant', '2023-01-01', 36.00, NULL),
+    ('CUAS', 'Commercial Underwriting Assistant', '2026-04-01', 37.30, NULL),
+    ('FANL', 'Finance Analyst',      '2023-01-01', 32.00, NULL),
+    ('FANL', 'Finance Analyst',      '2026-04-01', 33.10, NULL),
+    ('LOPS', 'Lending Ops',          '2023-01-01', 27.00, NULL),
+    ('LOPS', 'Lending Ops',          '2026-04-01', 28.00, NULL),
+    ('CL-SUP', 'Consumer Lending Support', '2023-01-01', 26.00, NULL);
 GO
 
 /* ---- Propositions: the business areas, each owned by a spoke ---- */
@@ -158,14 +194,17 @@ INSERT INTO core.RefResource
     ('VDI-RPA-TEST-01', 'BOT-TEST-01', 'BT01', 'VDI-RPA-TEST-01', 'test', NULL, '2023-01-01', NULL,         'Hub-owned test machine', 1, '2023-01-01', NULL,  NULL,         'active');
 GO
 
-/* ---- Per-VDI annual cost by class, date-effective (hub-set, universal).
-        Prod and test rates, with an example uplift from mid-2025. ---- */
+/* ---- Per-VDI annual cost by class, date-effective (hub-set, universal by
+        default). Prod and test rates, with an example uplift from mid-2025.
+        SpokeId NULL on every row = universal (no spoke-scoped class-rate
+        override seeded yet — see RefVDICostHistory's comment in
+        03_core_dimensions.sql for the mechanism). ---- */
 DELETE FROM core.RefVDICostHistory;
-INSERT INTO core.RefVDICostHistory (CostClass, EffectiveFrom, AnnualCostPerVDIGBP) VALUES
-    ('prod', '2023-01-01', 9000.00),
-    ('prod', '2025-07-01', 9600.00),
-    ('test', '2023-01-01', 6000.00),
-    ('test', '2025-07-01', 6400.00);
+INSERT INTO core.RefVDICostHistory (CostClass, EffectiveFrom, AnnualCostPerVDIGBP, SpokeId) VALUES
+    ('prod', '2023-01-01', 9000.00, NULL),
+    ('prod', '2025-07-01', 9600.00, NULL),
+    ('test', '2023-01-01', 6000.00, NULL),
+    ('test', '2025-07-01', 6400.00, NULL);
 GO
 
 /* ---- Working assumptions (+ TeamAnnualCostGBP, schema parity only — see
@@ -185,9 +224,11 @@ GO
         RefEstateCostHistory's two figures above exactly (14 people /
         £780,000 from 2023-01-01, then 16 / £860,000 from 2025-04-01), since
         both describe the same headcount growth event. OwnerId=<spokeId> rows
-        are informational only (a spoke's own reporting) and are never wired
-        into any cost view — spokes are charged for VDI infra only. KEEP IN
-        STEP with data/reference/reference.json's peopleCostHistory[]. ---- */
+        are CHARGED into estate economics as of D5 — wired into
+        report.vw_SpokeInfraRateByDate, feeding that spoke's pool/day
+        alongside its VDI infra (spokes are no longer charged for VDI infra
+        only). KEEP IN STEP with data/reference/reference.json's
+        peopleCostHistory[]. ---- */
 DELETE FROM core.RefPeopleCostHistory;
 INSERT INTO core.RefPeopleCostHistory (OwnerId, Headcount, AnnualCostGBP, EffectiveFrom, Note) VALUES
     ('HUB', 14, 780000.00, '2023-01-01', 'Hub CoE team run-rate — SOLE source of truth for hub people cost in the cost engine. Mirrors estateCostHistory''s 2023-01-01 figure exactly.'),

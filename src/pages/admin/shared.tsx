@@ -180,7 +180,7 @@ export function inputStyle(t: ReturnType<typeof useTheme>, extra?: CSSProperties
 export function Field({ id, label, children, hint, width }: { id: string; label: string; children: ReactNode; hint?: string; width?: number }) {
   const t = useTheme();
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4, width, minWidth: 0 }}>
+    <div className="adm-field" style={{ display: "flex", flexDirection: "column", gap: 4, width, minWidth: 0 }}>
       <label htmlFor={id} style={{ fontFamily: fonts.mono, fontSize: 10, letterSpacing: "0.06em", textTransform: "uppercase", color: t.inkSoft, fontWeight: 700 }}>
         {label}
       </label>
@@ -230,7 +230,7 @@ const baseBtn: CSSProperties = {
 export function PrimaryButton({ children, onClick, disabled, type = "button" }: { children: ReactNode; onClick?: () => void; disabled?: boolean; type?: "button" | "submit" }) {
   const t = useTheme();
   return (
-    <button type={type} onClick={onClick} disabled={disabled} style={{ ...baseBtn, background: t.accentFill, color: "#fff", opacity: disabled ? 0.55 : 1, cursor: disabled ? "default" : "pointer" }}>
+    <button type={type} onClick={onClick} disabled={disabled} className="adm-btn adm-btn--primary" style={{ ...baseBtn, background: t.accentFill, color: "#fff", opacity: disabled ? 0.55 : 1, cursor: disabled ? "default" : "pointer" }}>
       {children}
     </button>
   );
@@ -239,7 +239,7 @@ export function PrimaryButton({ children, onClick, disabled, type = "button" }: 
 export function GhostButton({ children, onClick, disabled, title }: { children: ReactNode; onClick?: () => void; disabled?: boolean; title?: string }) {
   const t = useTheme();
   return (
-    <button type="button" onClick={onClick} disabled={disabled} title={title} style={{ ...baseBtn, background: "transparent", color: t.ink, border: `1px solid ${t.ruleSoft}`, opacity: disabled ? 0.5 : 1, cursor: disabled ? "default" : "pointer" }}>
+    <button type="button" onClick={onClick} disabled={disabled} title={title} className="adm-btn adm-btn--ghost" style={{ ...baseBtn, background: "transparent", color: t.ink, border: `1px solid ${t.ruleSoft}`, opacity: disabled ? 0.5 : 1, cursor: disabled ? "default" : "pointer" }}>
       {children}
     </button>
   );
@@ -248,7 +248,7 @@ export function GhostButton({ children, onClick, disabled, title }: { children: 
 export function DangerButton({ children, onClick, disabled, title }: { children: ReactNode; onClick?: () => void; disabled?: boolean; title?: string }) {
   const t = useTheme();
   return (
-    <button type="button" onClick={onClick} disabled={disabled} title={title} style={{ ...baseBtn, background: "transparent", color: t.accent, border: `1px solid ${t.accent}55`, opacity: disabled ? 0.5 : 1, cursor: disabled ? "default" : "pointer" }}>
+    <button type="button" onClick={onClick} disabled={disabled} title={title} className="adm-btn adm-btn--danger" style={{ ...baseBtn, background: "transparent", color: t.accent, border: `1px solid ${t.accent}55`, opacity: disabled ? 0.5 : 1, cursor: disabled ? "default" : "pointer" }}>
       {children}
     </button>
   );
@@ -259,7 +259,7 @@ export function DangerButton({ children, onClick, disabled, title }: { children:
 export function LockBadge({ reason }: { reason: string }) {
   const t = useTheme();
   return (
-    <span className="tip" tabIndex={0} style={{ color: t.inkSoft, cursor: "help" }}>
+    <span className="tip adm-badge adm-badge--lock" tabIndex={0} style={{ color: t.inkSoft, cursor: "help" }}>
       <IconLock size={14} />
       <span className="tip__bubble" role="tooltip" style={{ background: t.paper, border: `1px solid ${t.ruleSoft}`, borderRadius: 8, boxShadow: t.shadow, padding: "8px 10px", fontFamily: fonts.body, fontSize: 11.5, color: t.ink, lineHeight: 1.4 }}>
         {reason}
@@ -275,7 +275,7 @@ export const LOCK_REASON = "Locked — past records are never rewritten because 
 export function Table({ children }: { children: ReactNode }) {
   const t = useTheme();
   return (
-    <div style={{ overflow: "auto", border: `1px solid ${t.ruleSoft}`, borderRadius: 9 }}>
+    <div className="adm-table" style={{ overflow: "auto", border: `1px solid ${t.ruleSoft}`, borderRadius: 9 }}>
       <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: fonts.body }}>{children}</table>
     </div>
   );
@@ -284,7 +284,7 @@ export function Table({ children }: { children: ReactNode }) {
 export function Th({ children, align, width }: { children: ReactNode; align?: "left" | "right" | "center"; width?: number }) {
   const t = useTheme();
   return (
-    <th style={{ position: "sticky", top: 0, background: t.paper, textAlign: align ?? "left", padding: "8px 10px", fontFamily: fonts.mono, fontSize: 10, letterSpacing: "0.05em", textTransform: "uppercase", color: t.inkSoft, fontWeight: 700, borderBottom: `1px solid ${t.ruleSoft}`, whiteSpace: "nowrap", width }}>
+    <th className="adm-th" style={{ position: "sticky", top: 0, background: t.paper, textAlign: align ?? "left", padding: "8px 10px", fontFamily: fonts.mono, fontSize: 10, letterSpacing: "0.05em", textTransform: "uppercase", color: t.inkSoft, fontWeight: 700, borderBottom: `1px solid ${t.ruleSoft}`, whiteSpace: "nowrap", width }}>
       {children}
     </th>
   );
@@ -293,7 +293,7 @@ export function Th({ children, align, width }: { children: ReactNode; align?: "l
 export function Td({ children, align, muted }: { children: ReactNode; align?: "left" | "right" | "center"; muted?: boolean }) {
   const t = useTheme();
   return (
-    <td style={{ textAlign: align ?? "left", padding: "7px 10px", fontSize: 12.5, color: muted ? t.inkSoft : t.ink, borderBottom: `1px solid ${t.ruleSoft}`, verticalAlign: "middle" }}>
+    <td className="adm-td" style={{ textAlign: align ?? "left", padding: "7px 10px", fontSize: 12.5, color: muted ? t.inkSoft : t.ink, borderBottom: `1px solid ${t.ruleSoft}`, verticalAlign: "middle" }}>
       {children}
     </td>
   );
@@ -315,7 +315,7 @@ export function EmptyRow({ colSpan, children }: { colSpan: number; children: str
 export function ErrorBanner({ children }: { children: ReactNode }) {
   const t = useTheme();
   return (
-    <div role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 14px", borderRadius: 10, border: `1px solid ${t.accent}`, background: `${t.accent}14`, color: t.ink, fontFamily: fonts.body, fontSize: 13 }}>
+    <div role="alert" className="adm-banner adm-banner--error" style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 14px", borderRadius: 10, border: `1px solid ${t.accent}`, background: `${t.accent}14`, color: t.ink, fontFamily: fonts.body, fontSize: 13 }}>
       <strong style={{ color: t.accent, flex: "0 0 auto" }}>⚠</strong>
       <span>{children}</span>
     </div>
@@ -325,7 +325,7 @@ export function ErrorBanner({ children }: { children: ReactNode }) {
 export function InfoBanner({ children }: { children: ReactNode }) {
   const t = useTheme();
   return (
-    <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 14px", borderRadius: 10, border: `1px solid ${t.ruleSoft}`, background: t.themeBand, color: t.inkSoft, fontFamily: fonts.body, fontSize: 12.5, lineHeight: 1.5 }}>
+    <div className="adm-banner adm-banner--info" style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 14px", borderRadius: 10, border: `1px solid ${t.ruleSoft}`, background: t.themeBand, color: t.inkSoft, fontFamily: fonts.body, fontSize: 12.5, lineHeight: 1.5 }}>
       <span>{children}</span>
     </div>
   );
@@ -364,7 +364,7 @@ export function useSectionSave(update: UpdateFn, actor: string) {
 
 export function SavedPill({ text }: { text: string }) {
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: fonts.mono, fontSize: 11, fontWeight: 700, color: "#2E9E5B", background: "#2E9E5B1a", border: "1px solid #2E9E5B55", padding: "4px 10px", borderRadius: 20 }} role="status">
+    <span className="adm-pill" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: fonts.mono, fontSize: 11, fontWeight: 700, color: "#2E9E5B", background: "#2E9E5B1a", border: "1px solid #2E9E5B55", padding: "4px 10px", borderRadius: 20 }} role="status">
     <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#2E9E5B" }} />
       {text}
     </span>

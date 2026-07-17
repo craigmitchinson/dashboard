@@ -17,6 +17,7 @@ import {
   fmtPct,
   fmtGBP,
   fmtMoney2,
+  StackedShareTrend,
 } from "../components/viz";
 
 export function Overview() {
@@ -72,18 +73,12 @@ export function Overview() {
           />
         </VisualCard>
 
-        <VisualCard title="Outcome mix" subtitle={`${fmtInt(m.attempts)} cases attempted`}>
-          {/* Content (bar + legend rows + footer) is inherently short next to
-              the line chart it sits beside, which previously left a large
-              empty void below the footer at tall viewports — the card's
-              content area (VisualCard's own flex:1 wrapper) always stretched
-              to the row's full height, but this inner div never grew to
-              claim it, just top-aligned its own natural height. flex:1 here
-              lets it fill that height, and justify-content:space-between
-              spaces the three logical groups (bar / legend rows / footer)
-              out across it so the card reads as deliberately composed at any
-              height instead of leaving dead space at the bottom. */}
-          <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, justifyContent: "space-between", paddingTop: 6 }}>
+        <VisualCard
+          title="Outcome mix"
+          subtitle={`${fmtInt(m.attempts)} cases attempted`}
+          summary={`${fmtInt(m.completed)} completed (${fmtPct(m.completed / mixTotal, 1)}), ${fmtInt(m.business)} business exceptions, ${fmtInt(m.system)} system exceptions, out of ${fmtInt(mixTotal)} attempted this period. Estate cost ${fmtGBP(m.automationCost)}.`}
+        >
+          <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, gap: 10, paddingTop: 6 }}>
             <div style={{ display: "flex", height: 26, borderRadius: 7, overflow: "hidden", gap: 2, flex: "0 0 auto" }}>
               {outcomeMix.map((o) => (
                 <div key={o.label} title={`${o.label} · ${fmtInt(o.value)}`} style={{ width: `${(o.value / mixTotal) * 100}%`, background: o.color, minWidth: 2 }} />
@@ -98,6 +93,16 @@ export function Overview() {
                   <span style={{ width: 52, textAlign: "right", fontFamily: fonts.mono, fontSize: 12, color: t.inkSoft }}>{fmtPct(o.value / mixTotal, 1)}</span>
                 </div>
               ))}
+            </div>
+            <div style={{ flex: 1, minHeight: 56, display: "flex", flexDirection: "column", gap: 4 }}>
+              <StackedShareTrend
+                labels={labels}
+                series={[
+                  { name: "Completed", color: v.completed, values: m.daily.map((d) => d.completed) },
+                  { name: "Business exception", color: v.business, values: m.daily.map((d) => d.business) },
+                  { name: "System exception", color: v.system, values: m.daily.map((d) => d.system) },
+                ]}
+              />
             </div>
             <div style={{ paddingTop: 12, borderTop: `1px solid ${t.ruleSoft}`, display: "flex", justifyContent: "space-between", fontFamily: fonts.body, fontSize: 13, color: t.inkSoft, flex: "0 0 auto" }}>
               <span>Estate cost (period, apportioned)</span>

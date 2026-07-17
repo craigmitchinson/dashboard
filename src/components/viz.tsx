@@ -502,6 +502,58 @@ function Tooltip({ x, chartW, title, rows }: { x: number; chartW: number; title:
   );
 }
 
+// --- stacked share trend (100%-stacked daily bar strip) --------------------
+export interface StackTrendSeries {
+  name: string;
+  color: string;
+  values: number[]; // parallel to `labels`, same length
+}
+export function StackedShareTrend({
+  labels,
+  series,
+  height,
+}: {
+  labels: string[];
+  series: StackTrendSeries[];
+  height?: number;
+}) {
+  const [ref, size] = useSize();
+  const w = size.w;
+  const H = height ?? size.h;
+  const n = labels.length;
+  if (n === 0) return <div ref={ref} style={{ width: "100%", height: height ?? "100%" }} />;
+  const gap = 1.5;
+  const barW = Math.max(1, w / n - gap);
+  return (
+    <div ref={ref} style={{ width: "100%", height: height ?? "100%", minHeight: 0 }}>
+      {w > 0 && H > 0 && (
+        <svg width={w} height={H} aria-hidden="true" focusable="false" style={{ display: "block" }}>
+          {labels.map((label, i) => {
+            const total = series.reduce((s, ser) => s + (ser.values[i] || 0), 0) || 1;
+            let cursor = H;
+            const x = i * (w / n) + gap / 2;
+            return (
+              <g key={label}>
+                {series.map((ser) => {
+                  const val = ser.values[i] || 0;
+                  const segH = (val / total) * H;
+                  const y = cursor - segH;
+                  cursor -= segH;
+                  return (
+                    <rect key={ser.name} x={x} y={y} width={barW} height={Math.max(0, segH)} fill={ser.color}>
+                      <title>{`${label} — ${ser.name}: ${val.toLocaleString("en-GB")} (${((val / total) * 100).toFixed(1)}%)`}</title>
+                    </rect>
+                  );
+                })}
+              </g>
+            );
+          })}
+        </svg>
+      )}
+    </div>
+  );
+}
+
 // --- horizontal bar chart --------------------------------------------------
 export function HBarChart({
   rows,

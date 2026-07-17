@@ -72,7 +72,7 @@ export function PeopleCostsSection({ reference, update, actor, can }: SectionPro
     <div>
       <SectionTitle
         title="People costs"
-        helper="The CoE team's run-rate (owner 'HUB') is the only people cost that feeds the economics engine — it becomes the hub pool £/day, apportioned across all automated work by bot worktime. Each spoke's own people cost is recorded here for reference only; it is never charged into estate cost."
+        helper="Both the CoE team's run-rate (owner 'HUB') and each spoke's own people-cost record feed the economics engine: HUB's run-rate becomes the hub pool £/day, while a spoke's own record becomes THAT SPOKE's pool £/day (annual cost ÷ 365.25), apportioned within the spoke by bot worktime — the same mechanism used for VDI infra cost. Enter ONLY the squad's own automation delivery/support headcount and cost here (the people who build, run and support the bots) — do NOT enter the headcount or cost of the business team whose work is being automated. That side of the ledger is already captured as benefit, valued via SMV × grade rate; entering the business team's cost here would double-count effort that's already measured as time saved on the benefit side."
       />
 
       <Field id="pc-owner" label="Owner" width={280}>

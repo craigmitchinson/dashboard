@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-16T21:10:01.243Z",
+  "generatedAt": "2026-07-17T13:24:26.991Z",
   "source": "data/mock/BPAWorkQueueItem.csv",
   "sourceRows": 231660,
   "window": [
@@ -8,7 +8,7 @@
   ],
   "views": {
     "vw_DimSpoke": 4,
-    "vw_DimGradeRate": 22,
+    "vw_DimGradeRate": 23,
     "vw_DimProcess": 14,
     "vw_DimResource": 12,
     "vw_EstateRateByDate": 560,

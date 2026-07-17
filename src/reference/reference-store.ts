@@ -21,6 +21,37 @@ export interface GradeRateRef {
   gradeName: string;
   effectiveFrom: string;
   hourlyCostGBP: number;
+  // Scopes THIS RATE ROW to one spoke — absent/undefined = universal (applies
+  // to every spoke automating against this grade). Stored as a spokeId AS A
+  // STRING, same convention as PeopleCostHistoryRef.ownerId (below) so the two
+  // "spoke identity as a string" fields in this file read the same way.
+  // RESOLUTION (see gradeRateOn in economics.ts / gradeRate in
+  // build-dashboard-data.mjs / 08_report_views.sql — all three MUST stay in
+  // step): for (grade, processSpoke, day), take the row with the latest
+  // effectiveFrom <= day among rows whose spokeId matches processSpoke; if
+  // none, fall back to the latest effectiveFrom <= day among rows with no
+  // spokeId (universal). A spoke-scoped row always wins over a universal row
+  // when both are in force, regardless of which has the later effectiveFrom.
+  spokeId?: string;
+}
+
+// A grade CODE's identity + which spokes may select it at all (scope, not
+// rate). spokeIds is a list of spokeId-AS-STRING values (see GradeRateRef.spokeId
+// above); an EMPTY array means universal — every spoke may use this grade.
+// This is deliberately a SEPARATE scoping axis from GradeRateRef.spokeId:
+// `grades[]` says who may automate against a grade at all (e.g. an admin
+// picker for a process's grade field should only offer grades whose spokeIds
+// is [] or includes that process's own spoke); GradeRateRef.spokeId says
+// whether one specific dated RATE ROW for that grade is a universal figure or
+// a spoke-specific override. gradeName is the canonical source of a grade's
+// display name going forward; GradeRateRef.gradeName is retained on every
+// rate row for BACK-COMPAT READS (older code / a stale rate row read in
+// isolation still has a usable name) and is kept mirrored to the matching
+// grades[] entry — see gradeNameOf() below for the resolution order.
+export interface GradeRef {
+  grade: string;
+  gradeName: string;
+  spokeIds: string[];
 }
 
 export interface PropositionRef {
@@ -82,6 +113,14 @@ export interface VdiCostHistoryRef {
   costClass: string;
   effectiveFrom: string;
   annualCostPerVDIGBP: number;
+  // Scopes THIS CLASS-RATE ROW to one spoke — absent/undefined = universal.
+  // Same spokeId-as-string convention and resolution order as
+  // GradeRateRef.spokeId above: for (costClass, vdiSpoke, day), the row with
+  // the latest effectiveFrom <= day among vdiSpoke-matching rows wins; else
+  // the latest effectiveFrom <= day among spokeId-absent (universal) rows.
+  // Resolved inside vdiDailyCost/report.fn_VdiDailyCost at the VDI's own
+  // coverage-cycle-start date, exactly like the unscoped case.
+  spokeId?: string;
 }
 
 // teamAnnualCostGBP is retained for schema parity with bp-sql-layer's
@@ -97,9 +136,13 @@ export interface EstateCostHistoryRef {
   note?: string;
 }
 
-// ownerId = "HUB" (the sole source of truth for the hub's people run-rate used
-// in cost calculation) or a spokeId as a STRING (informational only — spoke
-// people cost is never charged into the estate economics, only spoke infra is).
+// ownerId = "HUB" (the sole source of truth for the HUB's people run-rate
+// used in cost calculation) or a spokeId as a STRING. AS OF D5 (spoke people
+// cost), a spoke's own OwnerId=<spokeId> record IS charged into estate
+// economics: it feeds that spoke's pool/day (spoke VDI infra + this record's
+// AnnualCostGBP-in-force/365.25), apportioned within the spoke by worktime
+// exactly like infra — see buildRateTables in economics.ts. It is NOT
+// informational-only any more; do not describe it that way in UI copy.
 export interface PeopleCostHistoryRef {
   ownerId: string;
   headcount: number;
@@ -121,6 +164,25 @@ export interface TargetsRef {
   costPerCase: number;
   utilMin: number;
   utilMax: number;
+  // VDI ACTIVITY MONITORING (D6 — not a rate/£ target like the six above, but
+  // deliberately kept in `targets` rather than a separate top-level object:
+  // it's app-side config that resolves through the same resolveThreshold()
+  // helper as every other TargetsRef field). Like utilMin/utilMax, this
+  // metric only supports SPOKE-scoped overrides — resolveThreshold(reference,
+  // "vdiStaleDays", "spoke", spokeName) — consumed by src/alerts/engine.ts's
+  // staleVdi evaluation and VdiSection.tsx's review queue. It does NOT
+  // support PROCESS-scoped overrides: VDIs aren't process-owned the way rate
+  // metrics are, so a process-scoped vdiStaleDays row would have nothing to
+  // attach to and is never evaluated (ThresholdsSection.tsx's process-scope
+  // metric picker excludes it for the same reason it excludes utilMin/
+  // utilMax; any pre-existing process-scoped row is flagged "not evaluated"
+  // in that section's override list rather than silently ignored). A VDI
+  // whose activity (rpaData.ts's RESOURCE_ACTIVITY) has gone quiet for MORE
+  // than the resolved threshold's days (and whose status isn't "retired")
+  // gets a "staleVdi" alert. Default 14 if a reference.json predates this
+  // field (tools/build-dashboard-data.mjs applies the same default when
+  // emitting model.json's targets, so the two stay in step).
+  vdiStaleDays: number;
 }
 
 // Per-spoke or per-process override of one global target metric. Resolution
@@ -142,6 +204,14 @@ export interface ThresholdOverrideRef {
 export interface ReferenceJson {
   _comment?: string[];
   spokes: SpokeRef[];
+  // Grade identity + scope (which spokes may select each grade at all). See
+  // GradeRef's comment above for how this differs from GradeRateRef.spokeId.
+  // Required as of SCHEMA_VERSION 3 (see the bump comment below) — a stale
+  // pre-scoped-grades overlay is dropped by loadOverlay() rather than read
+  // with this field missing. gradeNameOf() below still defends defensively
+  // (`reference.grades ?? []`) against the base reference.json itself ever
+  // being incomplete mid-edit, but callers should not need to.
+  grades: GradeRef[];
   gradeRates: GradeRateRef[];
   propositions: PropositionRef[];
   processes: ProcessRef[];
@@ -187,7 +257,18 @@ export const BP_REFERENCE_STORAGE_KEY = "bp-reference-v1";
 // wipe every user's existing local reference edits on their next load, which
 // is exactly what SCHEMA_VERSION bumps are supposed to avoid doing
 // unnecessarily.
-export const SCHEMA_VERSION = 2;
+// Bumped to 3 for scoped grades + VDI class-rate spoke overrides: `grades`
+// is a new REQUIRED field (a stale overlay that predates it has no grades[]
+// at all — not an optional-field gap like thresholdOverrides above, so it
+// can't be safely defaulted the same way; every consumer of resolveGradeRate/
+// gradeNameOf assumes `reference.grades` exists) and both GradeRateRef and
+// VdiCostHistoryRef gained an optional `spokeId` (additive on existing rows,
+// but the resolution CODE now expects to be able to read it, so a rate
+// engine built against the pre-bump shape would silently resolve every rate
+// as universal even where a spoke override was intended — worth invalidating
+// stale overlays for). Bumping bumps by DROPPING old overlays cleanly (see
+// loadOverlay()), never by attempting a migration.
+export const SCHEMA_VERSION = 3;
 
 export interface ChangelogEntry {
   ts: string; // ISO timestamp
@@ -277,6 +358,57 @@ export function spokeOfProcess(reference: ReferenceJson, processId: string): str
   return reference.spokes.find((s) => s.spokeId === prop.spokeId)?.spokeName;
 }
 
+// --- scoped grades / VDI class-rate spoke overrides ---------------------------
+
+/** A spoke NAME resolved to its spokeId-AS-A-STRING, matching the convention
+ *  GradeRateRef.spokeId / VdiCostHistoryRef.spokeId / PeopleCostHistoryRef.ownerId
+ *  all use. undefined in, undefined out (no spoke to resolve against, e.g. a
+ *  hub-owned VDI or an estate-scope caller). */
+export function spokeIdStringOf(reference: ReferenceJson, spokeName: string | undefined | null): string | undefined {
+  if (spokeName == null) return undefined;
+  const s = reference.spokes.find((sp) => sp.spokeName === spokeName);
+  return s ? String(s.spokeId) : undefined;
+}
+
+/**
+ * Canonical grade display name: reads `reference.grades` first (the source
+ * of truth as of SCHEMA_VERSION 3), falling back to the first matching
+ * `gradeRates` row's own `gradeName` for BACK-COMPAT (a reference object
+ * built before this file existed, or a defensive read if `grades` is
+ * unexpectedly empty), and finally to the grade code itself so this never
+ * returns undefined/empty.
+ */
+export function gradeNameOf(reference: ReferenceJson, grade: string): string {
+  return (
+    (reference.grades ?? []).find((g) => g.grade === grade)?.gradeName ??
+    reference.gradeRates.find((g) => g.grade === grade)?.gradeName ??
+    grade
+  );
+}
+
+/**
+ * Grades a given spoke NAME may be assigned to a process (see GradeRef's
+ * comment on reference-store.ts's GradeRef for why this is a separate axis
+ * from GradeRateRef.spokeId's rate-override scoping): a grade with an empty
+ * spokeIds is universal (every spoke may use it); otherwise the spoke's own
+ * spokeId-as-string must appear in it. Falls back to "every known grade code
+ * is universal" when `reference.grades` is empty/absent (defensive; see
+ * gradeNameOf above) so this never returns an empty list purely because the
+ * scope dimension hasn't been populated.
+ */
+export function gradesInScopeForSpoke(reference: ReferenceJson, spokeName: string | undefined | null): GradeRef[] {
+  const sid = spokeIdStringOf(reference, spokeName);
+  const known = reference.grades ?? [];
+  if (known.length === 0) {
+    // no grades[] dimension at all — derive a fully-universal list from
+    // gradeRates so callers still get every grade code that's actually used.
+    const codes = new Map<string, string>();
+    for (const g of reference.gradeRates) if (!codes.has(g.grade)) codes.set(g.grade, g.gradeName);
+    return [...codes.entries()].map(([grade, gradeName]) => ({ grade, gradeName, spokeIds: [] }));
+  }
+  return known.filter((g) => g.spokeIds.length === 0 || (sid != null && g.spokeIds.includes(sid)));
+}
+
 /**
  * Resolves the effective threshold value for `metric` at a given scope, applying
  * the precedence: an override matching exactly this scope+scopeId+metric wins;
@@ -332,7 +464,9 @@ function insertStatement(table: string, columns: string[], rows: string[][]): st
  * DELETE-then-INSERT per table) avoids violating FK constraints when this
  * script is re-run against an already-seeded database. Column naming/casing
  * matches 07_seed_reference.sql exactly. core.RefPeopleCostHistory and
- * RefResource's RenewalDate/AnnualCostGBP/LicenseExpiryDate/Status columns
+ * RefResource's RenewalDate/AnnualCostGBP/LicenseExpiryDate/Status columns,
+ * plus core.RefGrade/core.RefGradeSpoke (scoped-grade dimension + junction)
+ * and RefGradeRate/RefVDICostHistory's SpokeId columns (scoped rate rows),
  * are defined in bp-sql-layer/scripts/03_core_dimensions.sql and seeded in
  * 07_seed_reference.sql — keep this function's column lists in step with
  * those if either side changes.
@@ -341,10 +475,13 @@ export function exportReferenceSql(reference: ReferenceJson): string {
   const parts: string[] = [
     "/* Generated by the dashboard's reference-data editor.\n" +
       "   Ordering guarantee: ALL deletes run first, in child-first FK order\n" +
-      "   (RefQueueMap -> RefProcess -> RefProposition -> RefResource -> RefSpoke,\n" +
-      "   then the FK-independent tables); ALL inserts run after, in parent-first\n" +
-      "   order — matching bp-sql-layer/scripts/07_seed_reference.sql's proven\n" +
-      "   pattern. Safe to re-run against an already-seeded database. */",
+      "   (RefQueueMap -> RefProcess -> RefProposition -> RefResource ->\n" +
+      "   RefGradeSpoke -> RefSpoke -> RefGrade, then the FK-independent tables);\n" +
+      "   ALL inserts run after, in parent-first order — matching\n" +
+      "   bp-sql-layer/scripts/07_seed_reference.sql's proven pattern. RefGradeSpoke\n" +
+      "   deletes before BOTH RefSpoke and RefGrade (it FKs to both); RefGradeSpoke\n" +
+      "   inserts after BOTH (see 03_core_dimensions.sql's constraints). Safe to\n" +
+      "   re-run against an already-seeded database. */",
     "USE BPAnalytics;",
     "GO",
     "",
@@ -353,7 +490,9 @@ export function exportReferenceSql(reference: ReferenceJson): string {
     deleteStatement("RefProcess"),
     deleteStatement("RefProposition"),
     deleteStatement("RefResource"),
+    deleteStatement("RefGradeSpoke"), // FKs to RefSpoke + RefGrade — must delete before both
     deleteStatement("RefSpoke"),
+    deleteStatement("RefGrade"),
     // FK-independent tables — order irrelevant relative to each other/above
     deleteStatement("RefGradeRate"),
     deleteStatement("RefVDICostHistory"),
@@ -371,9 +510,23 @@ export function exportReferenceSql(reference: ReferenceJson): string {
     "GO",
     "",
     insertStatement(
+      "RefGrade",
+      ["GradeCode", "GradeName"],
+      (reference.grades ?? []).map((g) => [sqlStr(g.grade), sqlStr(g.gradeName)]),
+    ),
+    "GO",
+    "",
+    insertStatement(
+      "RefGradeSpoke",
+      ["GradeCode", "SpokeId"],
+      (reference.grades ?? []).flatMap((g) => g.spokeIds.map((sid) => [sqlStr(g.grade), sqlNum(Number(sid))])),
+    ),
+    "GO",
+    "",
+    insertStatement(
       "RefGradeRate",
-      ["GradeCode", "GradeName", "EffectiveFrom", "HourlyCostGBP"],
-      reference.gradeRates.map((g) => [sqlStr(g.grade), sqlStr(g.gradeName), sqlStr(g.effectiveFrom), sqlNum(g.hourlyCostGBP)]),
+      ["GradeCode", "GradeName", "EffectiveFrom", "HourlyCostGBP", "SpokeId"],
+      reference.gradeRates.map((g) => [sqlStr(g.grade), sqlStr(g.gradeName), sqlStr(g.effectiveFrom), sqlNum(g.hourlyCostGBP), sqlStr(g.spokeId)]),
     ),
     "GO",
     "",
@@ -424,8 +577,8 @@ export function exportReferenceSql(reference: ReferenceJson): string {
     "",
     insertStatement(
       "RefVDICostHistory",
-      ["CostClass", "EffectiveFrom", "AnnualCostPerVDIGBP"],
-      reference.vdiCostHistory.map((v) => [sqlStr(v.costClass), sqlStr(v.effectiveFrom), sqlNum(v.annualCostPerVDIGBP)]),
+      ["CostClass", "EffectiveFrom", "AnnualCostPerVDIGBP", "SpokeId"],
+      reference.vdiCostHistory.map((v) => [sqlStr(v.costClass), sqlStr(v.effectiveFrom), sqlNum(v.annualCostPerVDIGBP), sqlStr(v.spokeId)]),
     ),
     "GO",
     "",

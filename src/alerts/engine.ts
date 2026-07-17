@@ -8,7 +8,7 @@
 // via reference.thresholdOverrides — see reference-store.ts). No ordering is
 // applied here — the caller (UI layer) sorts the flat Alert[] for display.
 // ---------------------------------------------------------------------------
-import { ROWS, RES_ROWS, DATE_MAX, DATA_MIN_ISO, DATA_MAX_ISO, DAY_WORKTIME_TOTALS, SPOKE_DAY_WORKTIME_TOTALS, SPOKES, PROCESSES, PROCESS_BY_ID, VDIS, VDI_OPERATING_HOURS } from "../rpaData";
+import { ROWS, RES_ROWS, DATE_MAX, DATA_MIN_ISO, DATA_MAX_ISO, DAY_WORKTIME_TOTALS, SPOKE_DAY_WORKTIME_TOTALS, SPOKES, PROCESSES, PROCESS_BY_ID, VDIS, VDI_OPERATING_HOURS, RESOURCE_ACTIVITY } from "../rpaData";
 import type { DayRow } from "../rpaData";
 import { buildRateTables, costForRow, availableDaysInWindow } from "../reference/economics";
 import type { ReferenceJson, TargetsRef } from "../reference/reference-store";
@@ -24,8 +24,12 @@ export const MIN_ALERT_VOLUME = 30;
  *  "warn"; past it is a "breach". Named so the 10% isn't a magic number
  *  scattered through the evaluation logic. */
 export const WARN_MARGIN = 0.10;
+/** Fallback if reference.targets predates vdiStaleDays (see TargetsRef's comment).
+ *  Exported so VdiSection.tsx's review queue can share the identical fallback
+ *  instead of hardcoding a second copy of the number. */
+export const DEFAULT_VDI_STALE_DAYS = 14;
 
-export type AlertMetric = "completionPct" | "exceptionRate" | "systemRate" | "costPerCase" | "utilisation";
+export type AlertMetric = "completionPct" | "exceptionRate" | "systemRate" | "costPerCase" | "utilisation" | "staleVdi";
 export type AlertScope = "estate" | "spoke" | "process" | "vdi";
 
 export interface Alert {
@@ -41,6 +45,7 @@ export interface Alert {
   pageId: string; // where "View" should navigate
   spokeFilter?: string; // set on filters.spoke by "View", when scoped to a spoke or a spoke's process
   processFilter?: string; // set on filters.processId by "View", when scoped to a process
+  lastSeenISO?: string; // "staleVdi" ONLY — the VDI's last-seen date (RESOURCE_ACTIVITY), for format.ts's custom headline
 }
 
 type RateMetric = "completionPct" | "exceptionRate" | "systemRate" | "costPerCase";
@@ -250,6 +255,48 @@ export function evaluateAlerts(reference: ReferenceJson): Alert[] {
     });
   }
 
+  // --- vdi scope: stale-activity check (D6) ---
+  // A VDI that HAS activity (RESOURCE_ACTIVITY) but has gone quiet for more
+  // than vdiStaleDays days as of the data-through date, and isn't already
+  // retired, is flagged for a retirement review. Deliberately a single
+  // "warn" severity (no "breach" tier — staleness isn't a rate that gets
+  // progressively worse the way completion/exception rates do) and
+  // deliberately NOT gated by MIN_ALERT_VOLUME/the trailing WINDOW_DAYS
+  // window — staleness is inherently about the ENTIRE activity history,
+  // not a trailing-week rate. The threshold is resolved PER VDI (via its
+  // owning spoke, vdi.spoke) rather than once outside the loop, so a
+  // spoke-scoped vdiStaleDays override (see resolveThreshold in
+  // reference-store.ts) actually changes which VDIs alert and at what
+  // threshold. Hub-owned VDIs (vdi.spoke === "Hub") have no matching spoke
+  // override to find — resolveThreshold's "spoke" lookup simply falls back
+  // to the global target when nothing matches, so no special-casing is
+  // needed here.
+  for (const vdi of VDIS) {
+    if (vdi.status === "retired") continue;
+    const activity = RESOURCE_ACTIVITY?.get(vdi.id);
+    if (!activity) continue; // never seen any activity — not what "stale" means here
+    const vdiStaleDays = resolveThreshold(reference, "vdiStaleDays", "spoke", vdi.spoke) ?? DEFAULT_VDI_STALE_DAYS;
+    const lastSeenTs = Date.parse(activity.lastSeen + "T00:00:00Z");
+    const daysSinceLastSeen = Math.floor((hi - lastSeenTs) / DAY_MS);
+    if (daysSinceLastSeen <= vdiStaleDays) continue;
+
+    alerts.push({
+      id: makeId("staleVdi", "vdi", vdi.id),
+      severity: "warn",
+      metric: "staleVdi",
+      scope: "vdi",
+      scopeLabel: vdi.name,
+      value: daysSinceLastSeen,
+      threshold: vdiStaleDays,
+      direction: "max",
+      windowLabel,
+      pageId: "capacity",
+      spokeFilter: vdi.spoke === "Hub" ? undefined : vdi.spoke,
+      processFilter: undefined,
+      lastSeenISO: activity.lastSeen,
+    });
+  }
+
   return alerts;
 }
 
@@ -292,6 +339,22 @@ export function dailySeriesFor(alert: Alert, reference: ReferenceJson, tables?: 
       const activeHours = dayResRows.reduce((sum, r) => sum + r.worktimeSec, 0) / 3600;
       const availableHours = availableDaysInWindow(vdi, reference, dayTs, dayTs) * VDI_OPERATING_HOURS;
       out.push(availableHours ? Math.min(1, activeHours / availableHours) : 0);
+      continue;
+    }
+
+    if (alert.metric === "staleVdi") {
+      // Days-since-last-seen AS OF that trailing day — a linearly climbing
+      // series (staleness only ever grows day to day, by construction), which
+      // is a meaningful sparkline even though the underlying "last case" date
+      // itself doesn't change within the window.
+      const vdi = VDIS.find((v) => v.name === alert.scopeLabel);
+      const activity = vdi ? RESOURCE_ACTIVITY?.get(vdi.id) : undefined;
+      if (!activity) {
+        out.push(0);
+        continue;
+      }
+      const lastSeenTs = Date.parse(activity.lastSeen + "T00:00:00Z");
+      out.push(Math.max(0, Math.floor((dayTs - lastSeenTs) / DAY_MS)));
       continue;
     }
 

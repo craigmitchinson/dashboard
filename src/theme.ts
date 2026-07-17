@@ -10,11 +10,9 @@ import type { CSSProperties } from "react";
 
 export type Mode = "light" | "dark";
 
-// Palette band keys, kept as a five-tone nesting scale and a three-state
-// (good / neutral / bad) status scale. The proposal deck reuses these as its
-// brand swatches: the five tones tint the architecture layers, the three states
-// carry success / neutral / failure semantics across the slides.
-export type Level = "theme" | "outcome" | "epic" | "feature" | "value";
+// Palette band keys for a three-state (good / neutral / bad) status scale,
+// used for status dots, rails and surfaces across the dashboard (e.g.
+// exception/health indicators).
 export type DepStatus = "committed" | "not-committed" | "blocked";
 
 // Raw brand swatches. Referenced only to build the variants below.
@@ -32,44 +30,13 @@ const swatch = {
 } as const;
 
 // Fonts flow through CSS variables (defined in styles.css) so an accessibility
-// mode can swap a face for the whole slide from one place. The real families:
+// mode can swap a face for the whole app from one place. The real families:
 //   --font-display: Gelasio (serif)  --font-body: Carlito  --font-mono: JetBrains
 export const fonts = {
   display: "var(--font-display)",
   body: "var(--font-body)",
   mono: "var(--font-mono)",
 } as const;
-
-// Fixed slide canvas. Never responds to viewport; a Playwright capture at 2x
-// of this element yields a clean 3840x2160 PNG.
-export const slide = {
-  width: 1920,
-  height: 1080,
-  padding: 44,
-  headerHeight: 96,
-  columnGap: 16,
-  rowGap: 6,
-  radius: 14,
-  // Relative widths of the five columns (theme..value), summed and normalised.
-  columnWeights: {
-    theme: 1.15,
-    outcome: 1.1,
-    epic: 1.1,
-    feature: 1.25,
-    value: 1.3,
-  } as Record<Level, number>,
-} as const;
-
-// Per-level visual treatment for the bracket-style nesting. Each level reads as
-// a nested band: a tinted surface plus a coloured left rail so the parent box's
-// left edge brackets the full height of its children.
-export interface LevelStyle {
-  surface: string;
-  rail: string;
-  text: string;
-  /** Slightly stronger tint used for the alternating theme band behind a row. */
-  band: string;
-}
 
 // Dependency status treatment (committed / not committed / blocked).
 export interface StatusStyle {
@@ -83,9 +50,9 @@ export interface StatusStyle {
 // touches these names, so light and dark stay perfectly in step.
 export interface ThemeTokens {
   mode: Mode;
-  /** Neutral area around the slide. */
+  /** Neutral area around the app canvas. */
   page: string;
-  /** Slide background. */
+  /** Card/page background. */
   paper: string;
   /** Primary text. */
   ink: string;
@@ -105,9 +72,8 @@ export interface ThemeTokens {
   ruleSoft: string;
   /** Alternating band tint behind every other theme. */
   themeBand: string;
-  /** Slide drop shadow. */
+  /** Card drop shadow. */
   shadow: string;
-  levelStyles: Record<Level, LevelStyle>;
   status: Record<DepStatus, StatusStyle>;
 }
 
@@ -125,13 +91,6 @@ export const lightTheme: ThemeTokens = {
   ruleSoft: "rgba(11,50,57,0.15)",
   themeBand: "rgba(11,50,57,0.035)",
   shadow: "0 24px 60px rgba(11,50,57,0.22)",
-  levelStyles: {
-    theme: { surface: swatch.teal, rail: swatch.redWarm, text: swatch.paper, band: "rgba(11,50,57,0.04)" },
-    outcome: { surface: swatch.lightPurple, rail: swatch.darkPurple, text: swatch.teal, band: "rgba(221,187,255,0.10)" },
-    epic: { surface: swatch.lightPink, rail: swatch.darkPink, text: swatch.teal, band: "rgba(255,204,217,0.10)" },
-    feature: { surface: swatch.digitalGrey, rail: "rgba(11,50,57,0.18)", text: swatch.teal, band: "rgba(11,50,57,0.02)" },
-    value: { surface: swatch.white, rail: "rgba(11,50,57,0.10)", text: swatch.teal, band: "transparent" },
-  },
   status: {
     committed: { dot: swatch.teal, rail: swatch.teal, surface: "rgba(11,50,57,0.05)", text: swatch.teal },
     "not-committed": { dot: "#8A6FB0", rail: swatch.darkPurple, surface: swatch.lightPurple, text: swatch.teal },
@@ -139,9 +98,8 @@ export const lightTheme: ThemeTokens = {
   },
 };
 
-// Dark variant: a deep teal canvas with cream ink. Level bands become luminous
-// tints of the same secondary palette so the nesting still reads, and the reds
-// are nudged brighter to keep their punch against the dark ground.
+// Dark variant: a deep teal canvas with cream ink. The reds are nudged
+// brighter to keep their punch against the dark ground.
 const darkInk = "#F4F1EB";
 export const darkTheme: ThemeTokens = {
   mode: "dark",
@@ -157,13 +115,6 @@ export const darkTheme: ThemeTokens = {
   ruleSoft: "rgba(244,241,235,0.18)",
   themeBand: "rgba(255,255,255,0.05)",
   shadow: "0 24px 60px rgba(0,0,0,0.5)",
-  levelStyles: {
-    theme: { surface: "#103D45", rail: "#FF6A4D", text: darkInk, band: "rgba(255,255,255,0.05)" },
-    outcome: { surface: "rgba(221,187,255,0.16)", text: "#EFE7FF", rail: swatch.darkPurple, band: "rgba(221,187,255,0.08)" },
-    epic: { surface: "rgba(255,178,198,0.14)", text: "#FFE3EA", rail: swatch.darkPink, band: "rgba(255,204,217,0.07)" },
-    feature: { surface: "rgba(244,241,235,0.06)", text: darkInk, rail: "rgba(244,241,235,0.3)", band: "rgba(244,241,235,0.03)" },
-    value: { surface: "rgba(244,241,235,0.03)", text: darkInk, rail: "rgba(244,241,235,0.16)", band: "transparent" },
-  },
   status: {
     committed: { dot: "#86C7BD", rail: "#86C7BD", surface: "rgba(134,199,189,0.12)", text: darkInk },
     "not-committed": { dot: "#C9B3F0", rail: swatch.darkPurple, surface: "rgba(221,187,255,0.14)", text: "#EFE7FF" },
@@ -175,28 +126,6 @@ export const themes: Record<Mode, ThemeTokens> = {
   light: lightTheme,
   dark: darkTheme,
 };
-
-// Semantic status aliases for the proposal deck, so slides read by meaning
-// rather than by the legacy QBR status names.
-export const statusKey = {
-  good: "committed",
-  neutral: "not-committed",
-  bad: "blocked",
-} as const satisfies Record<string, DepStatus>;
-
-// Typographic scale (px on the 1920x1080 canvas).
-export const type = {
-  slideTitle: 34,
-  slideKicker: 14,
-  team: 22,
-  columnHeader: 15,
-  theme: 20,
-  outcome: 17,
-  epic: 16,
-  feature: 15,
-  value: 14,
-  control: 13,
-} as const;
 
 // ---------------------------------------------------------------------------
 // Liquid-glass surface tokens

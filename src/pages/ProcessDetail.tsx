@@ -36,7 +36,7 @@ export function ProcessDetail() {
   const labels = m.daily.map((d) => fmtDate(d.ts));
   const excRows = m.byException.slice(0, 7).map((e) => ({ label: e.name, value: e.volume, color: e.category === "system" ? v.system : v.business }));
   // with the process drill active, m.vdis is already just the workers that ran it
-  const workers = m.vdis.filter((d) => d.cases > 0).slice(0, 4);
+  const workers = m.vdis.filter((d) => d.cases > 0).slice(0, 8);
 
   return (
     <PageGrid>
@@ -83,9 +83,9 @@ export function ProcessDetail() {
         </VisualCard>
       </Row>
 
-      <Row cols="minmax(0,1fr) minmax(0,1fr)" style={{ flex: 0.8 }}>
+      <Row cols="minmax(0,1fr) minmax(0,1fr)" style={{ flex: 1.25 }}>
         <VisualCard title="Digital workers" subtitle={`${proc.spoke} machines that ran this process in the period`}>
-          <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", gap: 8, height: "100%" }}>
+          <div style={{ display: "flex", flexDirection: "column", justifyContent: workers.length > 1 ? "space-between" : "center", gap: 8, height: "100%" }}>
             {workers.length === 0 && <span style={{ fontFamily: fonts.body, fontSize: 13, color: t.inkSoft }}>No runs in the selected period.</span>}
             {workers.map((w, i) => (
               <div key={w.id} style={{ display: "grid", gridTemplateColumns: "1fr 62px 90px 70px", gap: 10, alignItems: "center", padding: "7px 2px", borderTop: i ? `1px solid ${t.ruleSoft}` : undefined }}>
@@ -112,6 +112,10 @@ export function ProcessDetail() {
                 <span style={{ fontFamily: fonts.mono, fontSize: 12.5, fontWeight: 700, color: t.ink, textAlign: "right" }}>{r.val}</span>
               </div>
             ))}
+            <div style={{ padding: "7px 2px", borderTop: `1px solid ${t.ruleSoft}` }}>
+              <div style={{ fontFamily: fonts.body, fontSize: 12.5, color: t.inkSoft, marginBottom: 3 }}>What this process does</div>
+              <div style={{ fontFamily: fonts.body, fontSize: 13, color: t.ink, lineHeight: 1.45 }}>{proc.description}</div>
+            </div>
           </div>
         </VisualCard>
       </Row>

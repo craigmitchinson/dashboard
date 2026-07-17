@@ -63,6 +63,7 @@ export interface ModelJson {
   }[];
   resources: {
     name: string; bot: string; acronym: string; vdi: string; class: string; spoke: string;
+    spokeId: number | null;
     activeFrom: string; activeTo: string | null; notes: string | null;
     renewalDate: string; annualCostGBP: number | null; licenseExpiryDate: string | null; status: "active" | "retired";
   }[];
@@ -73,6 +74,12 @@ export interface ModelJson {
   resRows: { d: string; r: string; p: number; n: number; e: number; w: number; ec: number }[];
   dayWorktimeTotals?: Record<string, number>;
   spokeDayWorktimeTotals?: Record<string, number>;
+  // Per-VDI activity discovery (D6 — stale-VDI flagging), computed from ALL
+  // items including unmapped-queue rows (spokesServed is [] for a resource
+  // whose activity is entirely on unmapped queues). Optional/undefined-safe
+  // for an older model.json that predates this field — see RESOURCE_ACTIVITY
+  // below and src/alerts/engine.ts's stale-VDI check.
+  resourceActivity?: Record<string, { firstSeen: string; lastSeen: string; items: number; spokesServed: string[] }>;
   // Full base reference object (unmodified data/reference/reference.json), so
   // the client can overlay browser-side edits onto it — see src/reference/.
   reference: ReferenceJson;
@@ -101,6 +108,7 @@ export interface VdiDim {
   name: string;
   bot: string;
   spoke: string; // owning spoke ("Hub" for shared/test machines)
+  spokeId: number | null; // owning spoke's numeric id, null = hub-owned (see economics.ts's spoke-scoped VDI class-rate resolution)
   pool: string; // presentation label
   costClass: string;
   activeFrom: string;
@@ -177,6 +185,10 @@ export let EXC_ROWS: ExcRow[] = [];
 export let RES_ROWS: ResRow[] = [];
 export let DAY_WORKTIME_TOTALS: Map<string, number> | undefined = undefined;
 export let SPOKE_DAY_WORKTIME_TOTALS: Map<string, number> | undefined = undefined;
+// Per-VDI activity discovery (D6), keyed by ResourceName — undefined for an
+// older model.json that predates this field (see ModelJson.resourceActivity
+// above). Consumed by src/alerts/engine.ts's stale-VDI check.
+export let RESOURCE_ACTIVITY: Map<string, { firstSeen: string; lastSeen: string; items: number; spokesServed: string[] }> | undefined = undefined;
 export let DATE_MIN = 0;
 export let DATE_MAX = 0;
 export let DATA_MIN_ISO = "";
@@ -239,6 +251,7 @@ export function initData(m: ModelJson) {
     name: r.name,
     bot: r.bot,
     spoke: r.spoke,
+    spokeId: r.spokeId ?? null,
     pool: r.class === "prod" ? r.spoke : `${r.spoke} · test`,
     costClass: r.class,
     activeFrom: r.activeFrom,
@@ -272,6 +285,7 @@ export function initData(m: ModelJson) {
   }));
   DAY_WORKTIME_TOTALS = m.dayWorktimeTotals ? new Map(Object.entries(m.dayWorktimeTotals)) : undefined;
   SPOKE_DAY_WORKTIME_TOTALS = m.spokeDayWorktimeTotals ? new Map(Object.entries(m.spokeDayWorktimeTotals)) : undefined;
+  RESOURCE_ACTIVITY = m.resourceActivity ? new Map(Object.entries(m.resourceActivity)) : undefined;
 
   DATE_MIN = tsOf(m.meta.dateMin);
   DATE_MAX = tsOf(m.meta.dateMax);

@@ -181,6 +181,7 @@ export function useReference() {
 // reference resolves — keeps every consumer's array/record access safe.
 const EMPTY_REFERENCE: ReferenceJson = {
   spokes: [],
+  grades: [],
   gradeRates: [],
   propositions: [],
   processes: [],
@@ -192,6 +193,6 @@ const EMPTY_REFERENCE: ReferenceJson = {
   peopleCostHistory: [],
   exceptionPatterns: [],
   exceptionDisplayCodes: {},
-  targets: { completionPct: 0, exceptionRate: 0, systemRate: 0, costPerCase: 0, utilMin: 0, utilMax: 0 },
+  targets: { completionPct: 0, exceptionRate: 0, systemRate: 0, costPerCase: 0, utilMin: 0, utilMax: 0, vdiStaleDays: 14 },
   thresholdOverrides: [],
 };

@@ -9,17 +9,20 @@
 //
 // Economics rules (ARCHITECTURE.md "Hub & spoke economics"):
 //   Benefit = SMV x grade rate in force on the item's OUTCOME DATE.
-//   Cost    = worktime x (hub £/bot-second + spoke infra £/bot-second)
-//     hub pool/day    = CoE team run-rate (peopleCostHistory, ownerId='HUB')
+//   Cost    = worktime x (hub £/bot-second + spoke pool £/bot-second)
+//     hub pool/day  = CoE team run-rate (peopleCostHistory, ownerId='HUB')
 //                        + hub-owned (spokeId=null) VDIs' daily cost,
 //                        apportioned by worktime across ALL work that day.
-//     spoke infra/day = that spoke's own VDIs' daily cost, apportioned by
-//                        worktime WITHIN the spoke that day.
+//     spoke pool/day  = that spoke's own VDIs' daily cost + that spoke's OWN
+//                        peopleCostHistory record-in-force/365.25 (D5 — spoke
+//                        people cost is now charged, not merely informational),
+//                        apportioned by worktime WITHIN the spoke that day.
 //   Idle time is never a denominator (idle cost rides on the work that ran).
 // ---------------------------------------------------------------------------
 import { PROCESS_BY_ID } from "../rpaData";
 import type { DayRow, ExcRow, ProcessDim, ResRow, VdiDim } from "../rpaData";
 import type { ReferenceJson, ResourceRef } from "./reference-store";
+import { spokeIdStringOf } from "./reference-store";
 
 const DAY_MS = 86400000;
 
@@ -35,12 +38,47 @@ export function inForce<T extends { effectiveFrom: string }>(history: T[], dateI
   return best;
 }
 
-export function vdiClassRate(reference: ReferenceJson, costClass: string, dateISO: string): number {
-  return inForce(reference.vdiCostHistory.filter((v) => v.costClass === costClass), dateISO)?.annualCostPerVDIGBP ?? 0;
+/**
+ * spoke-first resolution: for (costClass, spokeId, day), the row with the
+ * latest effectiveFrom <= day among spokeId-matching rows wins; else the
+ * latest effectiveFrom <= day among rows with no spokeId (universal). A
+ * spoke-scoped row always wins over a universal row when both are in force,
+ * regardless of which has the later effectiveFrom — same resolution as
+ * gradeRateOn below and byte-for-byte identical to build-dashboard-data.mjs's
+ * vdiRate() / report.fn_VdiDailyCost's CostClass CROSS APPLY in
+ * 08_report_views.sql. `spokeId` is the VDI's OWN numeric spokeId
+ * (ResourceRef.spokeId / VdiCoverageInput.spokeId) — null/undefined for a
+ * hub-owned VDI, which only ever matches universal rows.
+ */
+export function vdiClassRate(reference: ReferenceJson, costClass: string, dateISO: string, spokeId?: number | null): number {
+  const rows = reference.vdiCostHistory.filter((v) => v.costClass === costClass);
+  const sid = spokeId != null ? String(spokeId) : undefined;
+  const spokeRows = sid != null ? rows.filter((v) => v.spokeId === sid) : [];
+  const universalRows = rows.filter((v) => v.spokeId == null);
+  const viaSpoke = inForce(spokeRows, dateISO);
+  if (viaSpoke) return viaSpoke.annualCostPerVDIGBP;
+  return inForce(universalRows, dateISO)?.annualCostPerVDIGBP ?? 0;
 }
 
-export function gradeRateOn(reference: ReferenceJson, grade: string, dateISO: string): number {
-  return inForce(reference.gradeRates.filter((g) => g.grade === grade), dateISO)?.hourlyCostGBP ?? 0;
+/**
+ * spoke-first resolution: for (grade, spokeName, day), the row with the
+ * latest effectiveFrom <= day among spokeName-matching rows wins; else the
+ * latest effectiveFrom <= day among rows with no spokeId (universal). See
+ * GradeRateRef.spokeId's comment in reference-store.ts for the full rule —
+ * this must stay byte-for-byte identical to build-dashboard-data.mjs's
+ * gradeRate() and 08_report_views.sql's grade-rate CROSS APPLYs.
+ * `spokeName` is the process's OWN spoke (ProcessDim.spoke / the process's
+ * proposition's spoke) — undefined for an estate-wide/no-process caller,
+ * which only ever matches universal rows.
+ */
+export function gradeRateOn(reference: ReferenceJson, grade: string, spokeName: string | undefined, dateISO: string): number {
+  const sid = spokeIdStringOf(reference, spokeName);
+  const rows = reference.gradeRates.filter((g) => g.grade === grade);
+  const spokeRows = sid != null ? rows.filter((g) => g.spokeId === sid) : [];
+  const universalRows = rows.filter((g) => g.spokeId == null);
+  const viaSpoke = inForce(spokeRows, dateISO);
+  if (viaSpoke) return viaSpoke.hourlyCostGBP;
+  return inForce(universalRows, dateISO)?.hourlyCostGBP ?? 0;
 }
 
 /** 0 if no record found (don't throw) — e.g. an unseeded spoke ownerId. */
@@ -66,6 +104,12 @@ export interface VdiCoverageInput {
   annualCostGBP: number | null;
   licenseExpiryDate: string | null;
   status: "active" | "retired";
+  // The VDI's OWNING spoke (numeric id, null/undefined = hub-owned) — used
+  // ONLY to resolve a spoke-scoped vdiCostHistory override class rate (see
+  // vdiClassRate above); optional so older callers that don't carry it still
+  // structurally satisfy this interface (resolution then falls back to the
+  // universal class rate, same as before this field existed).
+  spokeId?: number | null;
 }
 
 function cycleStart(renewalDateISO: string, dateISO: string): number {
@@ -95,7 +139,7 @@ export function vdiDailyCost(vdi: VdiCoverageInput, dateISO: string, reference: 
   const { start, end } = coverageWindow(vdi, cs);
   if (dateTs < start || dateTs >= end) return 0;
   const windowDays = Math.round((end - start) / DAY_MS);
-  const annual = vdi.annualCostGBP ?? vdiClassRate(reference, vdi.costClass, dateOnly(cs));
+  const annual = vdi.annualCostGBP ?? vdiClassRate(reference, vdi.costClass, dateOnly(cs), vdi.spokeId);
   return windowDays > 0 ? annual / windowDays : 0;
 }
 
@@ -121,8 +165,14 @@ export function availableDaysInWindow(vdi: VdiCoverageInput, reference: Referenc
 // --- rate tables --------------------------------------------------------------
 
 export interface RateTables {
-  gradeRateOn(grade: string, dateISO: string): number;
+  gradeRateOn(grade: string, spokeName: string | undefined, dateISO: string): number;
   hubPoolPerDay(dateISO: string): number;
+  // NAME RETAINED FOR CALL-SITE STABILITY (costForRow/costForResRow/
+  // aggregateRates all call this), but the VALUE is the spoke's WHOLE pool
+  // per day as of D5 (spoke people cost): spoke VDI infra/day + that spoke's
+  // OWN peopleCostHistory record-in-force/365.25, apportioned within the
+  // spoke by worktime exactly like infra always was. Hub people-cost
+  // handling is unchanged (still HUB-only, via hubPoolPerDay above).
   spokeInfraPerDay(spokeName: string, dateISO: string): number;
   vdiDailyCostOn(resourceName: string, dateISO: string): number;
   // precomputed once from rows — they don't change across filter windows
@@ -200,11 +250,19 @@ export function buildRateTables(
     const hubPerDay = hubPeoplePerDay + hubInfra;
     hubPerDayMap.set(date, hubPerDay);
 
+    // D5 (spoke people cost): spoke pool/day = spoke VDI infra/day + that
+    // spoke's OWN peopleCostHistory record-in-force/365.25, apportioned
+    // WITHIN the spoke by worktime exactly like infra (spokeInfraPerDay
+    // below still names this "infra" for output-contract stability, but it
+    // is now the whole spoke pool, VDI + people — see the doc comment on
+    // RateTables.spokeInfraPerDay). Hub people-cost handling is unchanged.
     let totalSpokeInfra = 0;
     for (const [sid, infra] of spokeInfra) {
       const name = spokeNameById.get(sid);
-      if (name) spokeInfraPerDayMap.set(`${name}|${date}`, infra);
-      totalSpokeInfra += infra;
+      const spokePeoplePerDay = peopleCostOn(reference, String(sid), date) / 365.25;
+      const spokePoolPerDay = infra + spokePeoplePerDay;
+      if (name) spokeInfraPerDayMap.set(`${name}|${date}`, spokePoolPerDay);
+      totalSpokeInfra += spokePoolPerDay;
     }
 
     const totalWt = dayTotalWorktimeSec.get(date) ?? 0;
@@ -214,7 +272,7 @@ export function buildRateTables(
   }
 
   return {
-    gradeRateOn: (grade, dateISO) => gradeRateOn(reference, grade, dateISO),
+    gradeRateOn: (grade, spokeName, dateISO) => gradeRateOn(reference, grade, spokeName, dateISO),
     hubPoolPerDay: (dateISO) => hubPerDayMap.get(dateISO) ?? 0,
     spokeInfraPerDay: (spokeName, dateISO) => spokeInfraPerDayMap.get(`${spokeName}|${dateISO}`) ?? 0,
     vdiDailyCostOn: (resourceName, dateISO) => {
@@ -236,7 +294,7 @@ export function buildRateTables(
  */
 export function benefitForRow(row: DayRow, process: ProcessDim, tables: RateTables, rateOverridePerHour: number): number {
   const hours = (row.completed * process.smvMinutes) / 60;
-  return rateOverridePerHour ? hours * rateOverridePerHour : hours * tables.gradeRateOn(process.grade, row.date);
+  return rateOverridePerHour ? hours * rateOverridePerHour : hours * tables.gradeRateOn(process.grade, process.spoke, row.date);
 }
 
 /**
@@ -290,5 +348,5 @@ export function costForResRow(row: ResRow, vdi: VdiDim, process: ProcessDim, tab
  */
 export function reworkCostForRow(row: ExcRow, process: ProcessDim, tables: RateTables): number {
   const hours = (row.count * process.smvMinutes) / 60;
-  return hours * tables.gradeRateOn(process.grade, row.date);
+  return hours * tables.gradeRateOn(process.grade, process.spoke, row.date);
 }

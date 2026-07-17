@@ -13,7 +13,7 @@ import type { SectionProps } from "./shared";
 // ---------------------------------------------------------------------------
 // admin/ThresholdsSection.tsx
 // ---------------------------------------------------------------------------
-// "Targets & thresholds" — the six global TargetsRef values (used by the
+// "Targets & thresholds" — the seven global TargetsRef values (used by the
 // alert engine, src/alerts/engine.ts) plus per-spoke/per-process overrides of
 // them (ThresholdOverrideRef[]). Deliberately NOT the same thing as the
 // baked target reference lines already drawn on Overview/Capacity/Commercial/
@@ -21,7 +21,7 @@ import type { SectionProps } from "./shared";
 // see the SectionTitle helper below for the exact wording shown to users.
 // ---------------------------------------------------------------------------
 
-type TargetUnit = "pct" | "gbp";
+type TargetUnit = "pct" | "gbp" | "days";
 
 interface TargetField {
   key: keyof TargetsRef;
@@ -37,12 +37,33 @@ const TARGET_FIELDS: TargetField[] = [
   { key: "costPerCase", label: "Cost per case", unit: "gbp", hint: "Target is a ceiling (≤)." },
   { key: "utilMin", label: "Utilisation — minimum", unit: "pct", hint: "Floor — utilisation should not fall below this." },
   { key: "utilMax", label: "Utilisation — maximum", unit: "pct", hint: "Ceiling — utilisation should not rise above this." },
+  { key: "vdiStaleDays", label: "Idle VDI review threshold", unit: "days", hint: "A VDI with no cases for longer than this appears in the VDI estate review queue." },
 ];
 
 const fieldFor = (key: keyof TargetsRef) => TARGET_FIELDS.find((f) => f.key === key)!;
 
+// Label suffix / read-only rendering per unit — kept in one place so every
+// unit (including "days") formats consistently across the global targets
+// grid, the read-only display, and the per-scope override form below.
+function unitLabel(unit: TargetUnit): string {
+  if (unit === "pct") return "%";
+  if (unit === "days") return "days";
+  return "£";
+}
+
 function fmtValue(unit: TargetUnit, value: number): string {
-  return unit === "pct" ? `${(value * 100).toFixed(1)}%` : `£${value.toFixed(2)}`;
+  if (unit === "pct") return `${(value * 100).toFixed(1)}%`;
+  if (unit === "days") return `${value} days`;
+  return `£${value.toFixed(2)}`;
+}
+
+// number input min/max/step per unit — pct is a 0-100 percentage with a
+// fractional step; days is a whole number with no ceiling; everything else
+// (gbp/plain numbers, e.g. costPerCase) is a positive number with a fine step.
+function numberInputProps(unit: TargetUnit): { min: number; max?: number; step: number } {
+  if (unit === "pct") return { min: 0, max: 100, step: 0.1 };
+  if (unit === "days") return { min: 1, step: 1 };
+  return { min: 0.01, step: 0.01 };
 }
 
 type Draft = Record<keyof TargetsRef, string>;
@@ -79,6 +100,9 @@ export function ThresholdsSection({ reference, update, actor, can, isAdmin }: Se
       if (f.unit === "pct") {
         if (raw < 0 || raw > 100) return setGlobalErr(`${f.label} must be between 0 and 100.`);
         next[f.key] = raw / 100;
+      } else if (f.unit === "days") {
+        if (!Number.isInteger(raw) || raw < 1) return setGlobalErr(`${f.label} must be a whole number of 1 or more.`);
+        next[f.key] = raw;
       } else {
         if (raw <= 0) return setGlobalErr(`${f.label} must be greater than 0.`);
         next[f.key] = raw;
@@ -152,11 +176,12 @@ export function ThresholdsSection({ reference, update, actor, can, isAdmin }: Se
     } else {
       const firstGroup = [...editableProcessGroups.values()][0];
       setScopeTarget(firstGroup?.[0] ? String(firstGroup[0].processId) : "");
-      // utilMin/utilMax are never selectable at process scope (see metricOptions
-      // below) — if the metric field still holds one of them from a prior
-      // spoke-scoped selection, fall back to a metric that's actually valid
-      // for "process" rather than leaving stale state the select can't display.
-      if (metric === "utilMin" || metric === "utilMax") setMetric("completionPct");
+      // utilMin/utilMax/vdiStaleDays are never selectable at process scope
+      // (see metricOptions below) — if the metric field still holds one of
+      // them from a prior spoke-scoped selection, fall back to a metric
+      // that's actually valid for "process" rather than leaving stale state
+      // the select can't display.
+      if (metric === "utilMin" || metric === "utilMax" || metric === "vdiStaleDays") setMetric("completionPct");
     }
     setOverrideErr(null);
   };
@@ -164,9 +189,13 @@ export function ThresholdsSection({ reference, update, actor, can, isAdmin }: Se
   // VDIs are spoke-owned, not process-owned (see engine.ts's vdi-scope block,
   // which only ever resolves utilMin/utilMax via scope="spoke") — a
   // process-scoped utilMin/utilMax override would save successfully but never
-  // be read by the alert engine. Restrict the metric choices offered per scope
-  // type so that trap can't be created from the add-override form.
-  const metricOptions = scopeType === "process" ? TARGET_FIELDS.filter((f) => f.key !== "utilMin" && f.key !== "utilMax") : TARGET_FIELDS;
+  // be read by the alert engine. vdiStaleDays is the same story: VDIs aren't
+  // tied to any single process, so a process-scoped vdiStaleDays override
+  // would have nothing to attach to and would never be read by engine.ts's
+  // staleVdi check or VdiSection.tsx's review queue (both resolve it via
+  // scope="spoke" only). Restrict the metric choices offered per scope type
+  // so that trap can't be created from the add-override form.
+  const metricOptions = scopeType === "process" ? TARGET_FIELDS.filter((f) => f.key !== "utilMin" && f.key !== "utilMax" && f.key !== "vdiStaleDays") : TARGET_FIELDS;
 
   const commitAddOverride = () => {
     if (!scopeTarget) return setOverrideErr("Choose a target.");
@@ -177,6 +206,9 @@ export function ThresholdsSection({ reference, update, actor, can, isAdmin }: Se
     if (field.unit === "pct") {
       if (raw < 0 || raw > 100) return setOverrideErr(`${field.label} must be between 0 and 100.`);
       fraction = raw / 100;
+    } else if (field.unit === "days") {
+      if (!Number.isInteger(raw) || raw < 1) return setOverrideErr(`${field.label} must be a whole number of 1 or more.`);
+      fraction = raw;
     } else {
       if (raw <= 0) return setOverrideErr(`${field.label} must be greater than 0.`);
       fraction = raw;
@@ -234,20 +266,18 @@ export function ThresholdsSection({ reference, update, actor, can, isAdmin }: Se
     <div>
       <SectionTitle
         title="Targets & thresholds"
-        helper={`These global targets and per-spoke/per-process overrides drive the threshold alerts shown in the bell icon in the header — they do NOT change the target reference lines already shown on Overview/Capacity/Commercial/Input & Outcome, which come from the data build's own baked targets and are unaffected by edits made here. Resolution order for a given metric: a process-level override wins, else its spoke's override, else the global target below. Per-process alerts are skipped entirely for any process with fewer than ${MIN_ALERT_VOLUME} completed+exception items in the trailing 7-day window, to avoid noise from very low-volume processes. Utilisation minimum/maximum can only be overridden at spoke (or estate) level, never per process — VDIs are spoke-owned rather than tied to any single process, so a process-level utilisation override wouldn't have anything to attach to.`}
+        helper={`These global targets and per-spoke/per-process overrides drive the threshold alerts shown in the bell icon in the header — they do NOT change the target reference lines already shown on Overview/Capacity/Commercial/Input & Outcome, which come from the data build's own baked targets and are unaffected by edits made here. Resolution order for a given metric: a process-level override wins, else its spoke's override, else the global target below. Per-process alerts are skipped entirely for any process with fewer than ${MIN_ALERT_VOLUME} completed+exception items in the trailing 7-day window, to avoid noise from very low-volume processes. Utilisation minimum/maximum and the idle VDI review threshold can only be overridden at spoke (or estate) level, never per process — VDIs are spoke-owned rather than tied to any single process, so a process-level override of either wouldn't have anything to attach to.`}
       />
 
       {/* --- 2a. global targets --- */}
       {isAdmin ? (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginBottom: 6 }}>
           {TARGET_FIELDS.map((f) => (
-            <Field key={f.key} id={`tg-${f.key}`} label={`${f.label}${f.unit === "pct" ? " (%)" : " (£)"}`} width={170} hint={f.hint}>
+            <Field key={f.key} id={`tg-${f.key}`} label={`${f.label} (${unitLabel(f.unit)})`} width={170} hint={f.hint}>
               <input
                 id={`tg-${f.key}`}
                 type="number"
-                min={f.unit === "pct" ? 0 : 0.01}
-                max={f.unit === "pct" ? 100 : undefined}
-                step={f.unit === "pct" ? 0.1 : 0.01}
+                {...numberInputProps(f.unit)}
                 style={inputStyle(t)}
                 value={draft[f.key]}
                 onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}
@@ -258,7 +288,7 @@ export function ThresholdsSection({ reference, update, actor, can, isAdmin }: Se
       ) : (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginBottom: 6 }}>
           {TARGET_FIELDS.map((f) => (
-            <Field key={f.key} id={`tg-ro-${f.key}`} label={`${f.label}${f.unit === "pct" ? " (%)" : " (£)"}`} width={170} hint={f.hint}>
+            <Field key={f.key} id={`tg-ro-${f.key}`} label={`${f.label} (${unitLabel(f.unit)})`} width={170} hint={f.hint}>
               <div style={{ fontFamily: fonts.body, fontSize: 13, color: t.ink, padding: "7px 0" }}>{fmtValue(f.unit, reference.targets[f.key])}</div>
             </Field>
           ))}
@@ -292,13 +322,15 @@ export function ThresholdsSection({ reference, update, actor, can, isAdmin }: Se
           {overrides.length === 0 && <EmptyRow colSpan={5}>No overrides yet — every spoke and process uses the global targets above.</EmptyRow>}
           {overrides.map((o, i) => {
             const field = fieldFor(o.metric);
-            // Defensive: engine.ts only ever resolves utilMin/utilMax via
-            // scope="spoke" (see the vdi-scope block), so a process-scoped row
-            // here — e.g. a stale row saved before the scope-aware metric
-            // filter above existed, or a directly-edited JSON import — would
-            // never actually be evaluated. Flag it inline rather than listing
-            // it as if it were live.
+            // Defensive: engine.ts only ever resolves utilMin/utilMax/
+            // vdiStaleDays via scope="spoke" (see the vdi-scope block and the
+            // staleVdi check), so a process-scoped row for any of these here
+            // — e.g. a stale row saved before the scope-aware metric filter
+            // above existed, or a directly-edited JSON import — would never
+            // actually be evaluated. Flag it inline rather than listing it as
+            // if it were live.
             const isInertProcessUtil = o.scope === "process" && (o.metric === "utilMin" || o.metric === "utilMax");
+            const isInertProcessVdiStaleDays = o.scope === "process" && o.metric === "vdiStaleDays";
             return (
               <tr key={`${o.scope}|${o.scopeId}|${o.metric}|${i}`}>
                 <Td>{o.scope === "spoke" ? "Spoke" : "Process"}</Td>
@@ -308,6 +340,11 @@ export function ThresholdsSection({ reference, update, actor, can, isAdmin }: Se
                   {isInertProcessUtil && (
                     <div style={{ fontFamily: fonts.body, fontSize: 10.5, fontStyle: "italic", color: t.inkSoft, marginTop: 2 }}>
                       (not evaluated — utilisation overrides only apply per spoke)
+                    </div>
+                  )}
+                  {isInertProcessVdiStaleDays && (
+                    <div style={{ fontFamily: fonts.body, fontSize: 10.5, fontStyle: "italic", color: t.inkSoft, marginTop: 2 }}>
+                      (not evaluated — idle VDI review threshold overrides only apply per spoke)
                     </div>
                   )}
                 </Td>
@@ -346,13 +383,11 @@ export function ThresholdsSection({ reference, update, actor, can, isAdmin }: Se
                 {metricOptions.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
               </select>
             </Field>
-            <Field id="to-value" label={fieldFor(metric).unit === "pct" ? "Value (%)" : "Value (£)"} width={120}>
+            <Field id="to-value" label={`Value (${unitLabel(fieldFor(metric).unit)})`} width={120}>
               <input
                 id="to-value"
                 type="number"
-                min={fieldFor(metric).unit === "pct" ? 0 : 0.01}
-                max={fieldFor(metric).unit === "pct" ? 100 : undefined}
-                step={fieldFor(metric).unit === "pct" ? 0.1 : 0.01}
+                {...numberInputProps(fieldFor(metric).unit)}
                 style={inputStyle(t)}
                 value={valueStr}
                 onChange={(e) => setValueStr(e.target.value)}

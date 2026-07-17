@@ -115,11 +115,38 @@ function AlertTrend({ alert, reference, tables }: { alert: Alert; reference: Ref
   const last = pts[pts.length - 1];
   const thresholdY = py(alert.threshold);
 
+  // t.accent/t.inkSoft/t.inkFaint are theme tokens, not CSS classes — fine
+  // as-is in light/dark, but high-contrast reuses the dark theme's tokens
+  // verbatim (see theme-context.ts) and forces this row's ancestor
+  // (.report__canvas) to a pure #000 background via the HC overlay below;
+  // against true black, darkTheme.inkFaint (rgba(244,241,235,0.16), used for
+  // the dashed threshold line) computes to only ~1.4:1 contrast — well under
+  // the 3:1 non-text UI bar the rest of this theme holds to. className hooks
+  // here let the HC overlay (styles.css) push the threshold line to solid
+  // white and the trend line/dot to a clearly-legible colour without
+  // touching the SVG's light/dark rendering (no !important reaches inline
+  // presentation attributes unless the selector matches, and these classes
+  // only exist to be matched). Breach vs warn stays colour-only in HC
+  // (white vs cyan) — acceptable per the row's own severityLabelFor() text.
   return (
-    <svg width={w} height={h} aria-hidden style={{ flex: "0 0 auto" }}>
-      <line x1={0} x2={w} y1={thresholdY} y2={thresholdY} stroke={t.inkFaint} strokeWidth={1} strokeDasharray="3 2" />
-      <path d={d} fill="none" stroke={color} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx={last[0]} cy={last[1]} r={2.2} fill={color} />
+    <svg width={w} height={h} aria-hidden className="alert-trend" style={{ flex: "0 0 auto" }}>
+      <line className="alert-trend__threshold" x1={0} x2={w} y1={thresholdY} y2={thresholdY} stroke={t.inkFaint} strokeWidth={1} strokeDasharray="3 2" />
+      <path
+        className={`alert-trend__series${alert.severity === "breach" ? " alert-trend__series--breach" : ""}`}
+        d={d}
+        fill="none"
+        stroke={color}
+        strokeWidth={1.6}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle
+        className={`alert-trend__series${alert.severity === "breach" ? " alert-trend__series--breach" : ""}`}
+        cx={last[0]}
+        cy={last[1]}
+        r={2.2}
+        fill={color}
+      />
     </svg>
   );
 }

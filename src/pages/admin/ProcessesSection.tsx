@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 import { fonts } from "../../theme";
 import { useTheme } from "../../theme-context";
 import type { ProcessRef, PropositionRef, QueueMapRef } from "../../reference/reference-store";
+import { gradeNameOf, gradesInScopeForSpoke } from "../../reference/reference-store";
+import type { GradeRef } from "../../reference/reference-store";
 import {
   Field, GhostButton, PrimaryButton, DangerButton, SectionTitle, Table, Td, Th, EmptyRow,
   inputStyle, useSectionSave, PROCESS_ICON_OPTIONS,
@@ -22,11 +24,6 @@ export function ProcessesSection({ reference, update, actor, can }: SectionProps
 
   const spokePropositions = useMemo(() => reference.propositions.filter((p) => p.spokeId === selectedSpokeId), [reference.propositions, selectedSpokeId]);
   const spokeProcesses = useMemo(() => reference.processes.filter((p) => spokePropositions.some((pr) => pr.propositionId === p.propositionId)), [reference.processes, spokePropositions]);
-  const gradeOptions = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const g of reference.gradeRates) m.set(g.grade, g.gradeName);
-    return Array.from(m.entries());
-  }, [reference.gradeRates]);
 
   return (
     <div>
@@ -49,7 +46,7 @@ export function ProcessesSection({ reference, update, actor, can }: SectionProps
       {spoke && (
         <>
           <PropositionsBlock reference={reference} spokeId={spoke.spokeId} editable={editable} save={save} setErr={setErr} />
-          <ProcessesBlock reference={reference} propositions={spokePropositions} processes={spokeProcesses} gradeOptions={gradeOptions} editable={editable} save={save} setErr={setErr} />
+          <ProcessesBlock reference={reference} propositions={spokePropositions} processes={spokeProcesses} editable={editable} save={save} setErr={setErr} />
           <QueueMapBlock reference={reference} processes={spokeProcesses} editable={editable} save={save} setErr={setErr} />
         </>
       )}
@@ -142,21 +139,32 @@ function PropositionsBlock({ reference, spokeId, editable, save, setErr }: { ref
 
 // --- processes ------------------------------------------------------------------
 function ProcessesBlock({
-  reference, propositions, processes, gradeOptions, editable, save, setErr,
+  reference, propositions, processes, editable, save, setErr,
 }: {
   reference: SectionProps["reference"];
   propositions: PropositionRef[];
   processes: ProcessRef[];
-  gradeOptions: [string, string][];
   editable: boolean;
   save: SaveFn;
   setErr: (e: string | null) => void;
 }) {
   const t = useTheme();
+
+  // A process's grade may only be one that's in-scope for its proposition's
+  // OWNING spoke (propositions are spoke-scoped — PropositionRef.spokeId).
+  // Recomputed per-proposition (not just once for the tab's selected spoke)
+  // so it stays correct if this block is ever reused somewhere propositions
+  // aren't already pre-filtered to a single spoke.
+  const gradesForProposition = (propositionId: number): GradeRef[] => {
+    const prop = reference.propositions.find((pr) => pr.propositionId === propositionId);
+    const spokeName = prop ? reference.spokes.find((s) => s.spokeId === prop.spokeId)?.spokeName : undefined;
+    return gradesInScopeForSpoke(reference, spokeName);
+  };
+
   const [editingId, setEditingId] = useState<number | null>(null);
   const [draft, setDraft] = useState<ProcDraft | null>(null);
   const [adding, setAdding] = useState(false);
-  const [addDraft, setAddDraft] = useState<ProcDraft>({ processName: "", processAcronym: "", processDescription: "", propositionId: propositions[0]?.propositionId ?? 0, smvMinutes: "5", grade: gradeOptions[0]?.[0] ?? "", isActive: true, icon: "form", tags: "" });
+  const [addDraft, setAddDraft] = useState<ProcDraft>({ processName: "", processAcronym: "", processDescription: "", propositionId: propositions[0]?.propositionId ?? 0, smvMinutes: "5", grade: gradesForProposition(propositions[0]?.propositionId ?? 0)[0]?.grade ?? "", isActive: true, icon: "form", tags: "" });
 
   const validate = (d: ProcDraft): string | null => {
     if (!d.processName.trim()) return "Process name is required.";
@@ -165,6 +173,7 @@ function ProcessesBlock({
     if (!isFinite(smv) || smv <= 0) return "SMV minutes must be a positive number.";
     if (!d.grade) return "Choose a grade.";
     if (!d.propositionId) return "Choose a proposition.";
+    if (!gradesForProposition(d.propositionId).some((g) => g.grade === d.grade)) return `Grade '${gradeNameOf(reference, d.grade)}' is not available for this proposition's spoke — pick a grade in scope.`;
     return null;
   };
 
@@ -222,14 +231,29 @@ function ProcessesBlock({
                     <Td><input style={inputStyle(t)} value={draft.processName} onChange={(e) => setDraft({ ...draft, processName: e.target.value })} aria-label="Process name" /></Td>
                     <Td><input style={inputStyle(t, { width: 90 })} value={draft.processAcronym} onChange={(e) => setDraft({ ...draft, processAcronym: e.target.value })} aria-label="Acronym" /></Td>
                     <Td>
-                      <select style={inputStyle(t)} value={draft.propositionId} onChange={(e) => setDraft({ ...draft, propositionId: Number(e.target.value) })} aria-label="Proposition">
+                      <select
+                        style={inputStyle(t)}
+                        value={draft.propositionId}
+                        onChange={(e) => {
+                          const newPropId = Number(e.target.value);
+                          const inScope = gradesForProposition(newPropId);
+                          if (draft.grade && !inScope.some((g) => g.grade === draft.grade)) {
+                            setErr(`Grade '${gradeNameOf(reference, draft.grade)}' is not available for this proposition's spoke — pick a grade in scope.`);
+                            setDraft({ ...draft, propositionId: newPropId, grade: "" });
+                          } else {
+                            setDraft({ ...draft, propositionId: newPropId });
+                          }
+                        }}
+                        aria-label="Proposition"
+                      >
                         {propositions.map((pr) => <option key={pr.propositionId} value={pr.propositionId}>{pr.propositionName}</option>)}
                       </select>
                     </Td>
                     <Td align="right"><input type="number" min={0.1} step={0.1} style={inputStyle(t, { width: 80, textAlign: "right" })} value={draft.smvMinutes} onChange={(e) => setDraft({ ...draft, smvMinutes: e.target.value })} aria-label="SMV minutes" /></Td>
                     <Td>
                       <select style={inputStyle(t)} value={draft.grade} onChange={(e) => setDraft({ ...draft, grade: e.target.value })} aria-label="Grade">
-                        {gradeOptions.map(([g, name]) => <option key={g} value={g}>{name} ({g})</option>)}
+                        {gradesForProposition(draft.propositionId).length === 0 && <option value="">No grades in scope</option>}
+                        {gradesForProposition(draft.propositionId).map((g) => <option key={g.grade} value={g.grade}>{g.gradeName} ({g.grade})</option>)}
                       </select>
                     </Td>
                     <Td align="center"><input type="checkbox" checked={draft.isActive} onChange={(e) => setDraft({ ...draft, isActive: e.target.checked })} aria-label="Active" /></Td>
@@ -271,7 +295,21 @@ function ProcessesBlock({
               <Field id="pa-name" label="Process name" width={220}><input id="pa-name" style={inputStyle(t)} value={addDraft.processName} onChange={(e) => setAddDraft({ ...addDraft, processName: e.target.value })} /></Field>
               <Field id="pa-acr" label="Acronym" width={100}><input id="pa-acr" style={inputStyle(t)} value={addDraft.processAcronym} onChange={(e) => setAddDraft({ ...addDraft, processAcronym: e.target.value })} /></Field>
               <Field id="pa-prop" label="Proposition" width={200}>
-                <select id="pa-prop" style={inputStyle(t)} value={addDraft.propositionId} onChange={(e) => setAddDraft({ ...addDraft, propositionId: Number(e.target.value) })}>
+                <select
+                  id="pa-prop"
+                  style={inputStyle(t)}
+                  value={addDraft.propositionId}
+                  onChange={(e) => {
+                    const newPropId = Number(e.target.value);
+                    const inScope = gradesForProposition(newPropId);
+                    if (addDraft.grade && !inScope.some((g) => g.grade === addDraft.grade)) {
+                      setErr(`Grade '${gradeNameOf(reference, addDraft.grade)}' is not available for this proposition's spoke — pick a grade in scope.`);
+                      setAddDraft({ ...addDraft, propositionId: newPropId, grade: "" });
+                    } else {
+                      setAddDraft({ ...addDraft, propositionId: newPropId });
+                    }
+                  }}
+                >
                   {propositions.map((pr) => <option key={pr.propositionId} value={pr.propositionId}>{pr.propositionName}</option>)}
                 </select>
               </Field>
@@ -280,8 +318,8 @@ function ProcessesBlock({
               <Field id="pa-smv" label="SMV minutes" width={110}><input id="pa-smv" type="number" min={0.1} step={0.1} style={inputStyle(t)} value={addDraft.smvMinutes} onChange={(e) => setAddDraft({ ...addDraft, smvMinutes: e.target.value })} /></Field>
               <Field id="pa-grade" label="Grade" width={180}>
                 <select id="pa-grade" style={inputStyle(t)} value={addDraft.grade} onChange={(e) => setAddDraft({ ...addDraft, grade: e.target.value })}>
-                  {gradeOptions.length === 0 && <option value="">Add a grade rate first</option>}
-                  {gradeOptions.map(([g, name]) => <option key={g} value={g}>{name} ({g})</option>)}
+                  {gradesForProposition(addDraft.propositionId).length === 0 && <option value="">No grades in scope</option>}
+                  {gradesForProposition(addDraft.propositionId).map((g) => <option key={g.grade} value={g.grade}>{g.gradeName} ({g.grade})</option>)}
                 </select>
               </Field>
               <Field id="pa-icon" label="Icon" width={140}>

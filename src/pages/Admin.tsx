@@ -26,10 +26,10 @@ import { ThresholdsSection } from "./admin/ThresholdsSection";
 // the same store — see src/reference/economics.ts).
 //
 // Role scoping is enforced twice, deliberately: the tab list hides sections a
-// role has no business seeing at all (Squads / Grade rate card / Exception
-// patterns / Users are admin-governance surfaces), and — inside a visible
-// section — each row's edit affordances are individually gated by can(), so a
-// hub_lead sees every spoke but can only edit their own.
+// role has no business seeing at all (Squads / Exception patterns / Users are
+// admin-governance surfaces), and — inside a visible section — each row's
+// edit affordances are individually gated by can(), so a hub_lead sees every
+// spoke but can only edit their own.
 // ---------------------------------------------------------------------------
 
 type SectionId = "squads" | "processes" | "people" | "vdi" | "grades" | "exceptions" | "users" | "sync" | "thresholds";
@@ -47,7 +47,7 @@ const SECTIONS: SectionDef[] = [
   { id: "people", label: "People costs", Component: PeopleCostsSection, visible: () => true },
   { id: "vdi", label: "VDI estate", Component: VdiSection, visible: () => true },
   { id: "thresholds", label: "Targets & thresholds", Component: ThresholdsSection, visible: () => true },
-  { id: "grades", label: "Grade rate card", Component: GradeRateSection, visible: (can) => can("edit_global_reference") },
+  { id: "grades", label: "Grade rate card", Component: GradeRateSection, visible: () => true },
   { id: "exceptions", label: "Exception patterns", Component: ExceptionPatternsSection, visible: (can) => can("edit_global_reference") },
   { id: "users", label: "Users & roles", Component: UsersSection, visible: (can) => can("manage_users") },
   { id: "sync", label: "Data & sync", Component: DataSyncSection, visible: () => true },
@@ -98,6 +98,7 @@ export function Admin() {
         <div style={{ flex: 1 }} />
         {dirty && (
           <span
+            className="adm-pill"
             style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: fonts.mono, fontSize: 10.5, fontWeight: 700, letterSpacing: "0.03em", color: t.accent, background: `${t.accent}14`, border: `1px solid ${t.accent}55`, padding: "4px 10px", borderRadius: 20 }}
             title={lastEdited ? `Last edit ${new Date(lastEdited).toLocaleString("en-GB")}` : undefined}
           >
@@ -108,7 +109,7 @@ export function Admin() {
       </div>
 
       <div style={{ flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: "220px 1fr", gap: 16 }}>
-        <nav aria-label="Administration sections" role="tablist" aria-orientation="vertical" style={{ display: "flex", flexDirection: "column", gap: 3, overflowY: "auto", height: "100%", paddingRight: 4 }}>
+        <nav aria-label="Administration sections" role="tablist" aria-orientation="vertical" className="adm-tabs" style={{ display: "flex", flexDirection: "column", gap: 3, overflowY: "auto", height: "100%", paddingRight: 4 }}>
           {visibleSections.map((s, idx) => {
             const on = s.id === activeId;
             return (
@@ -122,6 +123,7 @@ export function Admin() {
                 tabIndex={on ? 0 : -1}
                 onClick={() => setActiveId(s.id)}
                 onKeyDown={(e) => onTabKeyDown(e, idx)}
+                className={`adm-tab${on ? " is-active" : ""}`}
                 style={{
                   textAlign: "left",
                   padding: "10px 12px",
@@ -142,6 +144,7 @@ export function Admin() {
         </nav>
 
         <div
+          className="adm-panel"
           role="tabpanel"
           id={`admin-panel-${active.id}`}
           aria-labelledby={`admin-tab-${active.id}`}

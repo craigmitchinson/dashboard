@@ -76,18 +76,22 @@ card. Spokes automating against different grades price differently with zero
 per-spoke configuration; the dashboard's rate slider is a *what-if flat
 override* on top (default: the rate card).
 
-**Cost** = worktime × (hub £/bot-second + spoke infra £/bot-second).
+**Cost** = worktime × (hub £/bot-second + spoke pool £/bot-second).
 - Hub pool/day = IA CoE team run-rate (`RefPeopleCostHistory`, `OwnerId='HUB'`
   — the sole source of hub people cost in both SQL and the JS/Node pipeline;
   `RefEstateCostHistory.TeamAnnualCostGBP` is retained for schema parity only
   and is not read for cost) + hub-owned VDIs, ÷ 365.25, apportioned by
   worktime across **all** work.
-- Spoke infra/day = the spoke's **own** VDIs (`RefResource.SpokeId`) at the
+- Spoke pool/day = the spoke's **own** VDIs (`RefResource.SpokeId`) at the
   universal class rates (`RefVDICostHistory`, or a VDI's own `AnnualCostGBP`
   override), resolved through `report.fn_VdiDailyCost`'s renewal/expiry/
   retirement coverage-window logic — the same algorithm as the client's
-  `economics.ts` — and apportioned by worktime **within** the spoke.
-  Retiring/adding/renewing a VDI moves that spoke's cost automatically.
+  `economics.ts` — **plus that spoke's own people cost** (`RefPeopleCostHistory`,
+  `OwnerId=<spokeId>`, date-effective, ÷ 365.25 — a spoke's people record is
+  charged into its own pool exactly like the hub's is, not merely informational),
+  all apportioned by worktime **within** the spoke. Retiring/adding/renewing a
+  VDI, or dating a new spoke people-cost record, moves that spoke's cost
+  automatically.
 - Idle time is never a denominator: idle cost lands on the work that ran.
 
 Ownership: the **hub** maintains spokes, the grade rate card, VDI class rates,
@@ -111,7 +115,7 @@ All of it lives in `data/reference/reference.json` (JSON twin of
   API contract if views move server-side).
 - **Client-side economics engine** (`src/reference/economics.ts`): recomputes
   benefit (SMV × grade rate in force on the outcome date) and cost (worktime ×
-  hub £/bot-second + spoke infra £/bot-second) from rate tables built by
+  hub £/bot-second + spoke pool £/bot-second) from rate tables built by
   `buildRateTables()`, which are rebuilt whenever reference data changes. This
   mirrors the SQL `report.vw_*` views exactly — `tools/verify-economics.mjs`
   (`npm run data:verify`) checks the client engine reproduces the

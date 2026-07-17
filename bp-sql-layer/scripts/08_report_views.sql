@@ -16,21 +16,35 @@
      (RefProcess.GradeCode) and the SMV; core.RefGradeRate is the hub's
      date-effective rate card. Pay awards insert new rows; history is
      never re-valued; spokes automating different grades price
-     differently with zero extra configuration.
+     differently with zero extra configuration. RefGradeRate.SpokeId
+     (NULL = universal) optionally scopes one rate row to a single spoke —
+     resolution is spoke-first: a matching spoke row wins outright over a
+     universal row whenever both are in force (see RefGradeRate's comment
+     in 03_core_dimensions.sql). core.RefGrade/RefGradeSpoke is a SEPARATE
+     scope dimension (which spokes may select a grade at all, not its rate).
 
-   COST = worktime x ( hub £/bot-second + spoke infra £/bot-second ).
+   COST = worktime x ( hub £/bot-second + spoke pool £/bot-second ).
      Hub pool/day  = CoE team run-rate (RefPeopleCostHistory, OwnerId='HUB',
                      in force on the date — the SOLE source of hub people
                      cost; RefEstateCostHistory.TeamAnnualCostGBP is schema
                      parity only, see 03_core_dimensions.sql) + hub-owned
                      VDIs' per-day coverage-window cost (fn_VdiDailyCost),
                      apportioned by worktime across ALL work.
-     Spoke infra/day = the spoke's own live VDIs' per-day coverage-window
+     Spoke pool/day  = the spoke's own live VDIs' per-day coverage-window
                      cost (fn_VdiDailyCost — same renewal/expiry/retirement
-                     semantics as the hub side), apportioned by worktime
-                     WITHIN the spoke. Retiring/adding/renewing a VDI moves
-                     that spoke's cost automatically; the class £ rates
-                     (or a VDI's own AnnualCostGBP override) are universal.
+                     semantics as the hub side) PLUS that spoke's OWN
+                     RefPeopleCostHistory record-in-force (OwnerId = the
+                     spoke's id as a string) — spoke people cost is now
+                     CHARGED, not merely informational (see
+                     RefPeopleCostHistory's comment in 03_core_dimensions.sql)
+                     — apportioned by worktime WITHIN the spoke.
+                     Retiring/adding/renewing a VDI, or a hire/leaver/pay-
+                     award row for that spoke, moves its pool automatically;
+                     the VDI class £ rates are universal by default (or a
+                     VDI's own AnnualCostGBP override, or a spoke-scoped
+                     RefVDICostHistory row for that VDI's own spoke —
+                     resolved spoke-first inside fn_VdiDailyCost, same
+                     precedence as RefGradeRate above).
      Idle time is never in a denominator: idle cost lands on work done.
 
    View inventory:
@@ -41,9 +55,9 @@
      report.vw_DimResource         Robot/VDI dimension (with owning spoke)
      report.vw_DimCalendar         Date dimension (with sortable labels)
      report.vw_EstateRateByDate    Hub team + infra pools in force per date
-     report.vw_SpokeInfraRateByDate  Per-spoke infra pool per date
+     report.vw_SpokeInfraRateByDate  Per-spoke pool per date (VDI infra + spoke people cost, D5)
      report.vw_HubCostPerSecondByDate    Hub pool £ per bot-second per day
-     report.vw_SpokeCostPerSecondByDate  Spoke infra £ per bot-second per day
+     report.vw_SpokeCostPerSecondByDate  Spoke pool £ per bot-second per day
      report.vw_FactItemEconomics   PER-ITEM benefit, rework value and cost
                                    (the single source for every £ below)
      report.vw_FactWorkItem        Enriched fact for the model (item grain)
@@ -53,6 +67,7 @@
      report.vw_ExceptionDetail     Exception reasons, volumes, time-to-fail
      report.vw_ExceptionCost       What exceptions cost (wasted bot + rework)
      report.vw_ResourceUtil        VDI utilisation and exception rate
+     report.vw_ResourceActivity    Per-resource FirstSeen/LastSeen/Items (stale-VDI check input)
      report.vw_Commercial          Per process: benefit, FTE, cost/task, net
      report.vw_CommercialBySpoke   The same rollup per spoke (spoke P&L)
      report.vw_CommercialMonthly   Monthly series with YTD + all-time cumulative
@@ -71,7 +86,7 @@ FROM core.RefSpoke;
 GO
 
 CREATE OR ALTER VIEW report.vw_DimGradeRate AS
-SELECT GradeCode AS Grade, GradeName, EffectiveFrom, HourlyCostGBP
+SELECT GradeCode AS Grade, GradeName, EffectiveFrom, HourlyCostGBP, SpokeId
 FROM core.RefGradeRate;
 GO
 
@@ -99,10 +114,23 @@ FROM core.RefProcess pr
 JOIN core.RefProposition pp ON pp.PropositionId = pr.PropositionId
 JOIN core.RefSpoke sp ON sp.SpokeId = pp.SpokeId
 CROSS APPLY (
+    -- SPOKE-FIRST RESOLUTION: a rate row scoped to this process's OWN spoke
+    -- (sp.SpokeId) wins outright over any universal (SpokeId IS NULL) row —
+    -- see RefGradeRate's comment in 03_core_dimensions.sql and
+    -- economics.ts's gradeRateOn. CurrentHourlyRateGBP here is TODAY's rate
+    -- for display only; report.vw_FactItemEconomics below resolves the rate
+    -- actually used at each item's own outcome date.
     SELECT TOP 1 g.GradeName, g.HourlyCostGBP
     FROM core.RefGradeRate g
-    WHERE g.GradeCode = pr.GradeCode AND g.EffectiveFrom <= CONVERT(DATE, SYSUTCDATETIME())
-    ORDER BY g.EffectiveFrom DESC
+    WHERE g.GradeCode = pr.GradeCode
+      AND g.EffectiveFrom <= CONVERT(DATE, SYSUTCDATETIME())
+      AND (
+            (g.SpokeId = CAST(sp.SpokeId AS NVARCHAR(20)))
+            OR g.SpokeId IS NULL
+          )
+    ORDER BY
+        CASE WHEN g.SpokeId = CAST(sp.SpokeId AS NVARCHAR(20)) THEN 0 ELSE 1 END,
+        g.EffectiveFrom DESC
 ) gr;
 GO
 
@@ -189,11 +217,23 @@ RETURN (
     ) win
     CROSS APPLY (
         -- CostClass rate in force AT THE CYCLE START date (only used if
-        -- AnnualCostGBP doesn't override it) — matches the TS twin exactly
+        -- AnnualCostGBP doesn't override it) — matches the TS twin exactly.
+        -- SPOKE-FIRST RESOLUTION: a row scoped to this VDI's own SpokeId
+        -- (r.SpokeId, cast to the SpokeId-as-string convention) wins
+        -- outright over any universal (SpokeId IS NULL) row, regardless of
+        -- which has the later EffectiveFrom — see RefVDICostHistory's
+        -- comment in 03_core_dimensions.sql and economics.ts's vdiClassRate.
         SELECT TOP 1 v.AnnualCostPerVDIGBP
         FROM core.RefVDICostHistory v
-        WHERE v.CostClass = r.CostClass AND v.EffectiveFrom <= CAST(cyc.CycleStart AS DATE)
-        ORDER BY v.EffectiveFrom DESC
+        WHERE v.CostClass = r.CostClass
+          AND v.EffectiveFrom <= CAST(cyc.CycleStart AS DATE)
+          AND (
+                (r.SpokeId IS NOT NULL AND v.SpokeId = CAST(r.SpokeId AS NVARCHAR(20)))
+                OR v.SpokeId IS NULL
+              )
+        ORDER BY
+            CASE WHEN r.SpokeId IS NOT NULL AND v.SpokeId = CAST(r.SpokeId AS NVARCHAR(20)) THEN 0 ELSE 1 END,
+            v.EffectiveFrom DESC
     ) vr
     WHERE r.ResourceName = @ResourceName
 );
@@ -202,16 +242,63 @@ GO
 /* =====================================================================
    TIME-VARYING COST POOLS — resolution layer.
 
-   vw_EstateRateByDate: per calendar date, the hub team pool, hub-owned
-   infra, and the total spoke infra in force (annualised) plus working
+   vw_SpokeInfraRateByDate (defined FIRST so vw_EstateRateByDate below can
+   reuse it without re-deriving the same figure): each spoke's WHOLE pool
+   per date. NAME RETAINED FOR OUTPUT-CONTRACT STABILITY (Power BI and the
+   web dashboard's data API bind to InfraAnnualGBP/InfraPerDayGBP by name) —
+   but as of D5 (spoke people cost is now CHARGED, not merely informational;
+   see RefPeopleCostHistory's comment in 03_core_dimensions.sql), the VALUE
+   is no longer VDI infra alone: it is that spoke's own live VDIs'
+   coverage-window cost (fn_VdiDailyCost) PLUS that spoke's own
+   RefPeopleCostHistory record-in-force (OwnerId = the spoke's id as a
+   string) / 365.25 — exactly mirroring src/reference/economics.ts's
+   buildRateTables and tools/build-dashboard-data.mjs. Hub people-cost
+   handling is unchanged (still HUB-only, via vw_EstateRateByDate's `people`
+   CROSS APPLY below). Retire/renew/add a VDI, or a hire/leaver/pay-award
+   row for this spoke's OwnerId, and this moves automatically.
+   ===================================================================== */
+CREATE OR ALTER VIEW report.vw_SpokeInfraRateByDate AS
+SELECT
+    c.DateKey,
+    c.[Date],
+    s.SpokeId,
+    s.SpokeName,
+    COALESCE(inf.InfraAnnualGBP, 0) + COALESCE(peop.PeopleAnnualGBP, 0) AS InfraAnnualGBP,
+    (COALESCE(inf.InfraAnnualGBP, 0) + COALESCE(peop.PeopleAnnualGBP, 0)) / 365.25 AS InfraPerDayGBP
+FROM core.DimCalendar c
+CROSS JOIN core.RefSpoke s
+OUTER APPLY (
+    SELECT SUM(dc.DailyCostGBP) * 365.25 AS InfraAnnualGBP
+    FROM core.RefResource r
+    CROSS APPLY report.fn_VdiDailyCost(r.ResourceName, c.[Date]) dc
+    WHERE r.SpokeId = s.SpokeId
+) inf
+OUTER APPLY (
+    -- this spoke's OWN people run-rate in force on this date (D5) — mirrors
+    -- the hub `people` CROSS APPLY below, but keyed on OwnerId = SpokeId
+    -- (as a string) instead of 'HUB'
+    SELECT TOP 1 p.AnnualCostGBP AS PeopleAnnualGBP
+    FROM core.RefPeopleCostHistory p
+    WHERE p.OwnerId = CAST(s.SpokeId AS NVARCHAR(20)) AND p.EffectiveFrom <= c.[Date]
+    ORDER BY p.EffectiveFrom DESC
+) peop;
+GO
+
+/* vw_EstateRateByDate: per calendar date, the hub team pool, hub-owned
+   infra, and the total spoke pool in force (annualised) plus working
    assumptions. HubPoolPerDayGBP = (team + hub infra) / 365.25.
    TeamAnnualCostGBP comes from RefPeopleCostHistory (OwnerId='HUB'), the
    sole source of hub people cost; WorkingDaysPerYear/ProductiveHoursPerDay
-   still come from RefEstateCostHistory. HubInfraAnnualGBP/SpokeInfraAnnualGBP
-   are the SUM of each VDI's own coverage-window daily cost
-   (fn_VdiDailyCost), annualised back (x365.25) purely so this column keeps
-   reading as an annual figure — the /365.25 in HubPoolPerDayGBP/
-   EstateCostPerDayGBP below undoes that and yields the true daily pool.
+   still come from RefEstateCostHistory. HubInfraAnnualGBP is the SUM of
+   each hub-owned VDI's own coverage-window daily cost (fn_VdiDailyCost),
+   annualised back (x365.25) purely so this column keeps reading as an
+   annual figure. SpokeInfraAnnualGBP (NAME RETAINED for output-contract
+   stability) is the SUM, across every spoke, of vw_SpokeInfraRateByDate's
+   InfraAnnualGBP above — i.e. VDI infra + spoke people cost (D5), not VDI
+   infra alone; reusing that view rather than re-deriving the figure here
+   keeps the two views from ever drifting apart. The /365.25 in
+   HubPoolPerDayGBP/EstateCostPerDayGBP below undoes the x365.25 annualising
+   and yields the true daily pool.
    ===================================================================== */
 CREATE OR ALTER VIEW report.vw_EstateRateByDate AS
 SELECT
@@ -250,34 +337,14 @@ CROSS APPLY (
     WHERE r.SpokeId IS NULL
 ) hub
 CROSS APPLY (
-    -- all spoke-owned VDIs' coverage-window cost on this date (total across
-    -- spokes), summed then annualised (x365.25) for this column's label only
-    SELECT COALESCE(SUM(dc.DailyCostGBP), 0) * 365.25 AS SpokeInfraAnnualGBP
-    FROM core.RefResource r
-    CROSS APPLY report.fn_VdiDailyCost(r.ResourceName, c.[Date]) dc
-    WHERE r.SpokeId IS NOT NULL
+    -- total spoke pool (VDI infra + spoke people cost, D5) across ALL spokes
+    -- on this date — reuses vw_SpokeInfraRateByDate's per-spoke figure
+    -- rather than re-deriving it. NAME RETAINED (SpokeInfraAnnualGBP) for
+    -- output-contract stability.
+    SELECT COALESCE(SUM(sr.InfraAnnualGBP), 0) AS SpokeInfraAnnualGBP
+    FROM report.vw_SpokeInfraRateByDate sr
+    WHERE sr.DateKey = c.DateKey
 ) spk;
-GO
-
-/* Per-spoke infra pool in force per date: the spoke's own live VDIs' coverage-
-   window cost (fn_VdiDailyCost). Retire/renew/add a VDI in RefResource and
-   this moves automatically. */
-CREATE OR ALTER VIEW report.vw_SpokeInfraRateByDate AS
-SELECT
-    c.DateKey,
-    c.[Date],
-    s.SpokeId,
-    s.SpokeName,
-    COALESCE(inf.InfraAnnualGBP, 0) AS InfraAnnualGBP,
-    COALESCE(inf.InfraAnnualGBP, 0) / 365.25 AS InfraPerDayGBP
-FROM core.DimCalendar c
-CROSS JOIN core.RefSpoke s
-OUTER APPLY (
-    SELECT SUM(dc.DailyCostGBP) * 365.25 AS InfraAnnualGBP
-    FROM core.RefResource r
-    CROSS APPLY report.fn_VdiDailyCost(r.ResourceName, c.[Date]) dc
-    WHERE r.SpokeId = s.SpokeId
-) inf;
 GO
 
 /* Hub pool £ per bot-second per day: the shared pool over the WHOLE day's
@@ -359,12 +426,22 @@ JOIN report.vw_HubCostPerSecondByDate hub ON hub.DateKey = f.OutcomeDateKey
 LEFT JOIN report.vw_SpokeCostPerSecondByDate spk
        ON spk.DateKey = f.OutcomeDateKey AND spk.SpokeId = pp.SpokeId
 CROSS APPLY (
-    -- grade rate in force on the item's outcome date
+    -- grade rate in force on the item's outcome date. SPOKE-FIRST
+    -- RESOLUTION: a rate row scoped to this item's OWN spoke (pp.SpokeId,
+    -- via its process's proposition) wins outright over any universal
+    -- (SpokeId IS NULL) row — see RefGradeRate's comment in
+    -- 03_core_dimensions.sql and economics.ts's gradeRateOn.
     SELECT TOP 1 g.HourlyCostGBP
     FROM core.RefGradeRate g
     WHERE g.GradeCode = pr.GradeCode
       AND g.EffectiveFrom <= CONVERT(DATE, CONVERT(CHAR(8), f.OutcomeDateKey), 112)
-    ORDER BY g.EffectiveFrom DESC
+      AND (
+            (g.SpokeId = CAST(pp.SpokeId AS NVARCHAR(20)))
+            OR g.SpokeId IS NULL
+          )
+    ORDER BY
+        CASE WHEN g.SpokeId = CAST(pp.SpokeId AS NVARCHAR(20)) THEN 0 ELSE 1 END,
+        g.EffectiveFrom DESC
 ) gr;
 GO
 
@@ -513,6 +590,32 @@ FROM core.FactWorkItem f
 JOIN core.RefResource r ON r.ResourceName = f.Resource
 LEFT JOIN core.RefSpoke sp ON sp.SpokeId = r.SpokeId
 GROUP BY r.ResourceName, r.BotName, r.VDIName, sp.SpokeName;
+GO
+
+/* =====================================================================
+   Resource (VDI) ACTIVITY DISCOVERY — twin of model.json's resourceActivity
+   (tools/build-dashboard-data.mjs) and the input to src/alerts/engine.ts's
+   stale-VDI check. Deliberately NOT joined to core.RefResource (unlike
+   vw_ResourceUtil above): a resource that has activity but isn't yet — or is
+   no longer — a RefResource row should still surface here (ALL items with a
+   non-blank Resource value contribute), exactly like the JS pipeline's
+   resourceActivity (built from ALL items, not just RefResource-known ones).
+   FirstSeen/LastSeen are OUTCOME dates (OutcomeDateKey via DimCalendar), same
+   date basis as every other view in this file. Consumers wanting the
+   vdiStaleDays threshold itself must apply it themselves — that setting is
+   APP-SIDE CONFIG (reference.json/model.json's targets.vdiStaleDays), not a
+   SQL column; see data/reference/reference.json's comment on it.
+   ===================================================================== */
+CREATE OR ALTER VIEW report.vw_ResourceActivity AS
+SELECT
+    f.Resource AS ResourceName,
+    MIN(c.[Date]) AS FirstSeen,
+    MAX(c.[Date]) AS LastSeen,
+    COUNT(*) AS Items
+FROM core.FactWorkItem f
+JOIN core.DimCalendar c ON c.DateKey = f.OutcomeDateKey
+WHERE f.Resource IS NOT NULL AND f.Resource <> ''
+GROUP BY f.Resource;
 GO
 
 /* =====================================================================

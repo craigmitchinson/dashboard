@@ -8,6 +8,7 @@
 import type { Alert, AlertMetric, AlertScope } from "./engine";
 import { PAGE_LABELS } from "../page-labels";
 import type { ReferenceJson } from "../reference/reference-store";
+import { fmtDate } from "../rpaData";
 
 export const SEVERITY_ORDER: Record<Alert["severity"], number> = { breach: 0, warn: 1 };
 export const SCOPE_ORDER: Record<AlertScope, number> = { estate: 0, spoke: 1, process: 2, vdi: 3 };
@@ -27,10 +28,16 @@ export const METRIC_LABEL: Record<AlertMetric, string> = {
   systemRate: "System exception rate",
   costPerCase: "Cost per case",
   utilisation: "Utilisation",
+  staleVdi: "VDI activity",
 };
 
 export function formatMetricValue(metric: AlertMetric, value: number): string {
-  return metric === "costPerCase" ? `£${value.toFixed(2)}` : `${(value * 100).toFixed(1)}%`;
+  if (metric === "costPerCase") return `£${value.toFixed(2)}`;
+  if (metric === "staleVdi") {
+    const days = Math.round(value);
+    return `${days} day${days === 1 ? "" : "s"}`;
+  }
+  return `${(value * 100).toFixed(1)}%`;
 }
 
 // Read directly off alert.direction (set explicitly at construction in
@@ -90,8 +97,18 @@ export function scopeContextFor(alert: Alert, reference: ReferenceJson, options?
  * AlertsPage when the slicer bar is already filtered to that exact spoke.
  * Defaults to false so NotificationBell's call (no second argument) is
  * unaffected.
+ *
+ * "staleVdi" is a DELIBERATE EXCEPTION to the floor/ceiling phrasing above —
+ * it's not a rate breaching a threshold, it's a VDI that's gone quiet, so it
+ * gets its own fixed phrasing instead:
+ *   "VDI-RPA-COM-04 — no cases for 21 days (last case 23 Jun) — review for retirement"
  */
 export function headlineFor(alert: Alert, options?: { omitSpoke?: boolean }): string {
+  if (alert.metric === "staleVdi") {
+    const days = Math.round(alert.value);
+    const lastCase = alert.lastSeenISO ? fmtDate(Date.parse(alert.lastSeenISO + "T00:00:00Z")) : "unknown";
+    return `${alert.scopeLabel} — no cases for ${days} day${days === 1 ? "" : "s"} (last case ${lastCase}) — review for retirement`;
+  }
   const { metric, value, threshold, direction } = alert;
   const dropScope = (options?.omitSpoke ?? false) && alert.scope === "spoke";
   const prefix = dropScope

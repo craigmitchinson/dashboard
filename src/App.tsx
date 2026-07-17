@@ -677,7 +677,15 @@ function Report() {
             <button
               onClick={cycleTheme}
               className="bar-btn"
-              style={btn(t)}
+              // minWidth + centered text: this button's own label IS the
+              // current theme name ("Light" / "Dark" / "High contrast"), so
+              // without a fixed floor its content-driven width would grow
+              // noticeably wider in high-contrast than light/dark (13 chars
+              // vs 4-5) even though every other geometry property (padding,
+              // border width/style, radius, font) is already byte-identical
+              // across all three themes via btn(t) — sized to fit "High
+              // contrast" so the box stays the same size in every theme.
+              style={{ ...btn(t), minWidth: 118, justifyContent: "center" }}
               title="Cycle theme (light / dark / high contrast)"
             >
               {prefs.theme === "light" ? "Light" : prefs.theme === "dark" ? "Dark" : "High contrast"}

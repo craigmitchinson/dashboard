@@ -25,10 +25,15 @@
     "teamAnnualCostGBP field is retained for schema parity with bp-sql-layer's",
     "core.RefEstateCostHistory table only — it is NOT read for cost calculation.",
     "estateCostHistory now only supplies workingDaysPerYear/productiveHoursPerDay/",
-    "effectiveFrom/note. peopleCostHistory also carries one informational record",
-    "per spoke (ownerId = spokeId as a string) — these are NOT wired into the cost",
-    "engine; the architecture only ever charges spoke INFRA cost, never spoke",
-    "people cost, into the estate economics.",
+    "effectiveFrom/note.",
+    "",
+    "SPOKE PEOPLE COST (D5 — CHARGED, not informational): each spoke's own",
+    "peopleCostHistory record (ownerId = spokeId as a string) IS wired into the",
+    "cost engine as of this change: a spoke's pool/day = that spoke's VDI infra/day",
+    "+ its own peopleCostHistory record-in-force/365.25, apportioned WITHIN the",
+    "spoke by worktime exactly like infra. This changed every spoke's (and the",
+    "estate's) reported cost/net-benefit figures — see verify-economics.mjs's",
+    "before/after totals. Hub people-cost handling (ownerId='HUB') is unchanged.",
     "",
     "VDI RENEWAL / COVERAGE WINDOW: each resource now carries renewalDate (the",
     "annual renewal anchor date; cycles tile every 365 days from it, both forward",
@@ -37,7 +42,43 @@
     "and status ('active'|'retired'). Outside a VDI's coverage window it costs",
     "£0 AND has zero available capacity that day — see src/reference/economics.ts",
     "for the exact algorithm (mirrored byte-for-byte in build-dashboard-data.mjs",
-    "and verify-economics.mjs)."
+    "and verify-economics.mjs).",
+    "",
+    "SCOPED GRADES (SCHEMA_VERSION 3): `grades[]` is the grade CODE dimension —",
+    "gradeName (canonical display name) plus spokeIds, the list of spokes allowed",
+    "to select this grade for a process ([] = universal, every spoke may use it).",
+    "This is a SEPARATE axis from gradeRates[].spokeId (below): grades[].spokeIds",
+    "gates WHO may assign the grade to a process; gradeRates[].spokeId gates",
+    "whether one dated RATE ROW for that grade is a universal figure or a",
+    "spoke-specific override. gradeRates[].gradeName is retained on every row",
+    "for back-compat reads and is kept mirrored to the matching grades[] entry.",
+    "The CL-SUP example below demonstrates a grade scoped to one spoke",
+    "(Consumer Lending) with a plain universal rate and no process yet assigned",
+    "to it — it changes no number anywhere in the dashboard.",
+    "",
+    "VDI CLASS-RATE SPOKE OVERRIDES: vdiCostHistory rows may also carry an",
+    "optional spokeId (same spokeId-as-string convention) to override a class's",
+    "annual cost for one spoke only; absent = universal, applies to every spoke.",
+    "Resolution for both gradeRates and vdiCostHistory is spoke-first: the",
+    "latest effectiveFrom<=day among spoke-matching rows wins outright over any",
+    "universal row, else the latest effectiveFrom<=day universal row is used —",
+    "see gradeRateOn/vdiClassRate in src/reference/economics.ts (byte-for-byte",
+    "mirrored in build-dashboard-data.mjs and 08_report_views.sql).",
+    "",
+    "SPOKE PEOPLE COST (D5 — charged, see peopleCostHistory[] rows' own notes",
+    "below for the per-row detail): a spoke's pool/day now = that spoke's own",
+    "VDI infra/day + its own peopleCostHistory record-in-force/365.25,",
+    "apportioned within the spoke by worktime exactly like infra. Hub people-",
+    "cost handling (ownerId='HUB') is unchanged.",
+    "",
+    "VDI ACTIVITY / STALE FLAGGING (D6): targets.vdiStaleDays (default 14) is",
+    "APP-SIDE CONFIG, not a SQL column — same convention as the other",
+    "targets/thresholdOverrides fields (resolved client-side; report.vw_ResourceActivity",
+    "in 08_report_views.sql supplies the raw FirstSeen/LastSeen/Items a consumer",
+    "would need to apply the same rule server-side, but the threshold itself",
+    "lives only here). A VDI whose activity has had no cases for MORE than",
+    "vdiStaleDays days, and whose status isn't 'retired', surfaces a 'staleVdi'",
+    "alert (src/alerts/engine.ts) suggesting it for retirement review."
   ],
 
   "spokes": [
@@ -45,6 +86,21 @@
     { "spokeId": 2, "spokeName": "Risk", "shortName": "RSK", "colorLight": "#d29200", "colorDark": "#c98500" },
     { "spokeId": 3, "spokeName": "Commercial", "shortName": "COM", "colorLight": "#c2416b", "colorDark": "#d55181" },
     { "spokeId": 4, "spokeName": "Consumer Lending", "shortName": "CLD", "colorLight": "#006b00", "colorDark": "#008300" }
+  ],
+
+  "grades": [
+    { "grade": "OPS3", "gradeName": "Ops Grade 3", "spokeIds": [] },
+    { "grade": "SOPS", "gradeName": "Senior Ops", "spokeIds": [] },
+    { "grade": "PSPC", "gradeName": "Pensions Specialist", "spokeIds": [] },
+    { "grade": "PANL", "gradeName": "Pensions Analyst", "spokeIds": [] },
+    { "grade": "UWSP", "gradeName": "Underwriting Support", "spokeIds": [] },
+    { "grade": "IANL", "gradeName": "Investment Analyst", "spokeIds": [] },
+    { "grade": "KYCS", "gradeName": "KYC Specialist", "spokeIds": [] },
+    { "grade": "RANL", "gradeName": "Risk Analyst", "spokeIds": [] },
+    { "grade": "CUAS", "gradeName": "Commercial Underwriting Assistant", "spokeIds": [] },
+    { "grade": "FANL", "gradeName": "Finance Analyst", "spokeIds": [] },
+    { "grade": "LOPS", "gradeName": "Lending Ops", "spokeIds": [] },
+    { "grade": "CL-SUP", "gradeName": "Consumer Lending Support", "spokeIds": ["4"] }
   ],
 
   "gradeRates": [
@@ -69,7 +125,8 @@
     { "grade": "FANL", "gradeName": "Finance Analyst", "effectiveFrom": "2023-01-01", "hourlyCostGBP": 32.0 },
     { "grade": "FANL", "gradeName": "Finance Analyst", "effectiveFrom": "2026-04-01", "hourlyCostGBP": 33.1 },
     { "grade": "LOPS", "gradeName": "Lending Ops", "effectiveFrom": "2023-01-01", "hourlyCostGBP": 27.0 },
-    { "grade": "LOPS", "gradeName": "Lending Ops", "effectiveFrom": "2026-04-01", "hourlyCostGBP": 28.0 }
+    { "grade": "LOPS", "gradeName": "Lending Ops", "effectiveFrom": "2026-04-01", "hourlyCostGBP": 28.0 },
+    { "grade": "CL-SUP", "gradeName": "Consumer Lending Support", "effectiveFrom": "2023-01-01", "hourlyCostGBP": 26.0 }
   ],
 
   "propositions": [
@@ -149,10 +206,10 @@
   "peopleCostHistory": [
     { "ownerId": "HUB", "headcount": 14, "annualCostGBP": 780000.0, "effectiveFrom": "2023-01-01", "note": "Hub CoE team run-rate — SOLE source of truth for hub people cost in the cost engine. Mirrors estateCostHistory's 2023-01-01 figure exactly." },
     { "ownerId": "HUB", "headcount": 16, "annualCostGBP": 860000.0, "effectiveFrom": "2025-04-01", "note": "Headcount growth. Mirrors estateCostHistory's 2025-04-01 figure exactly." },
-    { "ownerId": "1", "headcount": 4, "annualCostGBP": 220000.0, "effectiveFrom": "2023-01-01", "note": "Informational only — spoke people cost is not charged into estate economics (only spoke INFRA cost is)." },
-    { "ownerId": "2", "headcount": 2, "annualCostGBP": 112000.0, "effectiveFrom": "2023-01-01", "note": "Informational only — spoke people cost is not charged into estate economics (only spoke INFRA cost is)." },
-    { "ownerId": "3", "headcount": 2, "annualCostGBP": 106000.0, "effectiveFrom": "2023-01-01", "note": "Informational only — spoke people cost is not charged into estate economics (only spoke INFRA cost is)." },
-    { "ownerId": "4", "headcount": 3, "annualCostGBP": 152000.0, "effectiveFrom": "2023-01-01", "note": "Informational only — spoke people cost is not charged into estate economics (only spoke INFRA cost is)." }
+    { "ownerId": "1", "headcount": 4, "annualCostGBP": 220000.0, "effectiveFrom": "2023-01-01", "note": "Charged into estate economics (D5): feeds this spoke's pool/day alongside its VDI infra, apportioned within the spoke by worktime." },
+    { "ownerId": "2", "headcount": 2, "annualCostGBP": 112000.0, "effectiveFrom": "2023-01-01", "note": "Charged into estate economics (D5): feeds this spoke's pool/day alongside its VDI infra, apportioned within the spoke by worktime." },
+    { "ownerId": "3", "headcount": 2, "annualCostGBP": 106000.0, "effectiveFrom": "2023-01-01", "note": "Charged into estate economics (D5): feeds this spoke's pool/day alongside its VDI infra, apportioned within the spoke by worktime." },
+    { "ownerId": "4", "headcount": 3, "annualCostGBP": 152000.0, "effectiveFrom": "2023-01-01", "note": "Charged into estate economics (D5): feeds this spoke's pool/day alongside its VDI infra, apportioned within the spoke by worktime." }
   ],
 
   "exceptionPatterns": [
@@ -196,6 +253,7 @@
     "systemRate": 0.03,
     "costPerCase": 9.0,
     "utilMin": 0.15,
-    "utilMax": 0.6
+    "utilMax": 0.6,
+    "vdiStaleDays": 14
   }
 }
