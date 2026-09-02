@@ -1,11 +1,52 @@
 import { useState } from "react";
-import { fonts } from "../theme";
+import type { CSSProperties, ReactNode } from "react";
+import { fonts, type as typeScale } from "../theme";
 import { useTheme } from "../theme-context";
 import { useFilters } from "../filters-context";
 import { fmtDate, EX_CODE } from "../rpaData";
 import type { ExceptionAgg } from "../filters-context";
 import { KpiCard, VisualCard, DataTable, SearchBox, PageGrid, Row, useViz, fmtInt, fmtCompact, fmtPct, fmtGBP } from "../components/viz";
 import type { Column } from "../components/viz";
+import { SpokeSwatch } from "../components/SpokeSwatch";
+
+// TODO (re-touch when it lands): adopt the shared `Segmented` from
+// components/viz.tsx once the primitives worker exports it — sized to match
+// that spec already (32px/radius 8) so the swap is a drop-in.
+function Segmented<T extends string>({ value, onChange, options }: { value: T; onChange: (v: T) => void; options: { key: T; label: string }[] }) {
+  const t = useTheme();
+  return (
+    <div style={{ display: "inline-flex", height: 32, border: `1px solid ${t.ruleSoft}`, borderRadius: 8, overflow: "hidden" }}>
+      {options.map((o) => (
+        <button
+          key={o.key}
+          onClick={() => onChange(o.key)}
+          style={{ fontFamily: fonts.mono, fontSize: 10.5, letterSpacing: "0.04em", textTransform: "uppercase", padding: "0 10px", height: "100%", border: "none", cursor: "pointer", background: value === o.key ? t.ink : "transparent", color: value === o.key ? t.paper : t.inkSoft, fontWeight: 700 }}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// Small hover/focus tooltip using the app's existing `.tip`/`.tip__bubble`
+// CSS pattern (styles.css) instead of the native `title` attribute — same
+// convention already used by admin/shared.tsx's LockBadge inside a
+// scrollable table body. `below` flips the bubble under the trigger (used
+// for the header row, so it never renders above the card's own top edge).
+function CellTip({ children, tip, below, style }: { children: ReactNode; tip: string; below?: boolean; style?: CSSProperties }) {
+  const t = useTheme();
+  return (
+    <span className="tip" tabIndex={0} style={{ position: "relative", width: "100%", ...style }}>
+      {children}
+      <span role="tooltip" className={`tip__bubble${below ? " tip__bubble--below" : ""}`} style={{ width: "auto", maxWidth: 240 }}>
+        <span style={{ display: "block", whiteSpace: "nowrap", background: t.paper, color: t.ink, border: `1px solid ${t.ruleSoft}`, borderRadius: 7, padding: "6px 9px", fontFamily: fonts.body, fontSize: 12, boxShadow: t.shadow }}>
+          {tip}
+        </span>
+      </span>
+    </span>
+  );
+}
 
 function abbr(name: string) {
   return name
@@ -66,13 +107,13 @@ export function Exceptions() {
   return (
     <PageGrid>
       <div className="kpi-row kpi-row--4">
-        <KpiCard label="Total exceptions" value={fmtCompact(m.exceptions)} accent={v.accent} delta={m.prev.exceptions ? (m.exceptions - m.prev.exceptions) / m.prev.exceptions : 0} deltaGood="down" sub="vs prev. period" />
+        <KpiCard label="Total exceptions" value={fmtCompact(m.exceptions)} accent={t.series} delta={m.prev.exceptions ? (m.exceptions - m.prev.exceptions) / m.prev.exceptions : 0} deltaGood="down" sub="vs prev. period" />
         <KpiCard label="System exceptions" value={fmtCompact(m.system)} accent={v.system} sub={`${fmtPct(m.exceptions ? m.system / m.exceptions : 0, 0)} of exceptions`} />
         <KpiCard label="Business exceptions" value={fmtCompact(m.business)} accent={v.business} sub={`${fmtPct(m.exceptions ? m.business / m.exceptions : 0, 0)} of exceptions`} />
         <KpiCard label="Exception cost (period)" value={fmtGBP(m.exceptionCostGBP)} accent={v.bad} sub={`${fmtGBP(m.exceptionCostBusinessGBP)} business · ${fmtGBP(m.exceptionCostSystemGBP)} system`} />
       </div>
 
-      <Row cols="1fr" style={{ flex: 2.1 }}>
+      <Row cols="1fr" style={{ flex: 1.6 }}>
         <VisualCard title="Exception heatmap" subtitle="Volume by process (rows) and exception type (columns) — darker is more">
         <div style={{ overflow: "auto", paddingBottom: 4, height: "100%" }}>
           <div style={{ minWidth: 720, height: "100%", display: "flex", flexDirection: "column" }}>
@@ -80,9 +121,11 @@ export function Exceptions() {
             <div style={{ flex: "0 0 auto", display: "grid", gridTemplateColumns: colW, gap: 2, alignItems: "end", marginBottom: 3 }}>
               <span />
               {types.map((ty) => (
-                <span key={ty.name} title={ty.name} style={{ fontFamily: fonts.mono, fontSize: 9.5, fontWeight: 700, color: ty.category === "system" ? v.system : v.business, textAlign: "center", letterSpacing: "0.02em" }}>{EX_CODE[ty.name] ?? abbr(ty.name)}</span>
+                <CellTip key={ty.name} tip={ty.name} below style={{ justifyContent: "center" }}>
+                  <span style={{ fontFamily: typeScale.micro.fontFamily, fontSize: typeScale.micro.fontSize, fontWeight: 700, color: ty.category === "system" ? v.system : v.business, textAlign: "center", letterSpacing: "0.02em" }}>{EX_CODE[ty.name] ?? abbr(ty.name)}</span>
+                </CellTip>
               ))}
-              <span style={{ fontFamily: fonts.mono, fontSize: 9.5, fontWeight: 700, color: t.inkSoft, textAlign: "center", letterSpacing: "0.02em" }}>TOTAL</span>
+              <span style={{ fontFamily: typeScale.micro.fontFamily, fontSize: typeScale.micro.fontSize, fontWeight: 700, color: t.inkSoft, textAlign: "center", letterSpacing: "0.02em" }}>TOTAL</span>
             </div>
             <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "space-between", gap: 2 }}>
               {processes.map((p, ri) => (
@@ -99,31 +142,35 @@ export function Exceptions() {
                         setFilters({ processId: activeProc === p.id ? "All" : p.id });
                       }
                     }}
-                    style={{ fontFamily: fonts.body, fontSize: 12, fontWeight: activeProc === p.id ? 700 : 400, color: t.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", padding: "0 6px 0 4px", margin: "0 0 0 -4px", borderRadius: 5, cursor: "pointer", display: "flex", alignItems: "center" }}
+                    style={{ fontFamily: fonts.body, fontSize: 12, fontWeight: activeProc === p.id ? 700 : 400, color: t.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", padding: "0 6px 0 4px", margin: "0 0 0 -4px", borderRadius: 5, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}
                     title={`Filter to ${p.name}`}
-                  >{p.name}</span>
+                  ><SpokeSwatch spoke={p.spoke} decorative />{p.name}</span>
                   {types.map((ty, ci) => {
                     const val = cell[ri][ci];
                     const strong = max && val / max > 0.55;
                     return (
-                      <span key={ty.name} title={`${p.name} · ${ty.name}: ${fmtInt(val)}`} style={{ background: heat(val, ty.category), borderRadius: 4, height: "100%", minHeight: 21, display: "grid", placeItems: "center", fontFamily: fonts.mono, fontSize: 10.5, fontWeight: 600, color: strong ? t.paper : t.inkSoft }}>
-                        {val > 0 ? fmtCompact(val) : ""}
-                      </span>
+                      <CellTip key={ty.name} tip={`${p.name} · ${ty.name}: ${fmtInt(val)}`} style={{ height: "100%" }}>
+                        <span style={{ background: heat(val, ty.category), borderRadius: 4, height: "100%", minHeight: 21, display: "grid", placeItems: "center", fontFamily: fonts.mono, fontSize: 10.5, fontWeight: 600, color: strong ? t.paper : t.inkSoft }}>
+                          {val > 0 ? fmtCompact(val) : ""}
+                        </span>
+                      </CellTip>
                     );
                   })}
-                  <span title={`${p.name} · total: ${fmtInt(rowTotals[ri])}`} style={{ display: "flex", alignItems: "center", gap: 6, height: "100%", minHeight: 21 }}>
+                  <CellTip tip={`${p.name} · total: ${fmtInt(rowTotals[ri])}`} style={{ display: "flex", alignItems: "center", gap: 6, height: "100%", minHeight: 21 }}>
                     <span style={{ flex: 1, height: 7, background: v.grid, borderRadius: 3, overflow: "hidden", position: "relative" }}>
-                      <span style={{ position: "absolute", inset: 0, width: `${Math.max(2, (rowTotals[ri] / rowMax) * 100)}%`, background: v.accent, borderRadius: 3 }} />
+                      <span style={{ position: "absolute", inset: 0, width: `${Math.max(2, (rowTotals[ri] / rowMax) * 100)}%`, background: t.series, borderRadius: 3 }} />
                     </span>
                     <span style={{ fontFamily: fonts.mono, fontSize: 10.5, fontWeight: 700, color: t.ink, textAlign: "right", minWidth: 20 }}>{fmtCompact(rowTotals[ri])}</span>
-                  </span>
+                  </CellTip>
                 </div>
               ))}
             </div>
             <div style={{ flex: "0 0 auto", display: "grid", gridTemplateColumns: colW, gap: 2, marginTop: 4, paddingTop: 4, borderTop: `1px solid ${t.ruleSoft}` }}>
               <span style={{ fontFamily: fonts.body, fontSize: 12, fontWeight: 700, color: t.inkSoft, display: "flex", alignItems: "center", padding: "0 6px 0 4px" }}>Total</span>
               {types.map((ty, ci) => (
-                <span key={ty.name} title={`${ty.name} total: ${fmtInt(colTotals[ci])}`} style={{ display: "grid", placeItems: "center", fontFamily: fonts.mono, fontSize: 10.5, fontWeight: 700, color: t.ink }}>{fmtCompact(colTotals[ci])}</span>
+                <CellTip key={ty.name} tip={`${ty.name} total: ${fmtInt(colTotals[ci])}`} style={{ display: "grid", placeItems: "center" }}>
+                  <span style={{ fontFamily: fonts.mono, fontSize: 10.5, fontWeight: 700, color: t.ink }}>{fmtCompact(colTotals[ci])}</span>
+                </CellTip>
               ))}
               <span style={{ display: "grid", placeItems: "center", fontFamily: fonts.mono, fontSize: 10.5, fontWeight: 700, color: t.ink }}>{fmtCompact(rowTotals.reduce((s, val) => s + val, 0))}</span>
             </div>
@@ -143,16 +190,25 @@ export function Exceptions() {
         subtitle="Every exception type across the current filters"
         right={
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <div style={{ display: "inline-flex", border: `1px solid ${t.ruleSoft}`, borderRadius: 8, overflow: "hidden" }}>
-              {(["all", "system", "business"] as const).map((c) => (
-                <button key={c} onClick={() => setCat(c)} style={{ fontFamily: fonts.mono, fontSize: 10.5, letterSpacing: "0.04em", textTransform: "uppercase", padding: "5px 10px", border: "none", cursor: "pointer", background: cat === c ? t.ink : "transparent", color: cat === c ? t.paper : t.inkSoft, fontWeight: 700 }}>{c}</button>
-              ))}
-            </div>
+            <Segmented
+              value={cat}
+              onChange={setCat}
+              options={[{ key: "all", label: "All" }, { key: "system", label: "System" }, { key: "business", label: "Business" }]}
+            />
             <SearchBox value={q} onChange={setQ} placeholder="Search exception…" />
           </div>
         }
       >
-        <DataTable columns={columns} rows={tableRows} initialSort={{ key: "volume", dir: "desc" }} />
+        {/* maxBodyHeight caps the table's own natural/intrinsic height instead
+            of letting it grow to fit every row unconstrained — without this,
+            DataTable (viz.tsx) happily renders all rows at full height, which
+            (via how `.report__canvas`'s flex column sizes itself off its
+            content when unconstrained by the viewport) was the real reason
+            the detail table needed scrolling well below the fold at 1440×900
+            even after the heatmap's flex share above was cut from 2.1 to 1.6.
+            360px comfortably clears the ≥6-row bar (header + ~9 rows) while
+            still leaving its own internal scrollbar for the rest. */}
+        <DataTable columns={columns} rows={tableRows} initialSort={{ key: "volume", dir: "desc" }} maxBodyHeight={360} />
       </VisualCard>
       </Row>
     </PageGrid>

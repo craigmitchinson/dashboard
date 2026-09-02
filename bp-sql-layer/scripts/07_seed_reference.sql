@@ -125,24 +125,27 @@ INSERT INTO core.RefProposition (PropositionId, PropositionName, SpokeId) VALUES
 GO
 
 /* ---- Processes: sit above queues. SMVMinutes + GradeCode are the benefit
-        inputs: SMV x the grade's rate in force on the outcome date. ---- */
+        inputs: SMV x the grade's rate in force on the outcome date. Icon/Tags
+        are presentation metadata for the dashboard's process cards/slicers
+        (Tags ';'-delimited) -- KEEP IN STEP with data/reference/
+        reference.json's processes[].icon/.tags (same values, same order). ---- */
 INSERT INTO core.RefProcess
     (ProcessId, ProcessName, ProcessAcronym, ProcessDescription,
-     PropositionId, SMVMinutes, GradeCode, IsActive) VALUES
-    (101, 'Insurance New Business', 'INB',  'New insurance policy set-up and underwriting handoff',  1, 18, 'OPS3', 1),
-    (102, 'Insurance Renewals',     'IRN',  'Annual policy renewal processing and re-rating',        1, 12, 'OPS3', 1),
-    (103, 'Home Claims',            'HCL',  'Home insurance claim validation and settlement set-up', 2, 35, 'SOPS', 1),
-    (104, 'Pension Transfers',      'PTR',  'Inbound and outbound pension transfer processing',      3, 55, 'PSPC', 1),
-    (105, 'Pension Valuations',     'PVL',  'Scheme and member valuation calculation',               3, 10, 'PANL', 1),
-    (106, 'Life Underwriting',      'LUW',  'Life and protection underwriting assessment',           4, 40, 'UWSP', 1),
-    (107, 'Investment Rebalancing', 'IRB',  'Portfolio rebalancing against target allocations',      5, 22, 'IANL', 1),
-    (108, 'Investment Onboarding',  'ION',  'New investment account onboarding and KYC',             5, 45, 'KYCS', 1),
-    (201, 'Sanctions Screening Referrals',     'SSR', 'Review and disposition of sanctions screening hits',       6, 15, 'RANL', 1),
-    (202, 'Fraud Case Triage',                 'FCT', 'First-line triage and enrichment of fraud referrals',      6, 30, 'RANL', 1),
-    (301, 'Commercial Quote Ingestion',        'CQI', 'Broker-submitted commercial quote capture and validation', 7, 25, 'CUAS', 1),
-    (302, 'Broker Commission Reconciliation',  'BCR', 'Monthly broker commission statement reconciliation',       7, 20, 'FANL', 1),
-    (401, 'Loan Application Processing',       'LAP', 'Personal loan application decisioning and account set-up', 8, 28, 'LOPS', 1),
-    (402, 'Arrears Payment Plans',             'APL', 'Setting up and amending arrears repayment plans',          8, 22, 'LOPS', 1);
+     PropositionId, SMVMinutes, GradeCode, IsActive, Icon, Tags) VALUES
+    (101, 'Insurance New Business', 'INB',  'New insurance policy set-up and underwriting handoff',  1, 18, 'OPS3', 1, 'form',    'Onboarding;Customer-facing'),
+    (102, 'Insurance Renewals',     'IRN',  'Annual policy renewal processing and re-rating',        1, 12, 'OPS3', 1, 'refresh', 'Renewals;Batch'),
+    (103, 'Home Claims',            'HCL',  'Home insurance claim validation and settlement set-up', 2, 35, 'SOPS', 1, 'shield',  'Claims;Customer-facing'),
+    (104, 'Pension Transfers',      'PTR',  'Inbound and outbound pension transfer processing',      3, 55, 'PSPC', 1, 'route',   'Transfers;Regulatory'),
+    (105, 'Pension Valuations',     'PVL',  'Scheme and member valuation calculation',               3, 10, 'PANL', 1, 'graph',   'Valuations;Batch'),
+    (106, 'Life Underwriting',      'LUW',  'Life and protection underwriting assessment',           4, 40, 'UWSP', 1, 'letter',  'Underwriting;Regulatory'),
+    (107, 'Investment Rebalancing', 'IRB',  'Portfolio rebalancing against target allocations',      5, 22, 'IANL', 1, 'payment', 'Batch'),
+    (108, 'Investment Onboarding',  'ION',  'New investment account onboarding and KYC',             5, 45, 'KYCS', 1, 'inbox',   'Onboarding;KYC'),
+    (201, 'Sanctions Screening Referrals',     'SSR', 'Review and disposition of sanctions screening hits',       6, 15, 'RANL', 1, 'shield',  'Screening;Regulatory'),
+    (202, 'Fraud Case Triage',                 'FCT', 'First-line triage and enrichment of fraud referrals',      6, 30, 'RANL', 1, 'inbox',   'Triage;Regulatory'),
+    (301, 'Commercial Quote Ingestion',        'CQI', 'Broker-submitted commercial quote capture and validation', 7, 25, 'CUAS', 1, 'form',    'Onboarding;Batch'),
+    (302, 'Broker Commission Reconciliation',  'BCR', 'Monthly broker commission statement reconciliation',       7, 20, 'FANL', 1, 'payment', 'Reconciliation;Batch'),
+    (401, 'Loan Application Processing',       'LAP', 'Personal loan application decisioning and account set-up', 8, 28, 'LOPS', 1, 'card',    'Onboarding;Customer-facing'),
+    (402, 'Arrears Payment Plans',             'APL', 'Setting up and amending arrears repayment plans',          8, 22, 'LOPS', 1, 'letter',  'Collections;Customer-facing');
 GO
 
 /* ---- Queue map: the real BP queue names mapped to a process. Note two

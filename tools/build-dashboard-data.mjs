@@ -37,6 +37,7 @@
 import { readFileSync, writeFileSync, mkdirSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { assembleModel } from "../shared/model-assembler.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const CSV_PATH = process.argv[2] ? join(process.cwd(), process.argv[2]) : join(root, "data", "mock", "BPAWorkQueueItem.csv");
@@ -614,17 +615,24 @@ const resRows = [...groupBy(items.filter((i) => i.resource && i.processId), (i) 
   ec: round(g.reduce((s, i) => s + i.estateCostGBP, 0), 4),
 })).sort((a, b) => (a.d < b.d ? -1 : 1));
 
-const reasonSet = new Map();
+// distinct (displayed reason, type) pairs seen in the exception data — the
+// twin of the NEW report.vw_ModelExceptionReasons view. `code` is NOT
+// computed here any more: assembleModel derives it from
+// reference.exceptionDisplayCodes (with the same auto-generated fallback)
+// so that logic lives in exactly one place, shared with the API server.
+const reasonTypeSet = new Map();
 for (const e of excItems) {
   const r = displayReason(e.exceptionReason);
-  if (!reasonSet.has(r)) reasonSet.set(r, { reason: r, type: e.exceptionType, code: ref.exceptionDisplayCodes[r] ?? r.split(/\s+/).map((w) => w[0]).join("").slice(0, 3).toUpperCase() });
+  if (!reasonTypeSet.has(r)) reasonTypeSet.set(r, e.exceptionType);
 }
+const exceptionReasonsRowset = [...reasonTypeSet.entries()].map(([Reason, ExceptionType]) => ({ Reason, ExceptionType }));
 
 // --- resourceActivity: per-VDI first/last-seen + item count + spokes served,
 // computed from ALL items (including unmapped-queue rows — a resource still
 // "did work" even if its queue isn't mapped to a process yet; those items
-// just contribute no spoke to spokesServed). Twin of report.vw_ResourceActivity
-// in 08_report_views.sql. Consumed by src/alerts/engine.ts's stale-VDI check.
+// just contribute no spoke to spokesServed). Twin of the NEW
+// report.vw_ModelResourceActivity view (SpokesServed as a ';'-delimited
+// STRING_AGG). Consumed by src/alerts/engine.ts's stale-VDI check.
 const resourceActivityMap = new Map();
 for (const it of items) {
   if (!it.resource) continue;
@@ -638,96 +646,101 @@ for (const it of items) {
   a.items += 1;
   if (it.spokeId != null) a.spokesServed.add(spokeById.get(it.spokeId).spokeName);
 }
-const resourceActivity = Object.fromEntries(
-  [...resourceActivityMap.entries()].map(([name, a]) => [
-    name,
-    { firstSeen: a.firstSeen, lastSeen: a.lastSeen, items: a.items, spokesServed: [...a.spokesServed].sort() },
-  ]),
-);
+const resourceActivityRowset = [...resourceActivityMap.entries()].map(([name, a]) => ({
+  ResourceName: name,
+  FirstSeen: a.firstSeen,
+  LastSeen: a.lastSeen,
+  Items: a.items,
+  SpokesServed: [...a.spokesServed].sort().join(";"),
+}));
 
 // True per-day worktime totals across ALL items (including unmapped-queue
 // items, which model.dayRows excludes) — the client economics engine's hub
 // share denominator must match this, not a recomputation from dayRows alone,
 // or unmapped-queue worktime silently inflates every mapped item's cost.
 // See src/reference/economics.ts buildRateTables and tools/verify-economics.mjs.
-const dayWorktimeTotals = Object.fromEntries(dayWt);
-const spokeDayWorktimeTotals = Object.fromEntries(
-  [...spokeDayWt.entries()].map(([k, w]) => {
-    const [sid, date] = k.split("|");
-    return [`${spokeById.get(Number(sid)).spokeName}|${date}`, w];
-  }),
-);
+// Twin of the NEW report.vw_ModelDayWorktimeTotals / vw_ModelSpokeDayWorktimeTotals views.
+const dayWorktimeTotalsRowset = [...dayWt.entries()].map(([d, w]) => ({ d, w }));
+const spokeDayWorktimeTotalsRowset = [...spokeDayWt.entries()].map(([k, w]) => {
+  const [sid, date] = k.split("|");
+  return { SpokeName: spokeById.get(Number(sid)).spokeName, d: date, w };
+});
 
-const model = {
-  meta: {
-    generatedAt: new Date().toISOString(),
-    source: relative(root, CSV_PATH).replaceAll("\\", "/"),
-    sourceRows: items.length,
-    dateMin: dateOnly(tsMin),
-    dateMax: dateOnly(tsMax),
+// --- rowsets for spokes/propositions/processes/resources -------------------
+// vw_DimSpoke is already computed above (views.vw_DimSpoke) in exactly the
+// shape assembleModel expects — reuse it verbatim. Propositions/processes/
+// resources need a couple of columns the EXISTING (not-mine-to-edit)
+// report.vw_DimProcess/vw_DimResource views don't carry (Icon/Tags/Queues;
+// RenewalDate/AnnualCostGBP/LicenseExpiryDate/Status) — attached here from
+// `ref` directly, exactly like a real API server would attach them from
+// core.RefProcess/core.RefResource. See shared/model-assembler.mjs's header
+// comment for the full rowset contract.
+const propositionsRowset = ref.propositions.map((p) => ({
+  PropositionId: p.propositionId,
+  PropositionName: p.propositionName,
+  SpokeId: p.spokeId,
+  SpokeName: spokeById.get(p.spokeId).spokeName,
+}));
+const processesRowset = views.vw_DimProcess.map((v) => {
+  const p = procById.get(v.ProcessId);
+  return {
+    ...v,
+    Icon: p.icon,
+    Tags: p.tags,
+    Queues: ref.queueMap.filter((q) => q.processId === v.ProcessId).map((q) => ({ queue: q.queueName, stage: q.stageName, order: q.stageOrder })),
+  };
+});
+const resourcesRowset = views.vw_DimResource.map((v) => {
+  const r = ref.resources.find((x) => x.resourceName === v.ResourceName);
+  return {
+    ...v,
+    RenewalDate: r.renewalDate,
+    AnnualCostGBP: r.annualCostGBP ?? null,
+    LicenseExpiryDate: r.licenseExpiryDate ?? null,
+    Status: r.status,
+  };
+});
+// vw_EstateRateByDate is already computed above (views.vw_EstateRateByDate)
+// in exactly the shape assembleModel expects (EstateCostPerDayGBP there is
+// already unrounded — assembleModel rounds it to 4dp itself).
+const estateRateByDateRowset = views.vw_EstateRateByDate;
+
+// JSON ports of the NEW SQL views (bp-sql-layer/scripts/13_api_model_views.sql)
+// — these become the API server's fixture-mode data source and its contract
+// test fixtures (server/test asserts assembleModel(these) === model.json).
+views.vw_ModelDayRows = dayRows;
+views.vw_ModelExcRows = excRows;
+views.vw_ModelResRows = resRows;
+views.vw_ModelDayWorktimeTotals = dayWorktimeTotalsRowset;
+views.vw_ModelSpokeDayWorktimeTotals = spokeDayWorktimeTotalsRowset;
+views.vw_ModelResourceActivity = resourceActivityRowset;
+views.vw_ModelExceptionReasons = exceptionReasonsRowset;
+views.vw_ModelMeta = [{ SourceRows: items.length, DateMin: dateOnly(tsMin), DateMax: dateOnly(tsMax) }];
+views.vw_ModelUnmappedQueues = [...unmappedQueues].map((QueueName) => ({ QueueName }));
+
+const model = assembleModel(
+  {
+    reference: ref,
+    spokes: views.vw_DimSpoke,
+    propositions: propositionsRowset,
+    processes: processesRowset,
+    resources: resourcesRowset,
+    exceptionReasons: exceptionReasonsRowset,
+    estateRateByDate: estateRateByDateRowset,
+    dayRows,
+    excRows,
+    resRows,
+    dayWorktimeTotals: dayWorktimeTotalsRowset,
+    spokeDayWorktimeTotals: spokeDayWorktimeTotalsRowset,
+    resourceActivity: resourceActivityRowset,
+    meta: { SourceRows: items.length, DateMin: dateOnly(tsMin), DateMax: dateOnly(tsMax) },
     unmappedQueues: [...unmappedQueues],
   },
-  // vdiStaleDays defaults to 14 if a reference.json predates the field —
-  // app-side config, same convention as thresholds/targets generally (see
-  // reference-store.ts's TargetsRef.vdiStaleDays comment).
-  targets: { vdiStaleDays: 14, ...ref.targets },
-  vdiOperatingHoursPerDay: ref.vdiOperatingHoursPerDay,
-  spokes: ref.spokes.map((s) => ({ id: s.spokeId, name: s.spokeName, short: s.shortName, colorLight: s.colorLight, colorDark: s.colorDark })),
-  propositions: ref.propositions.map((p) => ({ name: p.propositionName, spoke: spokeById.get(p.spokeId).spokeName })),
-  processes: ref.processes.map((p) => {
-    const prop = propById.get(p.propositionId);
-    const spoke = spokeById.get(prop.spokeId);
-    return {
-      id: p.processId,
-      name: p.processName,
-      acronym: p.processAcronym,
-      description: p.processDescription,
-      proposition: prop.propositionName,
-      spoke: spoke.spokeName,
-      queues: ref.queueMap.filter((q) => q.processId === p.processId).map((q) => ({ queue: q.queueName, stage: q.stageName, order: q.stageOrder })),
-      smvMinutes: p.smvMinutes,
-      grade: p.grade,
-      gradeName: gradeName(p.grade),
-      currentHourly: gradeRate(p.grade, prop.spokeId, dateOnly(tsMax)),
-      icon: p.icon,
-      tags: p.tags,
-    };
-  }),
-  resources: ref.resources.map((r) => ({
-    name: r.resourceName,
-    bot: r.botName,
-    acronym: r.botAcronym,
-    vdi: r.vdiName,
-    class: r.costClass,
-    spoke: r.spokeId != null ? spokeById.get(r.spokeId).spokeName : "Hub",
-    spokeId: r.spokeId ?? null,
-    activeFrom: r.activeFrom,
-    activeTo: r.activeTo,
-    notes: r.notes,
-    renewalDate: r.renewalDate,
-    annualCostGBP: r.annualCostGBP ?? null,
-    licenseExpiryDate: r.licenseExpiryDate ?? null,
-    status: r.status,
-  })),
-  exceptionReasons: [...reasonSet.values()].sort((a, b) => (a.type === b.type ? a.reason.localeCompare(b.reason) : a.type === "System" ? -1 : 1)),
-  estateRateByDate: [...rateByDate.entries()].map(([date, r]) => {
-    let spokeInfra = 0;
-    for (const s of r.spokes.values()) spokeInfra += s.infraAnnual;
-    return { d: date, cost: round((r.team + r.hubInfra + spokeInfra) / 365.25, 4), wd: r.wd, ph: r.ph };
-  }),
-  dayRows,
-  excRows,
-  resRows,
-  dayWorktimeTotals,
-  spokeDayWorktimeTotals,
-  // Per-VDI activity discovery (D6 — stale-VDI flagging): firstSeen/lastSeen/
-  // items/spokesServed, computed from ALL items. See rpaData.ts's
-  // RESOURCE_ACTIVITY and alerts/engine.ts's stale-VDI check.
-  resourceActivity,
-  // Full base reference object (unmodified data/reference/reference.json) so
-  // the client can overlay browser-side edits onto it — see src/reference/.
-  reference: ref,
-};
+  {
+    generatedAt: new Date().toISOString(),
+    source: relative(root, CSV_PATH).replaceAll("\\", "/"),
+  },
+);
 
 // --- write ---------------------------------------------------------------------------
 mkdirSync(join(OUT_DIR, "views"), { recursive: true });

@@ -14,4 +14,5 @@ export const PAGE_LABELS = {
   "process-detail": "Process detail",
   capacity: "VDI & Capacity",
   alerts: "Alerts",
+  value: "Value & Finance",
 } as const;

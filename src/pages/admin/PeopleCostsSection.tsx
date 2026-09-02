@@ -96,7 +96,7 @@ export function PeopleCostsSection({ reference, update, actor, can }: SectionPro
                   <Td>{r.effectiveFrom}{r.effectiveFrom > today && <span style={{ marginLeft: 6, fontFamily: fonts.mono, fontSize: 9.5, color: t.inkSoft }}>(future)</span>}</Td>
                   <Td align="right">{editing ? <input type="number" min={1} style={inputStyle(t, { width: 80, textAlign: "right" })} value={editDraft.headcount} onChange={(e) => setEditDraft({ ...editDraft, headcount: e.target.value })} aria-label="Headcount" /> : r.headcount}</Td>
                   <Td align="right">{editing ? <input type="number" min={0} step={100} style={inputStyle(t, { width: 110, textAlign: "right" })} value={editDraft.annualCostGBP} onChange={(e) => setEditDraft({ ...editDraft, annualCostGBP: e.target.value })} aria-label="Annual cost" /> : `£${r.annualCostGBP.toLocaleString("en-GB")}`}</Td>
-                  <Td muted>{editing ? <input style={inputStyle(t)} value={editDraft.note} onChange={(e) => setEditDraft({ ...editDraft, note: e.target.value })} aria-label="Note" /> : (r.note ?? "—")}</Td>
+                  <Td muted>{editing ? <input style={inputStyle(t)} value={editDraft.note} onChange={(e) => setEditDraft({ ...editDraft, note: e.target.value })} aria-label="Note" maxLength={200} /> : (r.note ?? "—")}</Td>
                   {editable && (
                     <Td align="right">
                       {editing ? (
@@ -126,7 +126,7 @@ export function PeopleCostsSection({ reference, update, actor, can }: SectionPro
             <Field id="pc-add-date" label="Effective from" width={150}><input id="pc-add-date" type="date" style={inputStyle(t)} value={addDraft.effectiveFrom} onChange={(e) => setAddDraft({ ...addDraft, effectiveFrom: e.target.value })} /></Field>
             <Field id="pc-add-hc" label="Headcount" width={100}><input id="pc-add-hc" type="number" min={1} style={inputStyle(t)} value={addDraft.headcount} onChange={(e) => setAddDraft({ ...addDraft, headcount: e.target.value })} /></Field>
             <Field id="pc-add-cost" label="Annual cost (£)" width={140}><input id="pc-add-cost" type="number" min={0} step={100} style={inputStyle(t)} value={addDraft.annualCostGBP} onChange={(e) => setAddDraft({ ...addDraft, annualCostGBP: e.target.value })} /></Field>
-            <Field id="pc-add-note" label="Note (optional)" width={220}><input id="pc-add-note" style={inputStyle(t)} value={addDraft.note} onChange={(e) => setAddDraft({ ...addDraft, note: e.target.value })} /></Field>
+            <Field id="pc-add-note" label="Note (optional)" width={220}><input id="pc-add-note" style={inputStyle(t)} value={addDraft.note} onChange={(e) => setAddDraft({ ...addDraft, note: e.target.value })} maxLength={200} /></Field>
             <PrimaryButton onClick={commitAdd}>Add record</PrimaryButton>
             <GhostButton onClick={() => setAdding(false)}>Cancel</GhostButton>
           </div>

@@ -1,9 +1,9 @@
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import { fonts } from "../theme";
+import { fonts, type, space, radius, controlHeight, glassOverlayVars } from "../theme";
 import { useTheme } from "../theme-context";
 import { useDisplayPrefs } from "../a11y/prefs-context";
-import { Bionic } from "../a11y/Bionic";
+import "../styles/primitives.css";
 
 // ---------------------------------------------------------------------------
 // Visual toolkit for the report. Every page composes these so the look is
@@ -53,8 +53,41 @@ export const fmtGBPc = (n: number) => {
   if (a >= 1e3) return "£" + (n / 1e3).toFixed(1) + "k";
   return "£" + n.toFixed(2);
 };
-export const fmtMoney2 = (n: number) => "£" + n.toFixed(2);
+export const fmtMoney2 = (n: number) =>
+  "£" + n.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 export const fmtHours = (n: number) => fmtCompact(n) + " h";
+
+// Compact mode: one decimal at k/M magnitude (£382.7k, £1.0M), no forced
+// decimal below 1k (£950). Full mode: thousands-grouped, no decimals
+// (£53,320) unless |n| < 100, in which case show pence (£53.32).
+export function fmtMoney(n: number, opts?: { compact?: boolean }): string {
+  const a = Math.abs(n);
+  if (opts?.compact) {
+    if (a >= 1e6) return "£" + (n / 1e6).toFixed(1) + "M";
+    if (a >= 1e3) return "£" + (n / 1e3).toFixed(1) + "k";
+    return "£" + Math.round(n).toLocaleString("en-GB");
+  }
+  if (a < 100) return "£" + n.toFixed(2);
+  return "£" + Math.round(n).toLocaleString("en-GB");
+}
+
+// Same compact/full rule as fmtMoney, but no currency symbol.
+export function fmtNum(n: number, opts?: { compact?: boolean }): string {
+  const a = Math.abs(n);
+  if (opts?.compact) {
+    if (a >= 1e6) return (n / 1e6).toFixed(1) + "M";
+    if (a >= 1e3) return (n / 1e3).toFixed(1) + "k";
+    return Math.round(n).toLocaleString("en-GB");
+  }
+  return Math.round(n).toLocaleString("en-GB");
+}
+
+export function fmtDuration(sec: number): string {
+  const s = Math.max(0, Math.round(sec));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
+  if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m`;
+  return `${m}m ${String(ss).padStart(2, "0")}s`;
+}
 
 function niceMax(v: number) {
   if (v <= 0) return 1;
@@ -62,6 +95,25 @@ function niceMax(v: number) {
   const f = v / mag;
   const nf = f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10;
   return nf * mag;
+}
+
+// --- empty state -------------------------------------------------------------
+// Shared "no data" filler for cards/tables/charts so an empty result reads as
+// a deliberate state, not a clipped or broken one.
+export function EmptyState({ icon, title = "No data", hint = "No data in range for the current filters.", onReset }: { icon?: ReactNode; title?: string; hint?: string; onReset?: () => void }) {
+  const t = useTheme();
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, flex: 1, minHeight: 0, padding: "24px 12px", textAlign: "center" }}>
+      {icon ?? <svg width={16} height={16} viewBox="0 0 16 16" aria-hidden focusable="false"><rect x={1} y={1} width={14} height={14} rx={3} fill="none" stroke={t.inkFaint} strokeWidth={1.4} /><path d="M4 10l3-3 2 2 3-4" fill="none" stroke={t.inkFaint} strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" /></svg>}
+      <div style={{ ...type.bodyM, color: t.ink, fontWeight: 600 }}>{title}</div>
+      <div style={{ ...type.bodyS, color: t.inkSoft, maxWidth: 220 }}>{hint}</div>
+      {onReset && (
+        <button type="button" onClick={onReset} style={{ marginTop: 4, ...type.bodyS, color: t.accent, background: "transparent", border: "none", cursor: "pointer", textDecoration: "underline", padding: 0 }}>
+          Reset slicers
+        </button>
+      )}
+    </div>
+  );
 }
 
 // --- container sizing ------------------------------------------------------
@@ -88,6 +140,7 @@ export function VisualCard({
   style,
   pad = true,
   summary,
+  scroll,
 }: {
   title: string;
   subtitle?: ReactNode;
@@ -97,6 +150,7 @@ export function VisualCard({
   style?: CSSProperties;
   pad?: boolean;
   summary?: string;
+  scroll?: boolean;
 }) {
   const t = useTheme();
   const chartId = useId();
@@ -107,7 +161,7 @@ export function VisualCard({
       style={{
         background: `linear-gradient(168deg, ${t.paper}, ${t.themeBand})`,
         border: `1px solid ${t.ruleSoft}`,
-        borderRadius: 12,
+        borderRadius: radius.card,
         display: "flex",
         flexDirection: "column",
         minWidth: 0,
@@ -115,11 +169,11 @@ export function VisualCard({
         ...style,
       }}
     >
-      <header style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "12px 14px 8px" }}>
+      <header style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: `${space[4]}px ${space[4]}px ${space[2]}px` }}>
         <div style={{ minWidth: 0, flex: 1 }}>
-          <h3 style={{ margin: 0, fontFamily: fonts.display, fontSize: 16, fontWeight: 700, color: t.ink, lineHeight: 1.2 }}>{title}</h3>
+          <h3 style={{ margin: 0, ...type.displayM, color: t.ink }}>{title}</h3>
           {subtitle && (
-            <div style={{ marginTop: 2, fontFamily: fonts.body, fontSize: 12.5, color: t.inkSoft, lineHeight: 1.3 }}>{subtitle}</div>
+            <div style={{ marginTop: 2, ...type.bodyS, color: t.inkSoft }}>{subtitle}</div>
           )}
         </div>
         {right}
@@ -128,7 +182,8 @@ export function VisualCard({
         role="img"
         aria-label={chartLabel}
         aria-describedby={summary ? `${chartId}-summary` : undefined}
-        style={{ flex: 1, minHeight: 0, padding: pad ? "0 14px 14px" : 0, display: "flex", flexDirection: "column" }}
+        className={scroll ? "viz-scroll" : undefined}
+        style={{ flex: 1, minHeight: 0, padding: pad ? `0 ${space[4]}px ${space[4]}px` : 0, display: "flex", flexDirection: "column", ...(scroll ? { overflowY: "auto" } : null) }}
       >
         {children}
       </div>
@@ -151,6 +206,7 @@ export function KpiCard({
   deltaGood = "up",
   spark,
   target,
+  empty,
 }: {
   label: string;
   value: string;
@@ -160,6 +216,7 @@ export function KpiCard({
   deltaGood?: "up" | "down";
   spark?: number[];
   target?: { label: string; met: boolean }; // vs-target / SLA indicator
+  empty?: boolean;
 }) {
   const t = useTheme();
   const v = useViz();
@@ -170,33 +227,40 @@ export function KpiCard({
         background: `linear-gradient(165deg, ${t.paper}, ${t.themeBand})`,
         border: `1px solid ${t.ruleSoft}`,
         borderTop: `3px solid ${accent}`,
-        borderRadius: 12,
-        padding: "13px 15px 12px",
+        borderRadius: radius.card,
+        // "14px 16px" deliberately falls outside the type/space scale per the
+        // design brief — there's no space[] token for 14, and the brief calls
+        // this pair out literally rather than asking for a token pair.
+        padding: "14px 16px",
         display: "flex",
         flexDirection: "column",
         gap: 3,
         minWidth: 0,
       }}
     >
-      <span style={{ fontFamily: fonts.mono, fontSize: 10.5, letterSpacing: "0.09em", textTransform: "uppercase", color: t.inkSoft, fontWeight: 600 }}>{label}</span>
+      <span style={{ ...type.label, letterSpacing: "0.09em", textTransform: "uppercase", color: t.inkSoft }}>{label}</span>
       <span style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
-        <span style={{ fontFamily: fonts.display, fontSize: 33, fontWeight: 700, lineHeight: 1.02, color: t.ink }}>{value}</span>
-        {spark && <Sparkline data={spark} color={accent} />}
+        <span style={{ ...type.displayXl, color: t.ink }}>{empty ? "—" : value}</span>
+        {!empty && spark && <Sparkline data={spark} color={accent} />}
       </span>
       <span style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 16 }}>
-        {delta !== undefined && <Delta value={delta} good={deltaGood} />}
-        {sub && <span style={{ fontFamily: fonts.body, fontSize: 12, color: t.inkSoft }}>{sub}</span>}
+        {!empty && delta !== undefined && <Delta value={delta} good={deltaGood} />}
+        {empty ? (
+          <span style={{ fontFamily: fonts.body, fontSize: 12, color: t.inkSoft }}>No data in range</span>
+        ) : (
+          sub && <span style={{ fontFamily: fonts.body, fontSize: 12, color: t.inkSoft }}>{sub}</span>
+        )}
       </span>
-      {target && (
+      {!empty && target && (
         <span style={{ display: "inline-flex", alignItems: "center", gap: 5, marginTop: 1, fontFamily: fonts.mono, fontSize: 10, fontWeight: 700, letterSpacing: "0.03em", color: target.met ? v.good : v.bad }}>
           <span style={{ width: 6, height: 6, borderRadius: "50%", background: target.met ? v.good : v.bad, flex: "0 0 auto" }} />
           {target.label} · {target.met ? "On target" : "Off target"}
         </span>
       )}
       <span className="sr-only">
-        {label}: {value}
-        {delta !== undefined ? `, ${delta >= 0 ? "up" : "down"} ${fmtPct(Math.abs(delta), 1)} vs previous period` : ""}
-        {target ? `, ${target.met ? "on target" : "off target"} (${target.label})` : ""}
+        {label}: {empty ? "no data in range" : value}
+        {!empty && delta !== undefined ? `, ${delta >= 0 ? "up" : "down"} ${fmtPct(Math.abs(delta), 1)} vs previous period` : ""}
+        {!empty && target ? `, ${target.met ? "on target" : "off target"} (${target.label})` : ""}
       </span>
     </div>
   );
@@ -233,6 +297,11 @@ export function Gauge({ value, min = 0, max = 1, target, band, format, color, la
   );
 }
 
+// Direction glyph paths (8x8 viewBox), reusable by anything else that needs
+// an up/down arrow.
+const ARROW_UP_D = "M4 1l4 6H0z";
+const ARROW_DOWN_D = "M4 7L0 1h8z";
+
 export function Delta({ value, good = "up" }: { value: number; good?: "up" | "down" }) {
   const v = useViz();
   if (!isFinite(value)) return null;
@@ -241,7 +310,9 @@ export function Delta({ value, good = "up" }: { value: number; good?: "up" | "do
   const c = Math.abs(value) < 0.001 ? v.soft : positive ? v.good : v.bad;
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontFamily: fonts.mono, fontSize: 11.5, fontWeight: 700, color: c }}>
-      <span aria-hidden>{up ? "▲" : "▼"}</span>
+      <svg width={8} height={8} viewBox="0 0 8 8" aria-hidden focusable="false" style={{ flex: "0 0 auto" }}>
+        <path d={up ? ARROW_UP_D : ARROW_DOWN_D} fill="currentColor" />
+      </svg>
       {fmtPct(Math.abs(value), 1)}
     </span>
   );
@@ -294,6 +365,18 @@ export interface RefLine {
   label?: string;
   color?: string;
 }
+
+// Cached canvas-measurement helper (module scope) for dynamic left-padding
+// and ref-line label halos — avoids allocating a new canvas per render.
+let measureCanvas: HTMLCanvasElement | null = null;
+function measureTextWidth(text: string, font: string): number {
+  if (!measureCanvas) measureCanvas = document.createElement("canvas");
+  const ctx = measureCanvas.getContext("2d");
+  if (!ctx) return text.length * 6; // crude fallback if canvas 2d is unavailable
+  ctx.font = font;
+  return ctx.measureText(text).width;
+}
+
 export function LineChart({
   labels,
   series,
@@ -303,6 +386,10 @@ export function LineChart({
   yLabel,
   refLines,
   forecast,
+  weekendMask,
+  bandWeekends,
+  smooth,
+  empty,
 }: {
   labels: string[];
   series: LineSeries[];
@@ -312,6 +399,10 @@ export function LineChart({
   yLabel?: string;
   refLines?: RefLine[];
   forecast?: { periods: number; labelFor?: (k: number) => string };
+  weekendMask?: boolean[]; // parallel to labels — true where that index is a weekend day
+  bandWeekends?: boolean; // render a band per contiguous weekend run (needs weekendMask)
+  smooth?: number; // trailing moving-average window size, drawn as a dashed overlay
+  empty?: { title?: string; hint?: string; onReset?: () => void };
 }) {
   const v = useViz();
   const { prefs } = useDisplayPrefs();
@@ -321,9 +412,19 @@ export function LineChart({
   const H = height ?? size.h;
   const [hi, setHi] = useState<number | null>(null);
 
+  const n = labels.length;
+  if (n === 0) {
+    return (
+      <div ref={ref} style={{ width: "100%", height: height ?? "100%", display: "flex" }}>
+        <EmptyState {...empty} />
+      </div>
+    );
+  }
+
   // linear regression on a series, returns (slope, intercept) over index
   const fit = (vals: number[]) => {
     const k = vals.length;
+    if (k === 0) return { slope: 0, intercept: 0 }; // no data to regress on — a k=0 divisor below would yield NaN
     let sx = 0, sy = 0, sxy = 0, sxx = 0;
     vals.forEach((val, i) => { sx += i; sy += val; sxy += i * val; sxx += i * i; });
     const d = k * sxx - sx * sx || 1;
@@ -331,19 +432,12 @@ export function LineChart({
     return { slope, intercept: (sy - slope * sx) / k };
   };
 
-  const padL = 46;
-  const padR = 14;
-  const padT = 10;
-  const padB = 26;
-  const iw = Math.max(10, w - padL - padR);
-  const ih = Math.max(10, H - padT - padB);
-  const n = labels.length;
   const fp = forecast?.periods ?? 0;
   const total = n + fp;
 
   // forecast projections (per flagged series) via linear regression
   const proj = new Map<string, number[]>();
-  if (fp > 0) {
+  if (fp > 0 && n > 0) {
     series.forEach((s) => {
       if (!s.forecast) return;
       const { slope, intercept } = fit(s.values);
@@ -356,14 +450,56 @@ export function LineChart({
   // don't floor to 1 — that breaks small-magnitude series (e.g. £0.09 cost/case)
   const rawMax = Math.max(0, ...series.flatMap((s) => s.values), ...[...proj.values()].flat(), ...(refLines?.map((r) => r.value) ?? []));
   const top = niceMax(rawMax);
+  const ticks = 4;
+
+  // Dynamic left padding: widest tick label at the axis font, plus 12px —
+  // fixes clipped wide labels (e.g. "£750.0k") that a fixed 46px assumed
+  // could never happen.
+  const tickLabelStrings = Array.from({ length: ticks + 1 }, (_, i) => yFormat((top / ticks) * i));
+  const maxTickWidth = Math.max(0, ...tickLabelStrings.map((l) => measureTextWidth(l, `10px ${fonts.mono}`)));
+  const padL = Math.max(46, Math.ceil(maxTickWidth) + 12);
+  const padR = 14;
+  const padT = 10;
+  const padB = 26;
+  const iw = Math.max(10, w - padL - padR);
+  const ih = Math.max(10, H - padT - padB);
+
   const x = (i: number) => padL + (total <= 1 ? iw / 2 : (i / (total - 1)) * iw);
   const y = (val: number) => padT + ih - (val / top) * ih;
-  const ticks = 4;
-  const realW = total <= 1 ? iw : ((n - 1) / (total - 1)) * iw;
+  // Math.max(0, …): when there's no actual data but forecast periods still
+  // exist (n === 0, fp > 0 — e.g. a filter combo with zero rows), (n-1) is
+  // -1 and this would otherwise go negative, an invalid SVG rect width.
+  const realW = total <= 1 ? iw : Math.max(0, ((n - 1) / (total - 1)) * iw);
+
+  // weekend banding: contiguous runs of `true` in weekendMask
+  const weekendBands: [number, number][] = [];
+  if (bandWeekends && weekendMask) {
+    let runStart: number | null = null;
+    for (let i = 0; i < n; i++) {
+      const wknd = !!weekendMask[i];
+      if (wknd && runStart === null) runStart = i;
+      if (!wknd && runStart !== null) { weekendBands.push([runStart, i - 1]); runStart = null; }
+    }
+    if (runStart !== null) weekendBands.push([runStart, n - 1]);
+  }
+
+  // trailing simple moving average overlay, per series
+  const smoothed = new Map<string, number[]>();
+  if (smooth && smooth > 1 && n > 0) {
+    series.forEach((s) => {
+      const arr: number[] = s.values.map((_, i) => {
+        const lo = Math.max(0, i - smooth + 1);
+        const win = s.values.slice(lo, i + 1);
+        return win.reduce((a, b) => a + b, 0) / win.length;
+      });
+      smoothed.set(s.name, arr);
+    });
+  }
 
   const onMove = (e: React.MouseEvent<SVGRectElement>) => {
+    if (n === 0) return; // nothing to index into — leave hi at null rather than clamping to a phantom 0
     const rect = (e.currentTarget as SVGRectElement).getBoundingClientRect();
-    const px = e.clientX - rect.left - padL;
+    const px = e.clientX - rect.left;
     const idx = Math.round((px / Math.max(1, realW)) * (n - 1));
     setHi(Math.max(0, Math.min(n - 1, idx)));
   };
@@ -375,32 +511,59 @@ export function LineChart({
     <div ref={ref} style={{ width: "100%", height: height ?? "100%", minHeight: 0, position: "relative" }}>
       {w > 0 && H > 0 && (
         <svg width={w} height={H} style={{ display: "block", fontFamily: fonts.mono }} aria-hidden="true" focusable="false">
-          {/* gridlines + y labels */}
-          {Array.from({ length: ticks + 1 }, (_, i) => {
-            const val = (top / ticks) * i;
-            const yy = y(val);
-            return (
-              <g key={i}>
-                <line x1={padL} x2={w - padR} y1={yy} y2={yy} stroke={v.grid} strokeWidth={1} />
-                <text x={padL - 7} y={yy + 3} textAnchor="end" fontSize={10} fill={v.soft}>{yFormat(val)}</text>
-              </g>
-            );
-          })}
-          {/* forecast region shading + divider */}
-          {fp > 0 && (
+          {/* weekend banding — behind the gridlines */}
+          {weekendBands.map(([a, b]) => (
+            <rect key={`wknd-${a}`} x={x(a)} y={padT} width={Math.max(0, x(b + 1) - x(a))} height={ih} fill={v.band} stroke="none" />
+          ))}
+          {/* gridlines + y labels — a formatted label is suppressed if it
+              repeats the previous tick's text (e.g. an all-zero/near-zero
+              series where niceMax's 0->1 fallback plus a coarse yFormat would
+              otherwise print "0, 0, 1, 1, 1"); the gridline itself still
+              draws so the scale reads correctly. */}
+          {(() => {
+            let lastLabel: string | null = null;
+            return Array.from({ length: ticks + 1 }, (_, i) => {
+              const val = (top / ticks) * i;
+              const yy = y(val);
+              const label = yFormat(val);
+              const show = label !== lastLabel;
+              if (show) lastLabel = label;
+              return (
+                <g key={i}>
+                  <line x1={padL} x2={w - padR} y1={yy} y2={yy} stroke={v.grid} strokeWidth={1} />
+                  {show && <text x={padL - 7} y={yy + 3} textAnchor="end" fontSize={10} fill={v.soft}>{label}</text>}
+                </g>
+              );
+            });
+          })()}
+          {/* forecast region shading + divider — nothing to project forward
+              from when there's no historical data (n === 0) for the current
+              filters, so this stays hidden alongside the projection itself. */}
+          {fp > 0 && n > 0 && (
             <g>
               <rect x={x(n - 1)} y={padT} width={x(total - 1) - x(n - 1)} height={ih} fill={v.soft} opacity={0.04} />
               <line x1={x(n - 1)} x2={x(n - 1)} y1={padT} y2={padT + ih} stroke={v.soft} strokeWidth={1} strokeDasharray="2 3" opacity={0.5} />
               <text x={(x(n - 1) + x(total - 1)) / 2} y={padT + 10} textAnchor="middle" fontSize={9} fill={v.soft} letterSpacing="0.08em">FORECAST</text>
             </g>
           )}
-          {/* reference / target lines */}
-          {refLines?.map((r) => (
-            <g key={r.label ?? r.value}>
-              <line x1={padL} x2={w - padR} y1={y(r.value)} y2={y(r.value)} stroke={r.color ?? v.accent} strokeWidth={1.4} strokeDasharray="6 4" opacity={0.9} />
-              {r.label && <text x={w - padR} y={y(r.value) - 4} textAnchor="end" fontSize={9.5} fill={r.color ?? v.accent} fontWeight={700}>{r.label}</text>}
-            </g>
-          ))}
+          {/* reference / target lines — label anchored at the left padding
+              edge (was the right edge, which overlapped the series) with a
+              paper-coloured halo rect behind the text for legibility. */}
+          {refLines?.map((r) => {
+            const labelText = r.label;
+            const haloW = labelText ? measureTextWidth(labelText, `9.5px ${fonts.body}`) + 8 : 0;
+            return (
+              <g key={r.label ?? r.value}>
+                <line x1={padL} x2={w - padR} y1={y(r.value)} y2={y(r.value)} stroke={r.color ?? v.accent} strokeWidth={1.4} strokeDasharray="6 4" opacity={0.9} />
+                {labelText && (
+                  <>
+                    <rect x={padL + 4} y={y(r.value) - 4 - 10} width={haloW} height={13} fill={v.surface} />
+                    <text x={padL + 4} y={y(r.value) - 4} textAnchor="start" fontSize={9.5} fill={r.color ?? v.accent} fontWeight={700}>{labelText}</text>
+                  </>
+                )}
+              </g>
+            );
+          })}
           {/* x labels */}
           {allLabels.map((l, i) => {
             const isLast = i === total - 1;
@@ -411,8 +574,12 @@ export function LineChart({
               <text key={i} x={isLast ? w - padR : x(i)} y={H - 9} textAnchor={anchor} fontSize={10} fill={v.soft}>{l}</text>
             );
           })}
-          {/* series (actual) */}
-          {series.map((s, i) => {
+          {/* series (actual) — nothing to plot when there's no data for the
+              current filters (n === 0: dPts would be "", and the area path
+              below would then start with "L" instead of "M", an invalid SVG
+              path command that the browser rejects and logs a console error
+              for), so skip the whole series rather than emit broken paths. */}
+          {n > 0 && series.map((s, i) => {
             const dPts = s.values.map((val, k) => `${k ? "L" : "M"}${x(k).toFixed(1)} ${y(val).toFixed(1)}`).join(" ");
             return (
               <g key={s.name}>
@@ -433,6 +600,19 @@ export function LineChart({
               </g>
             );
           })}
+          {/* trailing moving-average overlay — purely a visual trend line, not
+              a first-class series (no tooltip row, no cvd-safe dot markers),
+              drawn after the main series paths so it sits on top. */}
+          {smoothed.size > 0 && (
+            <g>
+              {series.map((s) => {
+                const arr = smoothed.get(s.name);
+                if (!arr) return null;
+                const dPts = arr.map((val, k) => `${k ? "L" : "M"}${x(k).toFixed(1)} ${y(val).toFixed(1)}`).join(" ");
+                return <path key={s.name} d={dPts} fill="none" stroke={s.color} strokeWidth={1.6} strokeDasharray="2 4" opacity={0.55} />;
+              })}
+            </g>
+          )}
           {/* forecast projections (dashed + band) */}
           {[...proj.entries()].map(([name, arr]) => {
             const s = series.find((q) => q.name === name)!;
@@ -475,19 +655,18 @@ function Tooltip({ x, chartW, title, rows }: { x: number; chartW: number; title:
   const left = Math.min(Math.max(x + 12, 8), chartW - 168);
   return (
     <div
-      className="dropdown-panel"
+      className="dropdown-panel glass-overlay"
       style={{
         position: "absolute",
         top: 6,
         left,
         width: 156,
         pointerEvents: "none",
-        background: t.paper,
         border: `1px solid ${t.ruleSoft}`,
-        boxShadow: t.shadow,
-        borderRadius: 9,
+        borderRadius: radius.overlay,
         padding: "8px 10px",
         zIndex: 5,
+        ...glassOverlayVars(t),
       }}
     >
       <div style={{ fontFamily: fonts.mono, fontSize: 10.5, letterSpacing: "0.05em", color: t.inkSoft, marginBottom: 5 }}>{title}</div>
@@ -512,16 +691,24 @@ export function StackedShareTrend({
   labels,
   series,
   height,
+  empty,
 }: {
   labels: string[];
   series: StackTrendSeries[];
   height?: number;
+  empty?: { title?: string; hint?: string; onReset?: () => void };
 }) {
   const [ref, size] = useSize();
   const w = size.w;
   const H = height ?? size.h;
   const n = labels.length;
-  if (n === 0) return <div ref={ref} style={{ width: "100%", height: height ?? "100%" }} />;
+  if (n === 0) {
+    return (
+      <div ref={ref} style={{ width: "100%", height: height ?? "100%", display: "flex" }}>
+        <EmptyState {...empty} />
+      </div>
+    );
+  }
   const gap = 1.5;
   const barW = Math.max(1, w / n - gap);
   return (
@@ -532,8 +719,13 @@ export function StackedShareTrend({
             const total = series.reduce((s, ser) => s + (ser.values[i] || 0), 0) || 1;
             let cursor = H;
             const x = i * (w / n) + gap / 2;
+            // key by index, not the display label: `label` is a day+month
+            // string with no year (fmtDate), so any window spanning more
+            // than a year (e.g. "All time") has genuine duplicate labels —
+            // keying by them causes React "duplicate key" warnings and lets
+            // it conflate two different days' bars.
             return (
-              <g key={label}>
+              <g key={i}>
                 {series.map((ser) => {
                   const val = ser.values[i] || 0;
                   const segH = (val / total) * H;
@@ -562,6 +754,7 @@ export function HBarChart({
   height,
   onRowClick,
   activeId,
+  empty,
 }: {
   rows: { label: string; value: number; sub?: string; color?: string; id?: string }[];
   valueFormat?: (n: number) => string;
@@ -569,8 +762,16 @@ export function HBarChart({
   height?: number | string;
   onRowClick?: (id: string) => void;
   activeId?: string;
+  empty?: { title?: string; hint?: string; onReset?: () => void };
 }) {
   const v = useViz();
+  if (rows.length === 0) {
+    return (
+      <div style={{ display: "flex", height: height ?? "100%", minHeight: 0 }}>
+        <EmptyState {...empty} />
+      </div>
+    );
+  }
   const max = niceMax(Math.max(1, ...rows.map((r) => r.value)));
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 7, height: height ?? "100%", minHeight: 0, justifyContent: rows.length > 1 ? "space-between" : "flex-start" }}>
@@ -597,12 +798,12 @@ export function HBarChart({
             }
             style={{ display: "grid", gridTemplateColumns: "150px 1fr 64px", alignItems: "center", gap: 10, cursor: clickable ? "pointer" : undefined, borderRadius: 5, padding: "1px 3px", margin: "0 -3px", background: active ? v.band : undefined }}
           >
-            <span style={{ fontFamily: fonts.body, fontSize: 12.5, color: v.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontWeight: active ? 700 : 400 }} title={r.label}>{r.label}</span>
+            <span style={{ ...type.bodyM, color: v.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontWeight: active ? 700 : 400 }} title={r.label}>{r.label}</span>
             <span style={{ height: 16, background: v.grid, borderRadius: 4, overflow: "hidden", position: "relative" }}>
-              <span style={{ position: "absolute", inset: 0, width: `${Math.max(1.5, (r.value / max) * 100)}%`, background: r.color ?? barColor ?? v.accent, borderRadius: 4, opacity: activeId && !active ? 0.45 : 1 }} />
-              {r.sub && <span style={{ position: "absolute", right: 6, top: 0, lineHeight: "16px", fontFamily: fonts.mono, fontSize: 10, color: v.soft }}>{r.sub}</span>}
+              <span style={{ position: "absolute", inset: 0, width: `${Math.max(1.5, (r.value / max) * 100)}%`, background: r.color ?? barColor ?? v.t.series, borderRadius: 4, opacity: activeId && !active ? 0.45 : 1 }} />
+              {r.sub && <span style={{ position: "absolute", right: 6, top: 0, ...type.micro, lineHeight: "16px", color: v.soft }}>{r.sub}</span>}
             </span>
-            <span style={{ fontFamily: fonts.mono, fontSize: 12, fontWeight: 700, color: v.ink, textAlign: "right" }}>{valueFormat(r.value)}</span>
+            <span style={{ ...type.label, color: v.ink, textAlign: "right" }}>{valueFormat(r.value)}</span>
           </div>
         );
       })}
@@ -619,16 +820,22 @@ export interface Column<T> {
   render?: (row: T) => ReactNode;
   sortValue?: (row: T) => number | string;
 }
+// Single triangle chevron, reused for every sort-glyph state (rotated 180deg
+// for ascending via the wrapping span's transform).
+const CHEVRON_D = "M3 5L0 1h6z";
+
 export function DataTable<T extends { [k: string]: any }>({
   columns,
   rows,
   initialSort,
   maxBodyHeight,
+  empty,
 }: {
   columns: Column<T>[];
   rows: T[];
   initialSort?: { key: string; dir: "asc" | "desc" };
   maxBodyHeight?: number;
+  empty?: { title?: string; hint?: string; onReset?: () => void };
 }) {
   const t = useTheme();
   const [sort, setSort] = useState<{ key: string; dir: "asc" | "desc" }>(initialSort ?? { key: columns[0].key, dir: "asc" });
@@ -658,12 +865,10 @@ export function DataTable<T extends { [k: string]: any }>({
                   zIndex: 1,
                   background: t.paper,
                   padding: 0,
-                  fontFamily: fonts.mono,
-                  fontSize: 10.5,
+                  ...type.label,
                   letterSpacing: "0.05em",
                   textTransform: "uppercase",
                   color: sort.key === c.key ? t.ink : t.inkSoft,
-                  fontWeight: 700,
                   borderBottom: `1px solid ${t.ruleSoft}`,
                   whiteSpace: "nowrap",
                   width: c.width,
@@ -686,7 +891,11 @@ export function DataTable<T extends { [k: string]: any }>({
                   }}
                 >
                   {c.header}
-                  <span style={{ opacity: sort.key === c.key ? 1 : 0.25, marginLeft: 5 }}>{sort.key === c.key ? (sort.dir === "asc" ? "▲" : "▼") : "▾"}</span>
+                  <span style={{ display: "inline-flex", alignItems: "center", opacity: sort.key === c.key ? 1 : 0.25, marginLeft: 5 }}>
+                    <span style={{ display: "inline-flex", transform: sort.key === c.key && sort.dir === "asc" ? "rotate(180deg)" : undefined }}>
+                      <svg width={6} height={6} viewBox="0 0 6 6" aria-hidden focusable="false"><path d={CHEVRON_D} fill="currentColor" /></svg>
+                    </span>
+                  </span>
                 </button>
               </th>
             ))}
@@ -701,7 +910,7 @@ export function DataTable<T extends { [k: string]: any }>({
                   style={{
                     textAlign: c.align ?? "left",
                     padding: "8px 12px",
-                    fontSize: 12.5,
+                    ...type.bodyM,
                     color: t.ink,
                     borderBottom: `1px solid ${t.ruleSoft}`,
                     whiteSpace: "nowrap",
@@ -714,7 +923,9 @@ export function DataTable<T extends { [k: string]: any }>({
           ))}
           {sorted.length === 0 && (
             <tr>
-              <td colSpan={columns.length} style={{ padding: "22px 12px", textAlign: "center", color: t.inkSoft, fontSize: 13 }}><Bionic>No rows for the current filters.</Bionic></td>
+              <td colSpan={columns.length} style={{ padding: 0 }}>
+                <EmptyState title={empty?.title ?? "No data"} hint={empty?.hint ?? "No rows for the current filters."} onReset={empty?.onReset} />
+              </td>
             </tr>
           )}
         </tbody>
@@ -733,10 +944,9 @@ export function SearchBox({ value, onChange, placeholder }: { value: string; onC
       placeholder={placeholder ?? "Search…"}
       className="viz-search"
       style={{
-        fontFamily: fonts.body,
-        fontSize: 12.5,
+        ...type.bodyM,
         padding: "6px 10px",
-        borderRadius: 7,
+        borderRadius: radius.control,
         border: `1px solid ${t.ruleSoft}`,
         background: t.themeBand,
         color: t.ink,
@@ -762,19 +972,72 @@ export function CellBar({ value, max, color }: { value: number; max: number; col
 
 // Page body: fills the available canvas height and animates in. Rows flagged
 // flex:1 share the remaining height so every page fits without scrolling.
-export function PageGrid({ children, style }: { children: ReactNode; style?: CSSProperties }) {
+// `fit` (default true) fills 100% of .report__canvas's content box —
+// .report__canvas is the scroll container (flex:1 1 auto; column flex) and
+// PageGrid is its direct child, so a real 100%-height box is already
+// available to fill; the existing `.report__canvas > * { min-height: 700px }`
+// CSS rule (unchanged) supplies the floor on very short windows, so no
+// viewport-unit max() calc is needed here. Pass fit={false} for
+// document-style pages (Value & Finance) that should scroll instead of
+// being height-locked.
+export function PageGrid({ children, style, fit = true }: { children: ReactNode; style?: CSSProperties; fit?: boolean }) {
   return (
-    <div className="anim-up" style={{ height: "100%", minHeight: 0, display: "flex", flexDirection: "column", gap: 12, ...style }}>
+    <div
+      className="anim-up page-grid"
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        ...(fit ? { flex: "1 1 auto", height: "100%", minHeight: "max(700px, 100%)" } : { height: "100%", minHeight: 0 }),
+        ...style,
+      }}
+    >
       {children}
     </div>
   );
 }
 
 // A row of equal-height visuals that grows to fill leftover canvas height.
-export function Row({ cols, children, grow = true, style }: { cols: string; children: ReactNode; grow?: boolean; style?: CSSProperties }) {
+// `weight` scales how much of the remaining flex space this row claims
+// relative to sibling rows (default 1, same as before weight existed).
+export function Row({ cols, children, grow = true, weight = 1, style }: { cols: string; children: ReactNode; grow?: boolean; weight?: number; style?: CSSProperties }) {
   return (
-    <div style={{ flex: grow ? 1 : "0 0 auto", minHeight: 0, display: "grid", gridTemplateColumns: cols, gap: 12, ...style }}>
+    <div className="page-row" style={{ flex: grow ? `${weight} 1 0` : "0 0 auto", minHeight: 0, display: "grid", gridTemplateColumns: cols, ...style }}>
       {children}
+    </div>
+  );
+}
+
+// --- segmented control -------------------------------------------------------
+export function Segmented<T extends string>({ options, value, onChange, ariaLabel }: { options: { value: T; label: string }[]; value: T; onChange: (v: T) => void; ariaLabel?: string }) {
+  const t = useTheme();
+  return (
+    <div role="radiogroup" aria-label={ariaLabel} style={{ display: "inline-flex", height: controlHeight, padding: 3, borderRadius: radius.control, background: t.themeBand, border: `1px solid ${t.ruleSoft}`, gap: 2 }}>
+      {options.map((o) => {
+        const active = o.value === value;
+        return (
+          <button
+            key={o.value}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            onClick={() => onChange(o.value)}
+            style={{
+              ...type.bodyS,
+              fontWeight: 700,
+              padding: "0 12px",
+              borderRadius: radius.inner,
+              border: "none",
+              cursor: "pointer",
+              background: active ? t.paper : "transparent",
+              color: active ? t.ink : t.inkSoft,
+              boxShadow: active ? t.shadow : "none",
+              transition: "background 0.15s, color 0.15s",
+            }}
+          >
+            {o.label}
+          </button>
+        );
+      })}
     </div>
   );
 }

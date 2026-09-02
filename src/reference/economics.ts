@@ -174,6 +174,16 @@ export interface RateTables {
   // spoke by worktime exactly like infra always was. Hub people-cost
   // handling is unchanged (still HUB-only, via hubPoolPerDay above).
   spokeInfraPerDay(spokeName: string, dateISO: string): number;
+  /**
+   * D6 (pool composition, Value & Finance page): the day's hub + spoke pool
+   * cost broken into its people vs infra components. Purely a transparency
+   * breakdown — does not change hubPoolPerDay/spokeInfraPerDay's values or any
+   * existing cost formula. Callers apportion each component by worktime share
+   * exactly like costForRow does for the combined total:
+   *   hubPeople + hubInfra === hubPoolPerDay(dateISO)          (to the penny)
+   *   spokePeople + spokeInfra === spokeInfraPerDay(spokeName, dateISO)  (to the penny)
+   */
+  poolCompositionOn(dateISO: string, spokeName: string): { hubPeople: number; hubInfra: number; spokePeople: number; spokeInfra: number };
   vdiDailyCostOn(resourceName: string, dateISO: string): number;
   // precomputed once from rows — they don't change across filter windows
   dayTotalWorktimeSec: Map<string, number>; // isoDate -> total bot-seconds, whole estate
@@ -231,6 +241,11 @@ export function buildRateTables(
   const hubPerDayMap = new Map<string, number>();
   const spokeInfraPerDayMap = new Map<string, number>(); // `${spokeName}|${isoDate}` -> £/day
   const zeroWorktimePoolCostByDate = new Map<string, number>();
+  // D6 (pool composition breakdown) — see RateTables.poolCompositionOn's doc.
+  const hubPeoplePerDayMap = new Map<string, number>();
+  const hubInfraPerDayMap = new Map<string, number>();
+  const spokePeoplePerDayMap = new Map<string, number>(); // `${spokeName}|${isoDate}` -> £/day
+  const spokeInfraOnlyPerDayMap = new Map<string, number>(); // `${spokeName}|${isoDate}` -> £/day
 
   const minTs = parseISO(dateMinISO);
   const maxTs = parseISO(dateMaxISO);
@@ -249,6 +264,8 @@ export function buildRateTables(
     const hubPeoplePerDay = peopleCostOn(reference, "HUB", date) / 365.25;
     const hubPerDay = hubPeoplePerDay + hubInfra;
     hubPerDayMap.set(date, hubPerDay);
+    hubPeoplePerDayMap.set(date, hubPeoplePerDay);
+    hubInfraPerDayMap.set(date, hubInfra);
 
     // D5 (spoke people cost): spoke pool/day = spoke VDI infra/day + that
     // spoke's OWN peopleCostHistory record-in-force/365.25, apportioned
@@ -261,7 +278,11 @@ export function buildRateTables(
       const name = spokeNameById.get(sid);
       const spokePeoplePerDay = peopleCostOn(reference, String(sid), date) / 365.25;
       const spokePoolPerDay = infra + spokePeoplePerDay;
-      if (name) spokeInfraPerDayMap.set(`${name}|${date}`, spokePoolPerDay);
+      if (name) {
+        spokeInfraPerDayMap.set(`${name}|${date}`, spokePoolPerDay);
+        spokePeoplePerDayMap.set(`${name}|${date}`, spokePeoplePerDay);
+        spokeInfraOnlyPerDayMap.set(`${name}|${date}`, infra);
+      }
       totalSpokeInfra += spokePoolPerDay;
     }
 
@@ -275,6 +296,12 @@ export function buildRateTables(
     gradeRateOn: (grade, spokeName, dateISO) => gradeRateOn(reference, grade, spokeName, dateISO),
     hubPoolPerDay: (dateISO) => hubPerDayMap.get(dateISO) ?? 0,
     spokeInfraPerDay: (spokeName, dateISO) => spokeInfraPerDayMap.get(`${spokeName}|${dateISO}`) ?? 0,
+    poolCompositionOn: (dateISO, spokeName) => ({
+      hubPeople: hubPeoplePerDayMap.get(dateISO) ?? 0,
+      hubInfra: hubInfraPerDayMap.get(dateISO) ?? 0,
+      spokePeople: spokePeoplePerDayMap.get(`${spokeName}|${dateISO}`) ?? 0,
+      spokeInfra: spokeInfraOnlyPerDayMap.get(`${spokeName}|${dateISO}`) ?? 0,
+    }),
     vdiDailyCostOn: (resourceName, dateISO) => {
       const r = resourceByName.get(resourceName);
       return r ? vdiDailyCost(r, dateISO, reference) : 0;

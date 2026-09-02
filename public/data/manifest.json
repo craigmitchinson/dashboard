@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-17T13:24:26.991Z",
+  "generatedAt": "2026-09-02T18:51:31.522Z",
   "source": "data/mock/BPAWorkQueueItem.csv",
   "sourceRows": 231660,
   "window": [
@@ -22,6 +22,15 @@
     "vw_CommercialBySpoke": 4,
     "vw_CommercialMonthly": 19,
     "vw_CommercialOverall": 1,
-    "vw_KPIHeadline": 1
+    "vw_KPIHeadline": 1,
+    "vw_ModelDayRows": 7840,
+    "vw_ModelExcRows": 15230,
+    "vw_ModelResRows": 27756,
+    "vw_ModelDayWorktimeTotals": 560,
+    "vw_ModelSpokeDayWorktimeTotals": 2240,
+    "vw_ModelResourceActivity": 11,
+    "vw_ModelExceptionReasons": 14,
+    "vw_ModelMeta": 1,
+    "vw_ModelUnmappedQueues": 0
   }
 }

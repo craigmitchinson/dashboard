@@ -8,10 +8,113 @@
   --font-mono: "JetBrains Mono", Consolas, "Courier New", monospace;
   /* single horizontal gutter shared by the header, slicer bar and canvas so
      their left/right edges line up exactly, collapsed nav or not */
-  --gutter: 22px;
+  --gutter: 24px;
   /* one shared height for the nav brand block AND the page header so their
      bottom borders land on exactly the same line */
   --header-h: 56px;
+
+  /* --- design-elevation P0 tokens -----------------------------------------
+     Shared source of truth for src/theme.ts's numeric `type`/`space`/`radius`
+     helpers (the pages worker consumes those, not these vars directly, since
+     the app is almost entirely inline-px — see the --text-scale/zoom note
+     below). Kept here too so any CSS in this stylesheet can reference them
+     and so the two never drift apart (theme.ts's file header says so). */
+  /* type scale: "<size>/<line-height>", combine with a font shorthand at the
+     use site, e.g. `font: var(--t-body-m) var(--font-body);` */
+  --t-display-xl: 32px/1.05;
+  --t-display-l: 20px/1.15;
+  --t-display-m: 16px/1.2;
+  --t-display-s: 14px/1.3;
+  --t-body-l: 14px/1.4;
+  --t-body-m: 13px/1.45;
+  --t-body-s: 12px/1.4;
+  --t-label: 11px/1; /* mono, 0.06em tracking, uppercase — apply those two separately */
+  --t-micro: 10px/1; /* floor: nothing in this app renders smaller than this */
+
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-8: 32px;
+  /* Canvas padding as its own token (nav/motion P1) — data pages can size
+     themselves to calc(100dvh - var(--top-h) - 2*var(--canvas-pad)); --top-h
+     is set inline on .report__main by App.tsx's ResizeObserver (see the
+     .report__top rule below). */
+  --canvas-pad: 16px;
+
+  --r-card: 12px;
+  --r-control: 8px;
+  --r-inner: 6px;
+  --r-overlay: 14px;
+
+  --control-h: 32px;
+
+  --z-nav: 10;
+  --z-band: 20;
+  --z-popover: 60;
+  --z-ruler: 90;
+  --z-modal: 100;
+  --z-skip: 200;
+
+  --d-fast: 120ms;
+  --d-base: 180ms;
+  --d-slow: 280ms;
+  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+
+  /* --- boot / crash screens ------------------------------------------------
+     src/main.tsx (LoadingScreen/SignInGate/ErrorScreen) and
+     src/components/ErrorBoundary.tsx render before/outside React's
+     ThemeProvider on purpose (see both files' headers — theming context
+     could itself be the thing that's broken) so they can't read theme.ts.
+     They used to hardcode this app's DARK boot palette regardless of the
+     visitor's OS preference, which reads wrong (dark-on-light look, or
+     literally wrong colours) for a light-mode visitor. Plain CSS custom
+     properties are still safe for them to depend on (this stylesheet is
+     static, unaffected by a React-level crash) so they read these instead of
+     literal hex — light values here, dark override via prefers-color-scheme
+     only (no data-theme fallback: that attribute is set by
+     DisplayPrefsProvider post-sign-in/post-mount, i.e. AFTER every screen
+     that reads these vars can even be showing). */
+  --boot-bg: #ece8e1;
+  --boot-ink: #0b3239;
+  --boot-ink-soft: rgba(11, 50, 57, 0.75);
+  --boot-btn-bg: rgba(11, 50, 57, 0.06);
+  --boot-btn-border: rgba(11, 50, 57, 0.3);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --boot-bg: #071316;
+    --boot-ink: #f4f1eb;
+    --boot-ink-soft: rgba(244, 241, 235, 0.75);
+    --boot-btn-bg: rgba(244, 241, 235, 0.08);
+    --boot-btn-border: rgba(244, 241, 235, 0.35);
+  }
+}
+
+/* --- boot skeleton ----------------------------------------------------------
+   Rendered synchronously in main.tsx before any network activity — nav rail
+   + top band outline + six shimmering KPI blocks — so the very first paint
+   is a themed shell instead of a blank screen or a spinner. */
+@keyframes bootShimmer {
+  0% {
+    background-position: -320px 0;
+  }
+  100% {
+    background-position: 320px 0;
+  }
+}
+.boot-shimmer {
+  background-image: linear-gradient(90deg, rgba(127, 127, 127, 0.14) 0%, rgba(127, 127, 127, 0.28) 50%, rgba(127, 127, 127, 0.14) 100%);
+  background-size: 320px 100%;
+  background-repeat: no-repeat;
+  animation: bootShimmer 1.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .boot-shimmer {
+    animation: none;
+  }
 }
 
 * {
@@ -38,32 +141,78 @@ body {
 }
 
 .bar-btn {
+  /* display lives here, not in the JS btn()/btnBase() inline-style helpers,
+     specifically so the .hdr-theme-full/.hdr-theme-icon/.hdr-overflow-trigger
+     container-query rules below (styles.css) can override it — an inline
+     `style.display` set by React always wins over an external stylesheet
+     rule of any specificity short of !important, which would have defeated
+     every one of those container queries otherwise. */
+  display: inline-flex;
   font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   font-weight: 700;
   background: transparent;
-  border-radius: 7px;
-  padding: 5px 11px;
+  border-radius: var(--r-control);
+  height: var(--control-h);
+  box-sizing: border-box;
+  padding: 0 var(--s-3);
+  white-space: nowrap;
   cursor: pointer;
+  transition: background var(--d-fast) var(--ease-out);
 }
+/* opacity-hover read as "disabled" (nav/motion P1) — a background tint
+   instead, same recipe as .nav-item:not(.is-active):hover below. Buttons
+   that already set their own inline `background` (filled/active states)
+   are unaffected: inline styles always beat this class rule. */
 .bar-btn:hover {
-  opacity: 0.8;
+  background: color-mix(in srgb, var(--ink, currentColor) 8%, transparent);
 }
 
-/* --- report shell: full-height left nav + content column ------------------ */
+/* --- report shell: full-height left nav + content column ------------------
+   .report__main is now the single scroll container (see .report__top /
+   .report__canvas below) — .report itself never scrolls. */
 .report {
   display: flex;
   height: 100vh;
   overflow: hidden;
+  background-attachment: fixed;
+  /* Ambient background: three low-alpha radial layers over the theme's page
+     colour (set inline via t.page). The first layer reads --ambient-accent,
+     set inline by ThemedReport (src/App.tsx) to the active spoke colour at
+     .08 (light) / .10 (dark) alpha via color-mix() — transparent when no
+     spoke is selected, so the other two neutral layers still give an ambient
+     read on the hub view. High-contrast, no-transparency and the "off"
+     switch all kill this below (a plain `background: #000 !important` in the
+     existing HC block already implicitly resets background-image too). */
+  background-image:
+    radial-gradient(1100px circle at 18% -12%, var(--ambient-accent, transparent) 0%, transparent 60%),
+    radial-gradient(900px circle at 108% 8%, rgba(255, 255, 255, 0.06) 0%, transparent 55%),
+    radial-gradient(1100px circle at 40% 118%, rgba(255, 255, 255, 0.05) 0%, transparent 60%);
+}
+.report[data-mode="dark"] {
+  background-image:
+    radial-gradient(1100px circle at 18% -12%, var(--ambient-accent, transparent) 0%, transparent 60%),
+    radial-gradient(900px circle at 108% 8%, rgba(255, 255, 255, 0.05) 0%, transparent 55%),
+    radial-gradient(1100px circle at 40% 118%, rgba(255, 255, 255, 0.04) 0%, transparent 60%);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .report {
+    background-image: none;
+  }
+}
+:root[data-glass="off"] .report {
+  background-image: none;
 }
 
 .report__nav {
   flex: 0 0 auto;
+  position: relative;
+  z-index: var(--z-nav);
   display: flex;
   flex-direction: column;
-  transition: width 0.18s ease;
+  transition: width var(--d-base) var(--ease-out);
 }
 .report__brand {
   display: flex;
@@ -73,22 +222,80 @@ body {
   box-sizing: border-box;
   padding: 0 14px;
 }
-.nav-item:not(.is-active):hover {
-  background: rgba(127, 127, 127, 0.1) !important;
+/* Active/hover tint: color-mix against --ink (set inline on `.report` from
+   the active theme's `t.ink` — see App.tsx) rather than a fixed rgba, so the
+   same rule works unmodified in light/dark. The 3px spoke-colour indicator
+   bar (.nav-active-bar above) is what actually signals "current page" —
+   this tint is a secondary, low-contrast cue, which is why colour-only
+   HC replaces it outright with the existing solid yellow-fill rule below. */
+/* Hover-in/out tint now animates (nav/motion P1) instead of snapping. */
+.nav-item {
+  transition: background var(--d-fast) var(--ease-out);
 }
-.report[data-mode="dark"] .nav-item:not(.is-active):hover {
-  background: rgba(244, 241, 235, 0.07) !important;
+.nav-item.is-active {
+  background: color-mix(in srgb, var(--ink, currentColor) 8%, transparent) !important;
+  color: var(--ink, inherit) !important;
+}
+.nav-item:not(.is-active):hover {
+  background: color-mix(in srgb, var(--ink, currentColor) 6%, transparent) !important;
 }
 .nav-collapse:hover {
   color: var(--teal);
 }
+.report[data-mode="dark"] .nav-collapse:hover {
+  color: #f4f1eb;
+}
 
+/* --- nav active-state indicator bar -----------------------------------------
+   A single absolutely-positioned bar shared by the whole nav list (rendered
+   once, positioned per the active item's offsetTop/offsetHeight in App.tsx)
+   so it can slide smoothly between items instead of popping in/out per
+   button. Colour is set inline (t.spoke ?? t.accent) since it must track the
+   active spoke, not the fixed brand accent — see App.tsx's ThemedReport. */
+.nav-active-bar {
+  position: absolute;
+  left: 0;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  transition: transform var(--d-base) var(--ease-out), height var(--d-base) var(--ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  .nav-active-bar {
+    transition: none;
+  }
+}
+[data-reduce-motion="true"] .nav-active-bar {
+  transition: none !important;
+}
+
+/* .report__main is the scroll container (was .report__canvas) — .report__top
+   (header + slicer bar) is sticky inside it, so the glass band stays fixed
+   at the top while canvas content scrolls beneath it. container-type:
+   inline-size turns it into the query container consumed by the header's
+   priority-collapse rules below. */
 .report__main {
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+  container-type: inline-size;
+}
+
+.report__top {
+  flex: 0 0 auto;
+  position: sticky;
+  top: 0;
+  z-index: var(--z-band);
+  /* Sticky-shadow (nav/motion P1): .report__top--shadow is toggled live
+     (not idle-debounced, unlike .is-scrolling above) off `scrollTop > 8` in
+     the same scroll-glass effect in App.tsx's Report(). */
+  transition: box-shadow var(--d-base) var(--ease-out);
+}
+.report__top--shadow {
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
 }
 
 .report__header {
@@ -99,9 +306,17 @@ body {
   height: var(--header-h);
   box-sizing: border-box;
   padding: 0 var(--gutter);
+  min-width: 0;
+  /* NOT overflow:hidden — the blurb-tooltip and freshness-dot tooltips
+     (App.tsx) are positioned absolutely just below this 56px band and must
+     not be clipped by it. The container-query priority collapse (below) is
+     what keeps content within `clientWidth`, not a clip here. */
+}
+.hdr-btn {
+  transition: background var(--d-fast) var(--ease-out);
 }
 .hdr-btn:hover {
-  opacity: 0.85;
+  background: color-mix(in srgb, var(--ink, currentColor) 8%, transparent);
 }
 
 .report__slicers {
@@ -111,14 +326,273 @@ body {
 
 .report__canvas {
   flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
-  padding: 16px var(--gutter);
+  padding: var(--canvas-pad) var(--gutter);
 }
 .report__canvas > * {
   min-height: 700px; /* keep chart proportions sane on short windows */
+}
+
+/* --- header priority collapse ----------------------------------------------
+   Container queries against .report__main's inline size (see the
+   container-type: inline-size rule above) — this responds to the NAV rail's
+   collapsed/expanded width too, not just the viewport, which is the point of
+   anchoring to the container rather than a `@media` viewport query.
+   Breakpoints (container width): >=1680 everything · 1400-1679 blurb becomes
+   an info tooltip · 1200-1399 theme icon-only + Views icon+count ·
+   1040-1199 accessibility+theme collapse into the ⋯ overflow menu ·
+   <1040 freshness pill -> dot, Reset -> icon+badge, user chip -> avatar only.
+   Every element pair below is two permanently-mounted siblings toggled with
+   `display:none` (never a JS-computed style) so keyboard/tab order and the
+   accessibility tree stay correct for free — a display:none control is
+   unreachable by Tab and invisible to AT without any extra aria-hidden
+   bookkeeping. The one exception (greeting+clocks relocating into the user
+   menu's portalled popover) can't use this mechanism — a container query
+   can't reach content a React portal has moved to document.body, since it's
+   no longer a DOM descendant of .report__main — so that single relocation is
+   driven by a ResizeObserver in App.tsx at the same 1400px threshold; see the
+   comment on Report()'s `headerCompactGreeting` state. */
+.hdr-blurb-text,
+.hdr-fresh-full,
+.hdr-fresh-dot,
+.hdr-theme-full,
+.hdr-theme-icon,
+.hdr-views-full,
+.hdr-views-compact,
+.hdr-overflow-trigger,
+.hdr-cmdk-full,
+.hdr-cmdk-icon {
+  display: none;
+}
+/* Page-actions slot (Page.actions, see App.tsx): shown >=1200px, hidden
+   below that (see the <1199.98px block further down) until a real
+   overflow-menu integration for it exists — see the Page.actions comment
+   in App.tsx. Not a plain-`display:none` reset entry above since it's
+   `flex`, not `inline-flex`, when shown. */
+.hdr-page-actions {
+  display: none;
+}
+/* .hdr-blurb-tip carries its own !important pair (below), separate from the
+   plain-`display:none` set above — it also carries the pre-existing `.tip`
+   class (defined later in this file, see that rule's own comment), whose
+   plain `display:inline-flex` would otherwise win this specific pair's tie
+   by source order; !important settles it unconditionally instead. */
+.hdr-blurb-tip {
+  display: none !important;
+}
+/* >=1680: everything full ---------------------------------------------- */
+@container (min-width: 1680px) {
+  .hdr-blurb-text {
+    display: block;
+  }
+}
+/* <1680: blurb becomes an info tooltip (shown at every narrower tier too) */
+@container (max-width: 1679.98px) {
+  .hdr-blurb-tip {
+    display: inline-flex !important;
+  }
+}
+/* Greeting + clocks: full inline >=1400, else relocated into the user menu
+   popover header. That relocation can't be a container query (portal
+   content isn't a DOM descendant of this container) — see the file-header
+   comment above — so it's driven by App.tsx's ResizeObserver-based
+   `headerCompactGreeting` state at the same 1400px threshold instead; there
+   is deliberately no CSS class pair for it here. */
+
+/* Theme + Views both switch at the same 1400px threshold: full text/label
+   >=1400, compact (theme icon-only / Views icon+count) below that — theme's
+   compact form then itself disappears into the overflow menu below 1200,
+   Views' compact form does not (see the deviation note below). */
+@container (min-width: 1400px) {
+  .hdr-theme-full {
+    display: inline-flex;
+  }
+}
+@container (min-width: 1200px) and (max-width: 1399.98px) {
+  .hdr-theme-icon {
+    display: inline-flex;
+  }
+}
+@container (min-width: 1400px) {
+  .hdr-views-full {
+    display: inline-flex;
+  }
+}
+@container (max-width: 1399.98px) {
+  .hdr-views-compact {
+    display: inline-flex;
+  }
+}
+/* <1200: accessibility + theme collapse into the ⋯ overflow menu. Views
+   stays inline as the icon+count compact form (a deliberate, documented
+   deviation from collapsing it into the overflow menu too — see the P0
+   report) rather than fully disappearing, since duplicating its rich
+   saved-views popover state inside the overflow menu was judged not worth
+   the risk for this pass. */
+@container (min-width: 1200px) {
+  .hdr-overflow-trigger {
+    display: none !important;
+  }
+}
+@container (max-width: 1199.98px) {
+  .hdr-overflow-trigger {
+    display: inline-flex;
+  }
+  .hdr-a11y-inline,
+  .hdr-theme-full,
+  .hdr-theme-icon {
+    display: none !important;
+  }
+}
+/* Command palette trigger: its own single 1200px threshold (full label
+   >=1200, icon-only below) — deliberately NOT routed through
+   .hdr-overflow-trigger's <1200px collapse-into-⋯-menu group above: this is
+   the flagship feature and must always stay reachable inline, never hidden
+   behind another menu. */
+@container (min-width: 1200px) {
+  .hdr-cmdk-full {
+    display: inline-flex;
+  }
+}
+@container (max-width: 1199.98px) {
+  .hdr-cmdk-icon {
+    display: inline-flex;
+  }
+}
+/* Page-actions slot: same 1200px threshold, structural-only for now (see
+   the Page.actions comment in App.tsx — no PAGES entry sets one yet). */
+@container (min-width: 1200px) {
+  .hdr-page-actions {
+    display: flex;
+  }
+}
+@container (max-width: 1199.98px) {
+  .hdr-page-actions {
+    display: none !important;
+  }
+}
+/* <1040: freshness pill -> dot, Reset -> icon+badge, user chip -> avatar -- */
+@container (min-width: 1040px) {
+  .hdr-fresh-full {
+    display: inline-flex;
+  }
+  .hdr-reset-label {
+    display: inline;
+  }
+  .hdr-user-name,
+  .hdr-user-role {
+    display: inline;
+  }
+}
+@container (max-width: 1039.98px) {
+  .hdr-fresh-dot {
+    display: inline-flex;
+  }
+  .hdr-reset-label {
+    display: none;
+  }
+  .hdr-user-name,
+  .hdr-user-role {
+    display: none;
+  }
+}
+/* h1 never truncates: a fixed floor plus its own nowrap (set inline) means
+   the flex row around it (title+blurb) shrinks the blurb first, always. */
+.report__header h1 {
+  min-width: 160px;
+  flex: 0 0 auto;
+}
+
+/* --- glass materials --------------------------------------------------------
+   Two materials, both governed by the same auto-disable rules further down
+   (@supports not backdrop-filter / prefers-reduced-transparency / the
+   data-glass="off" user toggle / high-contrast):
+
+   .glass-persistent — nav rail + the sticky top band (header+slicers). Both
+   are descendants of `.report`, so the dark variant below (like
+   `.liquid-glass`'s existing `.report[data-mode="dark"]` cascade) reaches
+   them for free; no inline vars needed. `contain: paint` scopes each
+   surface's own paint/blur work so it can't be invalidated by the rest of
+   the page repainting. will-change is added only while `.report__main` is
+   actively scrolling (JS toggles `.is-scrolling` on both, cleared 150ms
+   after the last scroll event) — see the useScrollGlass hook in App.tsx —
+   so the compositor doesn't promote these layers permanently for no reason.
+
+   .glass-overlay — every floating popover/dialog (ViewsMenu, UserMenu,
+   HeaderOverflowMenu, slicer panels, the Accessibility panel, the shortcuts
+   dialog). All of these are either portalled to document.body or render as
+   siblings of `.report` (DisplayPanel, the shortcuts dialog), so — unlike
+   .glass-persistent — the `.report[data-mode="dark"]` cascade can never
+   reach them; every consumer supplies the dark variant inline instead via
+   `glassOverlayVars()` (src/theme.ts), exactly like `.liquid-glass` already
+   does via `liquidGlassVars()`. */
+.glass-persistent {
+  /* `position: relative` is the DEFAULT here (a positioning context for the
+     ::before rim below) — NOT a hard requirement. `.report__top` also
+     carries this class but needs `position: sticky` instead (see its own
+     rule) to stay pinned while `.report__main` scrolls beneath it; without
+     the compound selector below, that sticky value was silently lost — both
+     rules are single-class selectors of equal specificity, so the one
+     appearing later in this file (this one) was winning by source order
+     alone, turning the header+slicer band into an ordinary scrolling
+     element. Higher specificity here beats relying on source order. */
+  position: relative;
+  contain: paint;
+  background: var(--gp-bg, rgba(250, 247, 242, 0.72));
+  backdrop-filter: var(--gp-backdrop, blur(14px) saturate(1.4));
+  -webkit-backdrop-filter: var(--gp-backdrop, blur(14px) saturate(1.4));
+}
+.report__top.glass-persistent {
+  position: sticky;
+}
+.glass-persistent::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+}
+.report[data-mode="dark"] .glass-persistent {
+  --gp-bg: rgba(12, 35, 41, 0.72);
+  --gp-solid: #0c2329;
+}
+.report[data-mode="dark"] .glass-persistent::before {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+.glass-persistent.is-scrolling {
+  will-change: backdrop-filter;
+}
+/* Worst-case scrim contrast for ink text directly on the band (same method
+   as the .liquid-glass comment below): LIGHT rgba(250,247,242,.72) over a
+   pure-black backdrop vs ink #0B3239 -> ~6.47:1 (clears the 6:1 target).
+   DARK rgba(12,35,41,.72) over a pure-WHITE backdrop vs ink #F4F1EB ->
+   ~5.77:1 — short of the 6:1 aspirational target (still well clear of the
+   4.5:1 AA floor). Kept at the spec's literal .72 alpha for both modes
+   rather than silently raising the dark alpha to force 6:1, since a pure
+   white backdrop is the theoretical worst case, not a realistic one: nothing
+   in dark mode's canvas/ambient background ever approaches white behind the
+   band, so real rendered contrast is comfortably higher than this bound.
+   Documented here as a known, deliberate shortfall against the target. */
+
+.glass-overlay {
+  position: relative;
+  border-radius: var(--r-overlay);
+  background: var(--go-bg, rgba(250, 247, 242, 0.78));
+  backdrop-filter: var(--go-backdrop, blur(18px) saturate(1.5));
+  -webkit-backdrop-filter: var(--go-backdrop, blur(18px) saturate(1.5));
+  box-shadow: var(--go-shadow, 0 2px 6px rgba(11, 50, 57, 0.18), 0 24px 60px rgba(11, 50, 57, 0.22));
+  /* Entrance for every floating surface built on this class — see the
+     cmdkIn keyframe's comment further down (nav/motion P1). */
+  animation: cmdkIn 140ms var(--ease-out) both;
+}
+.glass-overlay::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: var(--go-rim, inset 0 1px 0 rgba(255, 255, 255, 0.45), inset 0 0 0 1px rgba(255, 255, 255, 0.5));
 }
 
 /* KPI card rows: responsive, collapse gracefully on narrow viewports */
@@ -128,6 +602,30 @@ body {
   /* 152px (was 168px): safety margin so cards still wrap without clipping at
      the 1.3x text-scale accessibility setting (see --text-scale below). */
   grid-template-columns: repeat(auto-fit, minmax(152px, 1fr));
+}
+/* KPI card stagger (nav/motion P1): same deckUp keyframe/timing as .anim-up,
+   applied per-child with an increasing delay, capped at 6 cards' worth. No
+   page edits needed — every existing .kpi-row container picks this up. */
+.kpi-row > * {
+  animation: deckUp 220ms var(--ease-out) both;
+}
+.kpi-row > *:nth-child(1) {
+  animation-delay: 0ms;
+}
+.kpi-row > *:nth-child(2) {
+  animation-delay: 30ms;
+}
+.kpi-row > *:nth-child(3) {
+  animation-delay: 60ms;
+}
+.kpi-row > *:nth-child(4) {
+  animation-delay: 90ms;
+}
+.kpi-row > *:nth-child(5) {
+  animation-delay: 120ms;
+}
+.kpi-row > *:nth-child(n + 6) {
+  animation-delay: 150ms;
 }
 
 /* viz cards never overflow their grid track */
@@ -156,8 +654,10 @@ body {
   cursor: pointer;
 }
 
-/* --- scrollbars ----------------------------------------------------------- */
-.report__canvas::-webkit-scrollbar,
+/* --- scrollbars -----------------------------------------------------------
+   .report__main is the scroll container as of the P0 shell rework (was
+   .report__canvas) — see the .report__main rule above. */
+.report__main::-webkit-scrollbar,
 .report__nav nav::-webkit-scrollbar,
 .report ::-webkit-scrollbar {
   width: 10px;
@@ -176,12 +676,14 @@ body {
 
 /* --- lift on hover -------------------------------------------------------- */
 .tile-lift {
+  /* 160ms is load-bearing here (not one of the --d-* tokens, none of which
+     equal it) — token-reuse is not the point, this exact duration is. */
   transition:
-    transform 0.2s ease,
-    box-shadow 0.2s ease;
+    transform 160ms var(--ease-out),
+    box-shadow 160ms var(--ease-out);
 }
 .report .tile-lift:hover {
-  transform: translateY(-3px);
+  transform: translateY(-2px);
   box-shadow: 0 14px 30px rgba(11, 50, 57, 0.16);
   position: relative;
   z-index: 4;
@@ -191,15 +693,73 @@ body {
 }
 
 /* --- motion --------------------------------------------------------------- */
+/* deckUp redefined in place (nav/motion P1): 14px -> 6px rise, 0.5s -> 220ms,
+   now referencing --ease-out instead of hand-rolling the same curve — every
+   existing .anim-up consumer (PageGrid in viz.tsx, Playbook.tsx,
+   AlertsPage.tsx) picks up the new timing automatically, no page edits. */
 @keyframes deckUp {
   from {
     opacity: 0;
-    transform: translateY(14px);
+    transform: translateY(6px);
   }
   to {
     opacity: 1;
     transform: none;
   }
+}
+/* Page-transition entrance/exit (nav/motion P1) — .anim-up above is the
+   "incoming fade+rise" half (fires on mount, via React's key={page.id}
+   swap); .page-leaving is the "outgoing fade" half .anim-up alone can't
+   give (it only fires on mount) — see PageTransition in App.tsx, which
+   holds the old page on-screen for 120ms with this class before swapping
+   to the new one. 120ms == --d-fast; kept in sync with PageTransition's own
+   JS setTimeout by hand (see that component's comment). */
+.page-leaving {
+  opacity: 0;
+  transition: opacity var(--d-fast) var(--ease-out);
+}
+/* Popover/dialog open entrance (nav/motion P1): every .glass-overlay surface
+   (ViewsMenu/UserMenu/HeaderOverflowMenu panels, the Accessibility panel,
+   the shortcuts sheet, the command palette) gets a scale+opacity entrance —
+   useAnchoredPopover only ever sets position/top/left, never `transform`,
+   so this doesn't fight its positioning. .cmdk-closing (command palette
+   only — see CommandPalette.tsx) is the 100ms close counterpart; no other
+   consumer here gets a close animation, out of scope for this pass. */
+@keyframes cmdkIn {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes cmdkOut {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+/* Hook for chart-primitive enter animations (src/components/viz.tsx) — apply
+   className="viz-enter" to a chart's root SVG/container on mount. Not yet
+   wired up; that's viz.tsx's owner's follow-up, not this pass. */
+@keyframes vizEnter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.viz-enter {
+  animation: vizEnter 220ms var(--ease-out) both;
 }
 @keyframes deckDown {
   from {
@@ -251,7 +811,7 @@ body {
 }
 
 .anim-up {
-  animation: deckUp 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation: deckUp 220ms var(--ease-out) both;
 }
 .anim-down {
   animation: deckDown 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
@@ -449,6 +1009,11 @@ body {
   font-weight: 600;
   cursor: not-allowed;
 }
+/* Entra mode + configured: the button is a real, clickable sign-in action
+   rather than the permanently-disabled placeholder above. */
+.login__sso-btn:not([aria-disabled="true"]) {
+  cursor: pointer;
+}
 .login__sso-icon {
   display: inline-grid;
   grid-template-columns: 1fr 1fr;
@@ -486,12 +1051,21 @@ body {
   .anim-pop,
   .anim-fade,
   .pulse-soft,
-  .blob-drift {
+  .blob-drift,
+  .kpi-row > *,
+  .glass-overlay,
+  .cmdk-closing,
+  .viz-enter {
     animation: none !important;
   }
   .tile-lift,
   .report__nav,
-  .skip-link {
+  .skip-link,
+  .nav-item,
+  .bar-btn,
+  .hdr-btn,
+  .page-leaving,
+  .report__top {
     transition: none;
   }
 }
@@ -519,7 +1093,7 @@ body {
   position: fixed;
   top: -48px;
   left: 12px;
-  z-index: 200;
+  z-index: var(--z-skip);
   background: var(--teal);
   color: #fff;
   padding: 10px 16px;
@@ -742,8 +1316,15 @@ html {
    !important needed, so it doesn't add to the "!important only in this
    section" set above) removes the pseudo outright so no rim highlight can
    show over the solid black surface. */
-:root[data-theme="high-contrast"] .liquid-glass::before {
+:root[data-theme="high-contrast"] .liquid-glass::before,
+:root[data-theme="high-contrast"] .glass-persistent::before,
+:root[data-theme="high-contrast"] .glass-overlay::before {
   content: none;
+}
+:root[data-theme="high-contrast"] .glass-persistent,
+:root[data-theme="high-contrast"] .glass-overlay {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }
 
 /* --- Administration atoms (src/pages/admin/shared.tsx, src/pages/Admin.tsx) -
@@ -870,12 +1451,21 @@ html {
 [data-reduce-motion="true"] .anim-pop,
 [data-reduce-motion="true"] .anim-fade,
 [data-reduce-motion="true"] .pulse-soft,
-[data-reduce-motion="true"] .blob-drift {
+[data-reduce-motion="true"] .blob-drift,
+[data-reduce-motion="true"] .kpi-row > *,
+[data-reduce-motion="true"] .glass-overlay,
+[data-reduce-motion="true"] .cmdk-closing,
+[data-reduce-motion="true"] .viz-enter {
   animation: none !important;
 }
 [data-reduce-motion="true"] .tile-lift,
 [data-reduce-motion="true"] .report__nav,
-[data-reduce-motion="true"] .skip-link {
+[data-reduce-motion="true"] .skip-link,
+[data-reduce-motion="true"] .nav-item,
+[data-reduce-motion="true"] .bar-btn,
+[data-reduce-motion="true"] .hdr-btn,
+[data-reduce-motion="true"] .page-leaving,
+[data-reduce-motion="true"] .report__top {
   transition: none !important;
 }
 
@@ -884,7 +1474,7 @@ html {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.5);
-  z-index: 100;
+  z-index: var(--z-modal);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -910,6 +1500,82 @@ html {
 .report[data-mode="dark"] .modal-dialog.liquid-glass {
   color: #f4f1eb;
   border-color: rgba(244, 241, 235, 0.18);
+}
+
+/* --- command palette (nav/motion P1) ---------------------------------------
+   Layered on top of .modal-backdrop/.modal-dialog/.glass-overlay (reused
+   verbatim, never duplicated) — .cmdk-backdrop only overrides the vertical
+   alignment (top-anchored at 12vh instead of centered), .cmdk-dialog only
+   overrides sizing/internal layout (.modal-dialog's own max-width —
+   min(560px, 92vw) — already matches the palette's 560px spec exactly, so
+   nothing to override there). */
+.cmdk-backdrop {
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 12vh;
+}
+.cmdk-dialog {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: 70vh;
+  overflow: hidden; /* .cmdk-listbox scrolls internally instead */
+}
+.cmdk-input-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid; /* color set inline via t.ruleSoft */
+  flex: 0 0 auto;
+}
+.cmdk-listbox {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 6px 0;
+}
+.cmdk-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  padding: 0 16px;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+.cmdk-row__icon {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+.cmdk-row__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cmdk-row__sub {
+  flex: 0 0 auto;
+  max-width: 42%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cmdk-footer {
+  flex: 0 0 auto;
+  padding: 8px 16px;
+  border-top: 1px solid; /* color set inline via t.ruleSoft */
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+/* Close counterpart to .glass-overlay's cmdkIn entrance (command palette
+   only, see that class's comment) — defined after .glass-overlay in source
+   order so it wins the tie between the two same-specificity single-class
+   `animation` rules on the same element while `.cmdk-closing` is present. */
+.cmdk-closing {
+  animation: cmdkOut 100ms var(--ease-out) both;
 }
 
 /* --- accessibility & display panel settings groups -------------------------- */
@@ -1202,23 +1868,33 @@ html {
    it wins the tie in dark mode too. */
 @supports not (backdrop-filter: blur(1px)) {
   .liquid-glass,
-  .report[data-mode="dark"] .liquid-glass {
-    background: var(--lg-solid, #faf7f2);
+  .report[data-mode="dark"] .liquid-glass,
+  .glass-persistent,
+  .report[data-mode="dark"] .glass-persistent,
+  .glass-overlay {
+    background: var(--lg-solid, var(--gp-solid, var(--go-solid, #faf7f2)));
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
-  .liquid-glass::before {
+  .liquid-glass::before,
+  .glass-persistent::before,
+  .glass-overlay::before {
     content: none;
   }
 }
 @media (prefers-reduced-transparency: reduce) {
   .liquid-glass,
-  .report[data-mode="dark"] .liquid-glass {
-    background: var(--lg-solid, #faf7f2);
+  .report[data-mode="dark"] .liquid-glass,
+  .glass-persistent,
+  .report[data-mode="dark"] .glass-persistent,
+  .glass-overlay {
+    background: var(--lg-solid, var(--gp-solid, var(--go-solid, #faf7f2)));
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
-  .liquid-glass::before {
+  .liquid-glass::before,
+  .glass-persistent::before,
+  .glass-overlay::before {
     content: none;
   }
 }
@@ -1231,12 +1907,17 @@ html {
    high-contrast `!important` rule targets `:root[data-theme="high-contrast"]`
    directly and keeps winning regardless of data-glass. */
 :root[data-glass="off"] .liquid-glass,
-:root[data-glass="off"] .report[data-mode="dark"] .liquid-glass {
-  background: var(--lg-solid, #faf7f2);
+:root[data-glass="off"] .report[data-mode="dark"] .liquid-glass,
+:root[data-glass="off"] .glass-persistent,
+:root[data-glass="off"] .report[data-mode="dark"] .glass-persistent,
+:root[data-glass="off"] .glass-overlay {
+  background: var(--lg-solid, var(--gp-solid, var(--go-solid, #faf7f2)));
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
-:root[data-glass="off"] .liquid-glass::before {
+:root[data-glass="off"] .liquid-glass::before,
+:root[data-glass="off"] .glass-persistent::before,
+:root[data-glass="off"] .glass-overlay::before {
   content: none;
 }
 
@@ -1279,7 +1960,7 @@ html {
 .reading-ruler {
   position: fixed;
   pointer-events: none;
-  z-index: 90;
+  z-index: var(--z-ruler);
   background: rgba(255, 220, 60, 0.14);
   border-top: 1px solid rgba(255, 200, 40, 0.4);
   border-bottom: 1px solid rgba(255, 200, 40, 0.4);

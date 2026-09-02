@@ -1,0 +1,182 @@
+# ---------------------------------------------------------------------------
+# deploy/nginx.conf.template — the SPA container's nginx config, templated.
+#
+# Shipped by the root Dockerfile to /etc/nginx/templates/default.conf.template,
+# where the nginx image's own /docker-entrypoint.d/20-envsubst-on-templates.sh
+# runs `envsubst` on it at container START (not build time) and writes the
+# result to /etc/nginx/conf.d/default.conf before nginx starts — this is the
+# stock image mechanism (no custom entrypoint script needed), see
+# https://github.com/nginxinc/docker-nginx/blob/master/entrypoint/20-envsubst-on-templates.sh.
+#
+# That script's substitution list is exactly "every environment variable
+# currently set in the container", so ONLY ${PORT} and ${API_UPSTREAM} below
+# are ever touched — nothing else in this file is an env var name, so every
+# other $variable (nginx's own request/runtime variables: $uri, $scheme,
+# $remote_addr, etc.) passes through untouched. Both PORT and API_UPSTREAM
+# are given defaults via ENV in the root Dockerfile, so they are always
+# defined (API_UPSTREAM defaults to "", which is the static/local-mode case
+# handled explicitly below, not an unsubstituted-token bug).
+#
+# Two runtime modes, selected by whether API_UPSTREAM is set when the
+# container starts (Cloud Run: `--set-env-vars API_UPSTREAM=...`):
+#   unset (default, static/local mode) -> /api/ returns a 404 JSON stub; the
+#     SPA was built without VITE_API_URL and reads its baked /data/model.json.
+#   set to the API Cloud Run service's HTTPS base URL, no trailing slash
+#     (e.g. https://bp-api-xxxxx-ew2.a.run.app) -> /api/ is proxied there,
+#     same-origin from the browser's point of view. See deploy/gcp.md's
+#     "Same-origin topology" section for the full rationale.
+# ---------------------------------------------------------------------------
+
+server {
+    listen ${PORT} default_server;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Baked once into an nginx variable so the rest of this file never
+    # references the raw ${API_UPSTREAM} envsubst token directly (using a
+    # `set` variable is also what makes `proxy_pass $api_upstream;` below
+    # resolve its target at REQUEST time via the resolver directive, rather
+    # than once at nginx startup — see the /api/ location's comment).
+    set $api_upstream "${API_UPSTREAM}";
+
+    # DNS for the variable proxy_pass below (Cloud Run's *.run.app hostname
+    # isn't known until request time, so nginx can't pre-resolve it the way
+    # it does for a literal proxy_pass target). 169.254.169.254 is the GCP
+    # metadata server, reachable from every Cloud Run container, and the
+    # standard resolver address documented for exactly this "nginx reverse
+    # proxy on Cloud Run" pattern. Not exercised against a live Cloud Run
+    # service by this change — see deploy/gcp.md's "what couldn't be
+    # verified" note if /api/ ever fails purely with a DNS-looking error.
+    resolver 169.254.169.254 valid=300s;
+
+    # --- security headers (all responses, including error pages) -----------
+    # CSP is self-only plus the one external origin the SPA calls directly
+    # from the browser: login.microsoftonline.com, for the Entra ID
+    # auth-code+PKCE token/refresh exchange (src/auth/entra-provider.ts's
+    # completeEntraRedirect()/tryRenewEntraSession() — the initial sign-in
+    # redirect itself is a full-page navigation, not subject to connect-src).
+    # Fonts are self-hosted (src/fonts/*.woff2, bundled under /assets/), so
+    # font-src needs no external host. style-src needs 'unsafe-inline'
+    # because the app sets React inline `style={{...}}` throughout; script-src
+    # does not, since index.html's only script tag is an external module
+    # (no inline JS).
+    # A snippet-via-map trick isn't worth it here — nginx's add_header
+    # inheritance rule is the reason these four lines appear three times in
+    # this file (once here, once in each of /data/ and /assets/ below):
+    # "add_header directives are inherited from the previous level ONLY IF
+    # there are no add_header directives on the current level" — and both of
+    # those locations need their own Cache-Control add_header, which would
+    # otherwise silently drop every header set here for exactly those two
+    # locations (the classic version of this nginx gotcha). /api/ and / need
+    # no such repeat: neither declares an add_header of its own, so both
+    # inherit this block normally.
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://login.microsoftonline.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" always;
+
+    # SPA: any unknown path falls back to the app shell
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # the baked dataset (static/local mode): cache briefly (it changes on
+    # each data refresh/deploy). Harmless to still serve in api mode too —
+    # nothing links to it once VITE_API_URL was set at build time, and the
+    # build only bakes it in the static-mode branch anyway (see Dockerfile).
+    location /data/ {
+        add_header Cache-Control "public, max-age=300";
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://login.microsoftonline.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" always;
+    }
+
+    # hashed assets are immutable
+    location /assets/ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://login.microsoftonline.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" always;
+    }
+
+    # --- API proxy -----------------------------------------------------------
+    location /api/ {
+        # Local response when this deployment is static/local mode — set
+        # here (location level, not inside the `if`) so it also governs the
+        # 404 stub's body below; a proxied response's Content-Type instead
+        # comes from the upstream API's own header, which proxy_pass leaves
+        # untouched.
+        default_type application/json;
+
+        # `if` + `return` is the one combination the nginx docs/wiki call
+        # out as safe to use inside a location (unlike `if` + rewrite
+        # chains) — see https://www.nginx.com/resources/wiki/start/topics/depth/ifisevil/.
+        # This also means a config with no API_UPSTREAM never attempts to
+        # resolve or connect anywhere: the empty-string check short-circuits
+        # before proxy_pass is reached.
+        if ($api_upstream = "") {
+            return 404 '{"error":"api_not_configured","message":"This deployment is running in static/local mode (no API_UPSTREAM set) — the SPA serves its baked /data/model.json instead of calling an API."}';
+        }
+
+        # Cloud Run terminates TLS with a Google-managed, publicly-trusted
+        # certificate — verify it like any other public HTTPS upstream
+        # rather than trusting blindly. proxy_ssl_server_name sends the
+        # right SNI hostname for a variable proxy_pass target; the CA bundle
+        # is installed via `apk add ca-certificates` in the root Dockerfile's
+        # final stage.
+        proxy_ssl_server_name on;
+        proxy_ssl_verify on;
+        proxy_ssl_verify_depth 3;
+        proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+
+        # $proxy_host is nginx's own "host[:port] of the proxied server, as
+        # resolved from proxy_pass" — using it (rather than a hardcoded
+        # value or a second env var) means the Host header is always
+        # correct for whatever API_UPSTREAM points at, which is exactly
+        # what Cloud Run needs to route the request to the right service.
+        proxy_set_header Host $proxy_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        # Authorization is NOT touched here (no `proxy_set_header
+        # Authorization ...` override) — nginx forwards it, and every other
+        # original request header, through by default. server/README.md's
+        # own integration note for this proxy calls out preserving it
+        # explicitly: AUTH_MODE=entra validates a Bearer JWT on every
+        # request, so a config that dropped this header would break auth
+        # entirely, silently (every call would read as unauthenticated
+        # rather than erroring).
+
+        # Cold starts: the API service is deployed with --min-instances=1
+        # (see deploy/scripts/08_deploy_api.sh) specifically to keep these
+        # timeouts from needing to be extreme, but a genuine cold start
+        # (deploy, scale-to-zero override, new revision) can still take a
+        # few seconds longer than a warm request.
+        proxy_connect_timeout 10s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+
+        # No caching of our own — this location adds no Cache-Control/ETag
+        # of its own, so the upstream API's own Cache-Control/ETag headers
+        # (and a 304 Not Modified response to a conditional GET) pass
+        # through to the browser exactly as the API sent them.
+        proxy_cache off;
+        proxy_buffering on;
+
+        # A variable proxy_pass target (as opposed to a literal URL) is what
+        # makes the `if` above actually prevent a connection attempt when
+        # API_UPSTREAM is unset, and is resolved at request time via the
+        # `resolver` directive above rather than once at nginx startup.
+        proxy_pass $api_upstream;
+    }
+
+    gzip on;
+    gzip_types application/json application/javascript text/css image/svg+xml;
+    gzip_min_length 1024;
+    gzip_comp_level 6;
+}

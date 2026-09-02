@@ -146,7 +146,7 @@ export function ContrastHint({ fg, bg, label }: { fg: string; bg: string; label:
       }}
       title={`Contrast of ${label} accent against its surface: ${ratio.toFixed(2)}:1 (non-text UI elements need ≥3:1)`}
     >
-      <span style={{ width: 7, height: 7, borderRadius: "50%", background: pass ? "#2E9E5B" : t.accent, flex: "0 0 auto" }} />
+      <span style={{ width: 7, height: 7, borderRadius: "50%", background: pass ? t.status.positive : t.accent, flex: "0 0 auto" }} />
       {ratio.toFixed(1)}:1 {pass ? "OK" : "low"}
     </span>
   );
@@ -363,9 +363,10 @@ export function useSectionSave(update: UpdateFn, actor: string) {
 }
 
 export function SavedPill({ text }: { text: string }) {
+  const t = useTheme();
   return (
-    <span className="adm-pill" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: fonts.mono, fontSize: 11, fontWeight: 700, color: "#2E9E5B", background: "#2E9E5B1a", border: "1px solid #2E9E5B55", padding: "4px 10px", borderRadius: 20 }} role="status">
-    <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#2E9E5B" }} />
+    <span className="adm-pill" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: fonts.mono, fontSize: 11, fontWeight: 700, color: t.status.positive, background: `${t.status.positive}1a`, border: `1px solid ${t.status.positive}55`, padding: "4px 10px", borderRadius: 20 }} role="status">
+    <span style={{ width: 6, height: 6, borderRadius: "50%", background: t.status.positive }} />
       {text}
     </span>
   );

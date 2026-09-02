@@ -177,7 +177,24 @@ via BP_FIELD_MAP_JSON, e.g.:
 
 Only the Python standard library is used (matching elastic_to_csv.py, which
 uses urllib.request rather than the third-party 'requests' package) — no
-pip installs needed on a locked-down ops box.
+pip installs needed on a locked-down ops box — UNLESS SQL-backed watermark
+storage below is active, which needs pyodbc (see sqlconn.py's docstring
+for why that import stays lazy/optional).
+
+SQL-BACKED WATERMARK (Cloud Run Job production use -- OPTIONAL):
+BP_STATE_FILE (a local JSON file) cannot survive a stateless Cloud Run
+Job's restarts -- its container filesystem does not persist between
+executions. When run_pipeline.py/load_to_sql.py's SQL connection env vars
+(SQL_SERVER, SQL_DATABASE, SQL_USER, SQL_PASSWORD -- see sqlconn.py) are
+ALL set, this script's load_state()/save_state() transparently read from
+and write to core.IngestWatermark (Source='api', one row per queue --
+see 11_pipeline_ops.sql) INSTEAD of BP_STATE_FILE, with the identical
+per-queue {"<queue name>": "<ISO timestamp>"} shape and the identical
+watermark-then-overlap semantics described above -- nothing else in this
+script's delta/overlap logic changes. Falls back to BP_STATE_FILE exactly
+as documented above when the SQL env vars are not all set (e.g. running
+this by hand, or feeding 10_bulk_load_csv.sql against an on-prem SQL
+Server).
 """
 
 import argparse
@@ -191,6 +208,9 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import sqlconn  # noqa: E402 (see SQL-BACKED WATERMARK above; lazy pyodbc import inside)
 
 # The CSV columns, in the exact raw.WorkQueueItem order. FIXED CONTRACT.
 COLUMNS = [
@@ -546,6 +566,26 @@ def fetch_queue_items(base_url, queue_id, since_dt, page_size, token_mgr, timeou
 
 
 def load_state(path):
+    """Return {queue_name: iso_timestamp_str, ...}. Reads
+    core.IngestWatermark (Source='api') when SQL is configured (see the
+    module docstring's SQL-BACKED WATERMARK section); otherwise reads the
+    local JSON file at `path`, exactly as before. An empty dict either
+    way means "no queue has a recorded watermark yet" (see the caller's
+    `first_run` check, which was changed from a file-existence test to a
+    state-emptiness test specifically so this works identically for both
+    backends)."""
+    if sqlconn.is_configured():
+        conn = sqlconn.connect()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT Queue, LastUpdatedMax FROM core.IngestWatermark WHERE Source = 'api';")
+            return {
+                row[0]: format_iso(row[1])
+                for row in cur.fetchall()
+                if row[1] is not None
+            }
+        finally:
+            conn.close()
     if not os.path.exists(path):
         return {}
     with open(path, "r", encoding="utf-8") as fh:
@@ -557,7 +597,21 @@ def load_state(path):
 
 
 def save_state(path, state):
-    """Atomic write: temp file in the same directory, then replace."""
+    """Persist {queue_name: iso_timestamp_str, ...}. Upserts every entry
+    into core.IngestWatermark (Source='api') when SQL is configured
+    (idempotent no-op for any queue whose watermark didn't change this
+    run); otherwise does the original atomic JSON write: temp file in the
+    same directory, then replace."""
+    if sqlconn.is_configured():
+        conn = sqlconn.connect()
+        try:
+            for queue_name, iso_str in state.items():
+                dt = parse_iso(iso_str)
+                if dt is not None:
+                    sqlconn.set_watermark(conn, "api", queue_name, dt)
+        finally:
+            conn.close()
+        return
     directory = os.path.dirname(os.path.abspath(path)) or "."
     fd, tmp_path = _mkstemp_text(directory)
     try:
@@ -678,7 +732,11 @@ def main():
         return 0
 
     state = load_state(state_path)
-    first_run = not os.path.exists(state_path)
+    # "first run" = no queue has ANY recorded watermark yet, in whichever
+    # backend load_state() used (SQL-configured vs JSON file) -- a
+    # state-emptiness test works identically for both, unlike the
+    # previous file-existence-only check.
+    first_run = not state
     if first_run and not cfg["BP_SINCE"]:
         print(
             "!" * 78 + "\n"

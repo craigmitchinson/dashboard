@@ -4,11 +4,16 @@ import { useTheme } from "../../theme-context";
 import type { TargetsRef, ThresholdOverrideRef } from "../../reference/reference-store";
 import { spokeOfProcess, resolveThreshold } from "../../reference/reference-store";
 import { MIN_ALERT_VOLUME } from "../../alerts/engine";
+import { FISCAL_YEAR_START_MONTH_DEFAULT } from "../../filters-context";
 import {
   Field, GhostButton, PrimaryButton, DangerButton, SectionTitle, Table, Td, Th, EmptyRow,
   inputStyle, useSectionSave,
 } from "./shared";
 import type { SectionProps } from "./shared";
+
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+const fmtGBP0 = (n: number) => `£${Math.round(n).toLocaleString("en-GB")}`;
 
 // ---------------------------------------------------------------------------
 // admin/ThresholdsSection.tsx
@@ -71,7 +76,12 @@ type Draft = Record<keyof TargetsRef, string>;
 function targetsToDraft(targets: TargetsRef): Draft {
   const d = {} as Draft;
   for (const f of TARGET_FIELDS) {
-    d[f.key] = f.unit === "pct" ? (targets[f.key] * 100).toFixed(1) : String(targets[f.key]);
+    // `as number`: TARGET_FIELDS never includes the (optional) fiscalYearStartMonth
+    // key, so every f.key here is one of TargetsRef's required numeric fields —
+    // the `| undefined` TypeScript infers on `targets[f.key]` comes purely from
+    // that unrelated optional field widening the keyof-indexed access type.
+    const value = targets[f.key] as number;
+    d[f.key] = f.unit === "pct" ? (value * 100).toFixed(1) : String(value);
   }
   return d;
 }
@@ -111,6 +121,69 @@ export function ThresholdsSection({ reference, update, actor, can, isAdmin }: Se
     if (next.utilMin >= next.utilMax) return setGlobalErr("Utilisation minimum must be less than utilisation maximum.");
     save("targets", (d) => { d.targets = { ...d.targets, ...next }; });
     setGlobalErr(null);
+  };
+
+  // --- 2a-ii. fiscal year start month (global, admin-only) ------------------
+  // Drives fiscalYearBounds() (src/filters-context.tsx) wherever a page shows
+  // FY-to-date figures — currently Value & Finance. Kept as its own draft/save
+  // (a month 1-12 picker, not a pct/gbp/days threshold) rather than folded
+  // into TARGET_FIELDS above.
+  const [fyStartMonth, setFyStartMonth] = useState<number>(reference.targets.fiscalYearStartMonth ?? FISCAL_YEAR_START_MONTH_DEFAULT);
+  useEffect(() => {
+    setFyStartMonth(reference.targets.fiscalYearStartMonth ?? FISCAL_YEAR_START_MONTH_DEFAULT);
+  }, [reference.targets.fiscalYearStartMonth]);
+
+  const commitFyStartMonth = (month: number) => {
+    setFyStartMonth(month);
+    save("targets", (d) => { d.targets = { ...d.targets, fiscalYearStartMonth: month }; }, "Saved — fiscal year start updated everywhere it's shown.");
+  };
+
+  // --- 2c. net benefit targets (Finance settings) ---------------------------
+  // ESTATE row (admin-only) + one row per spoke (hub_lead may edit their own
+  // spoke's row via can("edit_spoke_reference", spokeName)). A blank draft
+  // means "no target set" — saving a blank clears/removes that row's entry
+  // rather than writing a 0 target (see FinanceTargetRef's doc comment: absent
+  // means "no target", not zero).
+  const financeTargets = reference.financeTargets ?? [];
+  const financeTargetRows = useMemo(
+    () => [
+      { key: "ESTATE", label: "Estate (all spokes)", editable: isAdmin },
+      ...reference.spokes.map((s) => ({ key: s.spokeName, label: s.spokeName, editable: can("edit_spoke_reference", s.spokeName) })),
+    ],
+    [reference.spokes, isAdmin, can],
+  );
+
+  const [ftDraft, setFtDraft] = useState<Record<string, string>>({});
+  useEffect(() => {
+    const map: Record<string, string> = {};
+    for (const row of financeTargetRows) {
+      const existing = financeTargets.find((f) => f.spokeId === row.key);
+      map[row.key] = existing ? String(existing.annualNetBenefitTargetGBP) : "";
+    }
+    setFtDraft(map);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reference.financeTargets, reference.spokes]);
+  const [ftErr, setFtErr] = useState<Record<string, string | null>>({});
+
+  const saveFinanceTarget = (key: string) => {
+    const raw = (ftDraft[key] ?? "").trim();
+    if (raw === "") {
+      save("financeTargets", (d) => {
+        d.financeTargets = (d.financeTargets ?? []).filter((f) => f.spokeId !== key);
+      });
+      setFtErr((e) => ({ ...e, [key]: null }));
+      return;
+    }
+    const num = Number(raw);
+    if (!isFinite(num) || num <= 0) {
+      setFtErr((e) => ({ ...e, [key]: "Must be a positive number." }));
+      return;
+    }
+    save("financeTargets", (d) => {
+      const rest = (d.financeTargets ?? []).filter((f) => f.spokeId !== key);
+      d.financeTargets = [...rest, { spokeId: key, annualNetBenefitTargetGBP: num }];
+    });
+    setFtErr((e) => ({ ...e, [key]: null }));
   };
 
   // --- 2b. per-spoke / per-process overrides --------------------------------
@@ -289,7 +362,7 @@ export function ThresholdsSection({ reference, update, actor, can, isAdmin }: Se
         <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginBottom: 6 }}>
           {TARGET_FIELDS.map((f) => (
             <Field key={f.key} id={`tg-ro-${f.key}`} label={`${f.label} (${unitLabel(f.unit)})`} width={170} hint={f.hint}>
-              <div style={{ fontFamily: fonts.body, fontSize: 13, color: t.ink, padding: "7px 0" }}>{fmtValue(f.unit, reference.targets[f.key])}</div>
+              <div style={{ fontFamily: fonts.body, fontSize: 13, color: t.ink, padding: "7px 0" }}>{fmtValue(f.unit, reference.targets[f.key] as number)}</div>
             </Field>
           ))}
         </div>
@@ -304,6 +377,29 @@ export function ThresholdsSection({ reference, update, actor, can, isAdmin }: Se
         </>
       )}
       {!isAdmin && <div style={{ marginBottom: 18 }} />}
+
+      {/* --- 2a-ii. fiscal year start month --- */}
+      <h3 style={{ margin: "6px 0 8px", fontFamily: fonts.display, fontSize: 14.5, fontWeight: 700, color: t.ink }}>Fiscal year</h3>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginBottom: 18, alignItems: "flex-end" }}>
+        {isAdmin ? (
+          <Field id="tg-fy-start" label="Fiscal year starts" width={200} hint="Drives every fiscal-year-to-date figure on Value & Finance (and anywhere else fiscal-year bounds are shown).">
+            <select
+              id="tg-fy-start"
+              style={inputStyle(t)}
+              value={fyStartMonth}
+              onChange={(e) => commitFyStartMonth(Number(e.target.value))}
+            >
+              {MONTH_NAMES.map((name, i) => (
+                <option key={name} value={i + 1}>{name}</option>
+              ))}
+            </select>
+          </Field>
+        ) : (
+          <Field id="tg-fy-start-ro" label="Fiscal year starts" width={200}>
+            <div style={{ fontFamily: fonts.body, fontSize: 13, color: t.ink, padding: "7px 0" }}>{MONTH_NAMES[fyStartMonth - 1]}</div>
+          </Field>
+        )}
+      </div>
 
       {/* --- 2b. overrides --- */}
       <h3 style={{ margin: "6px 0 8px", fontFamily: fonts.display, fontSize: 14.5, fontWeight: 700, color: t.ink }}>Spoke &amp; process overrides</h3>
@@ -401,6 +497,50 @@ export function ThresholdsSection({ reference, update, actor, can, isAdmin }: Se
           <div style={{ marginTop: 12 }}><GhostButton onClick={openAddOverride}>+ Add override…</GhostButton></div>
         )
       )}
+
+      {/* --- 2c. net benefit targets --- */}
+      <h3 style={{ margin: "24px 0 8px", fontFamily: fonts.display, fontSize: 14.5, fontWeight: 700, color: t.ink }}>Net benefit targets</h3>
+      <p style={{ margin: "0 0 10px", fontFamily: fonts.body, fontSize: 12.5, color: t.inkSoft, lineHeight: 1.5, maxWidth: 760 }}>
+        Annual net benefit target used by Value &amp; Finance's target-attainment element: fiscal-year-to-date net benefit is compared against this figure at the current run-rate to judge whether the estate (or a spoke) is on track. Leave blank to show no target for that row. Admins can set the estate-wide target and every spoke's target; a hub lead can only set targets for their own spoke(s).
+      </p>
+      <Table>
+        <thead>
+          <tr>
+            <Th>Scope</Th>
+            <Th align="right">Annual target</Th>
+            <Th align="right">Actions</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {financeTargetRows.map((row) => (
+            <tr key={row.key}>
+              <Td>{row.label}</Td>
+              <Td align="right">
+                {row.editable ? (
+                  <input
+                    aria-label={`Annual net benefit target for ${row.label}`}
+                    type="number"
+                    min={0.01}
+                    step={0.01}
+                    style={{ ...inputStyle(t), textAlign: "right" }}
+                    value={ftDraft[row.key] ?? ""}
+                    onChange={(e) => setFtDraft({ ...ftDraft, [row.key]: e.target.value })}
+                    placeholder="No target set"
+                  />
+                ) : (
+                  <span>{financeTargets.find((f) => f.spokeId === row.key) ? fmtGBP0(financeTargets.find((f) => f.spokeId === row.key)!.annualNetBenefitTargetGBP) : "—"}</span>
+                )}
+              </Td>
+              <Td align="right">
+                {row.editable && <PrimaryButton onClick={() => saveFinanceTarget(row.key)}>Save</PrimaryButton>}
+                {row.editable && ftErr[row.key] && (
+                  <p role="alert" style={{ color: t.accent, fontFamily: fonts.body, fontSize: 11.5, margin: "4px 0 0" }}>{ftErr[row.key]}</p>
+                )}
+              </Td>
+            </tr>
+          ))}
+        </tbody>
+      </Table>
 
       <Announcer />
     </div>

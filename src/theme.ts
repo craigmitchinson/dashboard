@@ -74,7 +74,27 @@ export interface ThemeTokens {
   themeBand: string;
   /** Card drop shadow. */
   shadow: string;
-  status: Record<DepStatus, StatusStyle>;
+  /** The three-state committed/not-committed/blocked scale, PLUS two flat
+   *  semantic colours (`positive`/`warn`) for KPI deltas, alert severities
+   *  etc. — theme.ts previously had no amber/warn tone at all (App.tsx's
+   *  Report() picked a literal per-mode amber inline rather than introduce
+   *  one here; now centralised). Both are ≥4.5:1 against `paper` (see the
+   *  ratios noted next to each value below). */
+  status: Record<DepStatus, StatusStyle> & { positive: string; warn: string };
+  /** Neutral chart/series ink — the default line/bar colour when a viz has no
+   *  semantic status mapping of its own. Not the brand accent (that's
+   *  reserved for emphasis), and not spoke-aware. */
+  series: string;
+  /** Active spoke colour (mode-appropriate), or undefined on the hub view.
+   *  Set by ThemedReport (src/App.tsx) from SPOKE_INFO — NOT folded into
+   *  `accent`/`accentSoft` any more (that was a WCAG failure: it silently
+   *  recoloured every accent-reading control, including ones never audited
+   *  against the brand red's contrast pairing, to an arbitrary spoke hex).
+   *  Consumers that want spoke identity (nav active state, and — per the
+   *  pages-half of this pass — admin tabs/buttons/KPI accents) read this
+   *  explicitly and fall back to `accent` themselves via `t.spoke ?? t.accent`.
+   */
+  spoke?: string;
 }
 
 export const lightTheme: ThemeTokens = {
@@ -95,7 +115,14 @@ export const lightTheme: ThemeTokens = {
     committed: { dot: swatch.teal, rail: swatch.teal, surface: "rgba(11,50,57,0.05)", text: swatch.teal },
     "not-committed": { dot: "#8A6FB0", rail: swatch.darkPurple, surface: swatch.lightPurple, text: swatch.teal },
     blocked: { dot: swatch.red, rail: swatch.redWarm, surface: swatch.lightPink, text: swatch.teal },
+    // positive #0F766E vs paper #FAF7F2 = ~5.13:1 (AA)
+    positive: "#0F766E",
+    // warn #B45309 vs paper #FAF7F2 = ~4.70:1 (AA, thin margin — deliberately
+    // darkened off the raw amber swatch to clear the bar, same convention as
+    // accentFill's comment above)
+    warn: "#B45309",
   },
+  series: swatch.teal,
 };
 
 // Dark variant: a deep teal canvas with cream ink. The reds are nudged
@@ -119,13 +146,57 @@ export const darkTheme: ThemeTokens = {
     committed: { dot: "#86C7BD", rail: "#86C7BD", surface: "rgba(134,199,189,0.12)", text: darkInk },
     "not-committed": { dot: "#C9B3F0", rail: swatch.darkPurple, surface: "rgba(221,187,255,0.14)", text: "#EFE7FF" },
     blocked: { dot: "#FF6A6F", rail: "#FF6A4D", surface: "rgba(255,178,198,0.13)", text: "#FFE3EA" },
+    // positive #86C7BD vs paper #0C2329 = ~8.48:1 (AA)
+    positive: "#86C7BD",
+    // warn #F59E0B vs paper #0C2329 = ~7.59:1 (AA)
+    warn: "#F59E0B",
   },
+  series: "#86C7BD",
 };
 
 export const themes: Record<Mode, ThemeTokens> = {
   light: lightTheme,
   dark: darkTheme,
 };
+
+// ---------------------------------------------------------------------------
+// Type scale / spacing / radius tokens
+// ---------------------------------------------------------------------------
+// Numeric mirrors of the CSS custom properties defined at :root in
+// styles.css (search that file for "design-elevation P0 tokens") — this app
+// is almost entirely inline px (not rem/CSS custom properties) so the pages
+// half of this pass consumes these as plain numbers/CSSProperties fragments
+// rather than `var(--t-body-m)` strings. Keep both files' values byte-for-
+// byte in sync by hand; there is no build step that generates one from the
+// other.
+export interface TypeStyle {
+  fontSize: number;
+  lineHeight: number;
+  fontFamily: string;
+  fontWeight?: number;
+}
+
+export const type = {
+  displayXl: { fontSize: 32, lineHeight: 1.05, fontFamily: fonts.display, fontWeight: 700 } satisfies TypeStyle,
+  displayL: { fontSize: 20, lineHeight: 1.15, fontFamily: fonts.display, fontWeight: 700 } satisfies TypeStyle,
+  displayM: { fontSize: 16, lineHeight: 1.2, fontFamily: fonts.display, fontWeight: 700 } satisfies TypeStyle,
+  displayS: { fontSize: 14, lineHeight: 1.3, fontFamily: fonts.display, fontWeight: 700 } satisfies TypeStyle,
+  bodyL: { fontSize: 14, lineHeight: 1.4, fontFamily: fonts.body } satisfies TypeStyle,
+  bodyM: { fontSize: 13, lineHeight: 1.45, fontFamily: fonts.body } satisfies TypeStyle,
+  bodyS: { fontSize: 12, lineHeight: 1.4, fontFamily: fonts.body } satisfies TypeStyle,
+  // mono, 0.06em tracking, uppercase — callers add letterSpacing/textTransform
+  // themselves (TypeStyle has no room for them; every other mono label in
+  // this app already sets those two properties explicitly at the use site).
+  label: { fontSize: 11, lineHeight: 1, fontFamily: fonts.mono, fontWeight: 700 } satisfies TypeStyle,
+  // floor — nothing in this app renders smaller than this.
+  micro: { fontSize: 10, lineHeight: 1, fontFamily: fonts.mono } satisfies TypeStyle,
+};
+
+export const space = { 1: 4, 2: 8, 3: 12, 4: 16, 5: 20, 6: 24, 8: 32 } as const;
+
+export const radius = { card: 12, control: 8, inner: 6, overlay: 14 } as const;
+
+export const controlHeight = 32;
 
 // ---------------------------------------------------------------------------
 // Liquid-glass surface tokens
@@ -144,6 +215,40 @@ export const themes: Record<Mode, ThemeTokens> = {
 // because the scrim alpha and rim/sheen opacities were tuned by hand against
 // a computed worst-case contrast check (see the comment above the CSS rule),
 // not by a formula that could safely regenerate them from `paper` alone.
+// `.glass-overlay` (styles.css) equivalent of liquidGlassVars() above, for
+// the same structural reason: every consumer (ViewsMenu/UserMenu/
+// HeaderOverflowMenu/slicer panels via Portal, plus DisplayPanel and the
+// shortcuts dialog as siblings of `.report`) sits outside `.report`'s DOM
+// subtree, so the `.report[data-mode="dark"] .glass-overlay` cascade can
+// never reach any of them — every consumer must pass this inline instead.
+// Scrim/blur values per the P0 spec (§3): .78 alpha, blur(18px) saturate(1.5).
+// Not recomputed digit-by-digit here: .78 is a HIGHER alpha than
+// liquid-glass's already-verified .62 (light) / .68 (dark) — a higher scrim
+// alpha strictly moves the worst-case composited colour closer to the
+// scrim's own hue (paper) and further from the extreme opposite-luminance
+// backdrop that produced liquid-glass's 4.84:1 / 5.05:1 worst cases (see
+// styles.css's comment above `.liquid-glass`), so contrast here is
+// strictly higher than that already-passing bound in both modes.
+export function glassOverlayVars(t: ThemeTokens): CSSProperties {
+  return (
+    t.mode === "dark"
+      ? {
+          "--go-bg": "rgba(12,35,41,0.78)",
+          "--go-backdrop": "blur(18px) saturate(1.5)",
+          "--go-shadow": "0 4px 10px rgba(0,0,0,0.42), 0 28px 64px rgba(0,0,0,0.52)",
+          "--go-rim": "inset 0 1px 0 rgba(255,255,255,0.5), inset 0 0 0 1px rgba(255,255,255,0.2)",
+          "--go-solid": "#0C2329",
+        }
+      : {
+          "--go-bg": "rgba(250,247,242,0.78)",
+          "--go-backdrop": "blur(18px) saturate(1.5)",
+          "--go-shadow": "0 4px 10px rgba(11,50,57,0.16), 0 28px 64px rgba(11,50,57,0.2)",
+          "--go-rim": "inset 0 1px 0 rgba(255,255,255,0.55), inset 0 0 0 1px rgba(255,255,255,0.55)",
+          "--go-solid": "#FAF7F2",
+        }
+  ) as CSSProperties;
+}
+
 export function liquidGlassVars(t: ThemeTokens): CSSProperties {
   return (
     t.mode === "dark"

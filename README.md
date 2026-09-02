@@ -41,8 +41,38 @@ npm run dev        # open the printed localhost URL
   same schema.
 - `npm run build` — type-check + production build into `dist/`.
 
-To run off a live API instead of baked JSON: set `VITE_DATA_URL` to an endpoint
-returning the same `model.json` shape and rebuild. Deployment (Cloud Run):
+### Local end-to-end (fixture-mode API)
+
+Runs the real production data API ([`server/`](server/)) with zero
+infrastructure — no database, no GCP project, no Entra tenant needed:
+
+```bash
+cd server && npm ci
+DATA_SOURCE=fixtures FIXTURES_DIR=../public/data/views AUTH_MODE=dev PORT=8080 npm run dev
+```
+
+**Known gap** (verified in the code, not yet fixed): the SPA itself doesn't
+call this API yet — `src/main.tsx` hasn't been wired to `src/data/client.ts`,
+the module built to do so. Test the API on its own with `curl`/Postman
+against `http://localhost:8080/api/health` and `/api/model` for now. See
+[server/README.md](server/README.md) for the API's full contract and
+[PLAYBOOK.md](PLAYBOOK.md) section 4 for the detailed walkthrough and this
+gap's exact citation.
+
+### Run the tests
+
+```bash
+npm test              # dashboard rules + data-pipeline parity (repo root)
+cd server && npm test # data API: assembler parity, reference write order, auth
+```
+
+[PLAYBOOK.md](PLAYBOOK.md) section 12 lists what each test proves and the
+full CI gate order.
+
+`VITE_API_URL` is the build-time setting designed to point the SPA at a live
+production data API instead of baked JSON (see [deploy/gcp.md](deploy/gcp.md)
+for the full build/deploy flow) — but per the gap noted above, the app
+doesn't act on it yet. Deployment (Cloud Run + Cloud SQL):
 [deploy/gcp.md](deploy/gcp.md).
 
 Sign-in uses a fixed demo directory today: any of the seeded demo users with
@@ -71,7 +101,7 @@ Proposition, Process, Queue, Tags, Date range — plus:
 - **Thresholds & alerting**: the header bell evaluates global/spoke/process
   KPI targets (`Administration → Targets & thresholds`) against the trailing
   week of data and flags breaches/warnings — in-app only today; see
-  [PLAYBOOK.md](PLAYBOOK.md) section 11.
+  [PLAYBOOK.md](PLAYBOOK.md) section 14.
 - **Spoke colour schemes**: each spoke carries its own accent (validated for
   CVD separation and contrast on both surfaces, light and dark). Selecting a
   spoke re-skins the dashboard accent to that spoke's colour; the hub view

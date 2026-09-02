@@ -46,6 +46,22 @@ export { DATA_MIN_ISO, DATA_MAX_ISO } from "./rpaData";
 // any other value is a what-if override applied as a flat £/h across the board.
 export const RATE_AUTO = 0;
 
+// Fiscal year start month (1 = January): defaults to April (UK FY) until
+// reference.targets exposes a configurable fiscalYearStartMonth (it does not
+// yet — read that field once it exists and fall back to this constant; do
+// NOT add the field to reference-store.ts, that file is off-limits here).
+export const FISCAL_YEAR_START_MONTH_DEFAULT = 4;
+
+// [start, end) UTC ms bounds of the fiscal year containing dateTs.
+export function fiscalYearBounds(dateTs: number, startMonth: number = FISCAL_YEAR_START_MONTH_DEFAULT): { start: number; end: number } {
+  const d = new Date(dateTs);
+  const y = d.getUTCFullYear();
+  const m = d.getUTCMonth();
+  const startMonthIdx = startMonth - 1;
+  const fyStartYear = m >= startMonthIdx ? y : y - 1;
+  return { start: Date.UTC(fyStartYear, startMonthIdx, 1), end: Date.UTC(fyStartYear + 1, startMonthIdx, 1) };
+}
+
 // --- saved views --------------------------------------------------------------
 export interface SavedView {
   name: string;
@@ -72,6 +88,35 @@ export interface ProcessAgg {
   timeSavedHours: number;
   runtimeCost: number; // apportioned estate cost (hub pool + spoke infra), time-correct
   exceptionCostGBP: number; // rework-valued exception cost for this process, see reworkCostForRow
+  benefit: number; // gross benefit for this process, same rate basis as the window
+  net: number; // benefit - runtimeCost
+}
+
+// D6 (pool composition, Value & Finance page) — window totals of the day's
+// hub/spoke pool cost split into people vs infra. See RateTables.poolCompositionOn.
+export interface CostComposition {
+  hubPeople: number;
+  hubInfra: number;
+  spokePeople: number;
+  spokeInfra: number;
+}
+
+export interface SpokeAgg {
+  spoke: string;
+  gross: number;
+  peopleCost: number; // this spoke's share of hub-people + its own people pool, apportioned by worktime
+  infraCost: number; // this spoke's share of hub-infra + its own VDI infra, apportioned by worktime
+  cost: number; // peopleCost + infraCost
+  net: number; // gross - cost
+  marginPct: number; // net / gross, 0 if gross is 0
+  costPerCase: number; // cost / completed, 0 if completed is 0
+  completed: number;
+  netTrend12w: number[]; // 12 weekly (benefit-cost) buckets, oldest→newest, over the trailing 84 days ending at the window's `hi` — independent of the active range preset length, so it's meaningful even when range=7
+  // Net benefit for this spoke from the current fiscal year's start through
+  // the window's `hi`, independent of the active range preset — same
+  // fiscal-year-scoped computation as the top-level Model.fyToDateNet, just
+  // per spoke.
+  fyToDateNet: number;
 }
 
 export interface ExceptionAgg {
@@ -149,8 +194,24 @@ export interface Model {
   byException: ExceptionAgg[];
   matrix: { processes: ProcessAgg[]; types: { name: string; category: "system" | "business" }[]; cell: number[][]; max: number };
   vdis: VdiAgg[];
+  // D6 (Value & Finance page)
+  costComposition: CostComposition; // window totals; hubPeople+hubInfra+spokePeople+spokeInfra === automationCost, to the penny, by construction
+  bySpoke: SpokeAgg[];
+  fyToDateNet: number; // net benefit from the current fiscal year's start (see fiscalYearBounds) through the window's `hi`, same entity filters as `model`, INDEPENDENT of the range preset (so it reflects true fiscal YTD even when range=7/30/90)
+  fyToDatePriorNet: number; // net benefit over the equivalent day-offset span in the PRIOR fiscal year
+  fyStartTs: number; // UTC ms start of the current fiscal year (for display, e.g. "since April 2026")
   // period-over-period (vs the immediately preceding window of equal length)
-  prev: { completed: number; exceptions: number; costPerCase: number; completionPct: number; timeSavedHours: number };
+  prev: {
+    completed: number;
+    exceptions: number;
+    costPerCase: number;
+    completionPct: number;
+    timeSavedHours: number;
+    netBenefit: number;
+    grossBenefit: number;
+    automationCost: number;
+    fte: number;
+  };
 }
 
 interface Ctx {
@@ -176,9 +237,21 @@ function windowOf(f: Filters): { lo: number; hi: number } {
     return { lo: Math.max(DATE_MIN, Date.UTC(y, 0, 1)), hi: DATE_MAX };
   }
   if (f.range === "custom") {
-    const lo = f.from ? Date.parse(f.from + "T00:00:00Z") : DATE_MAX - 89 * DAY;
-    const hi = f.to ? Date.parse(f.to + "T00:00:00Z") : DATE_MAX;
-    return { lo: Math.max(DATE_MIN, Math.min(lo, hi)), hi: Math.min(DATE_MAX, Math.max(lo, hi)) };
+    const rawLo = f.from ? Date.parse(f.from + "T00:00:00Z") : DATE_MAX - 89 * DAY;
+    const rawHi = f.to ? Date.parse(f.to + "T00:00:00Z") : DATE_MAX;
+    // Clamp each ordered endpoint independently into [DATE_MIN, DATE_MAX] —
+    // NOT the previous "clamp lo, clamp hi from the unordered raw pair"
+    // shape, which inverted lo > hi whenever the whole picked range sat
+    // entirely outside the data window (e.g. a pre-data or future-only
+    // custom range): min(rawLo,rawHi) could clamp UP to DATE_MIN while
+    // max(rawLo,rawHi) clamped DOWN to DATE_MAX's own lower neighbour,
+    // crossing over. Clamping the min and max separately after ordering
+    // them is monotonic, so lo <= hi always — a fully out-of-range pick
+    // now collapses to a single valid boundary day instead of an inverted
+    // window (which made every date-window computation downstream, not
+    // just the row filter, operate on a negative day count).
+    const clamp = (v: number) => Math.min(DATE_MAX, Math.max(DATE_MIN, v));
+    return { lo: clamp(Math.min(rawLo, rawHi)), hi: clamp(Math.max(rawLo, rawHi)) };
   }
   return { lo: DATE_MAX - (f.range - 1) * DAY, hi: DATE_MAX };
 }
@@ -218,6 +291,14 @@ function aggregate(
     grossBenefit = 0,
     estateCost = 0;
 
+  // D6 (pool composition, Value & Finance page) — 4-way cost split totals and
+  // per-spoke P&L accumulators, built in the SAME main loop below.
+  let hubPeopleTotal = 0,
+    hubInfraTotal = 0,
+    spokePeopleTotal = 0,
+    spokeInfraTotal = 0;
+  const spokeMap = new Map<string, { gross: number; peopleCost: number; infraCost: number; completed: number }>();
+
   const procMap = new Map<string, ProcessAgg & { completedWt: number }>();
   const dayMap = new Map<string, SeriesPoint>();
   const monthMap = new Map<string, SeriesPoint>();
@@ -242,7 +323,7 @@ function aggregate(
     // per process
     let pa = procMap.get(p.id);
     if (!pa) {
-      pa = { id: p.id, name: p.name, spoke: p.spoke, proposition: p.proposition, queue: p.queue, completed: 0, business: 0, system: 0, exceptions: 0, attempts: 0, completionPct: 0, avgCycleSec: 0, timeSavedHours: 0, runtimeCost: 0, exceptionCostGBP: 0, completedWt: 0 };
+      pa = { id: p.id, name: p.name, spoke: p.spoke, proposition: p.proposition, queue: p.queue, completed: 0, business: 0, system: 0, exceptions: 0, attempts: 0, completionPct: 0, avgCycleSec: 0, timeSavedHours: 0, runtimeCost: 0, exceptionCostGBP: 0, benefit: 0, net: 0, completedWt: 0 };
       procMap.set(p.id, pa);
     }
     pa.completed += r.completed;
@@ -252,7 +333,30 @@ function aggregate(
     pa.attempts += attempts;
     pa.timeSavedHours += hours;
     pa.runtimeCost += cost;
+    pa.benefit += benefit;
     pa.completedWt += r.completedWorktimeSec;
+
+    // D6: apportion this row's cost into hub-people / hub-infra / spoke-people
+    // / spoke-infra using the SAME worktime-share denominators costForRow
+    // itself uses, so the 4 components sum to `cost` exactly.
+    const totalWt = tables.dayTotalWorktimeSec.get(r.date) ?? 0;
+    const spokeWt = tables.daySpokeWorktimeSec.get(`${p.spoke}|${r.date}`) ?? 0;
+    const comp = tables.poolCompositionOn(r.date, p.spoke);
+    const rowHubPeople = totalWt ? r.worktimeSec * (comp.hubPeople / totalWt) : 0;
+    const rowHubInfra = totalWt ? r.worktimeSec * (comp.hubInfra / totalWt) : 0;
+    const rowSpokePeople = spokeWt ? r.worktimeSec * (comp.spokePeople / spokeWt) : 0;
+    const rowSpokeInfra = spokeWt ? r.worktimeSec * (comp.spokeInfra / spokeWt) : 0;
+    hubPeopleTotal += rowHubPeople;
+    hubInfraTotal += rowHubInfra;
+    spokePeopleTotal += rowSpokePeople;
+    spokeInfraTotal += rowSpokeInfra;
+
+    let sa = spokeMap.get(p.spoke);
+    if (!sa) spokeMap.set(p.spoke, (sa = { gross: 0, peopleCost: 0, infraCost: 0, completed: 0 }));
+    sa.gross += benefit;
+    sa.peopleCost += rowHubPeople + rowSpokePeople;
+    sa.infraCost += rowHubInfra + rowSpokeInfra;
+    sa.completed += r.completed;
 
     // daily series
     let dp = dayMap.get(r.date);
@@ -317,6 +421,7 @@ function aggregate(
     ...p,
     completionPct: p.attempts ? p.completed / p.attempts : 0,
     avgCycleSec: p.completed ? completedWt / p.completed : 0,
+    net: p.benefit - p.runtimeCost,
   }));
   byProcess.sort((a, b) => b.attempts - a.attempts);
 
@@ -401,6 +506,45 @@ function aggregate(
     if (ts >= lo && ts <= hi) unattributedCostGBP += poolCost;
   }
 
+  // D6: 12-week (trailing 84 days ending at `hi`) per-spoke net trend, over
+  // the FULL unwindowed ROWS (not the already-window-clamped `rows`) so it's
+  // meaningful even when the active range preset is shorter than 84 days.
+  const spanStart = hi - 12 * 7 * DAY + DAY;
+  const spokeWeek = new Map<string, number[]>();
+  for (const r of ROWS) {
+    if (r.ts < spanStart || r.ts > hi) continue;
+    if (!matchProcess(r.processId, f)) continue;
+    const rp = PROCESS_BY_ID.get(r.processId)!;
+    let wk = spokeWeek.get(rp.spoke);
+    if (!wk) spokeWeek.set(rp.spoke, (wk = new Array(12).fill(0)));
+    const idx = Math.min(11, Math.max(0, Math.floor((r.ts - spanStart) / (7 * DAY))));
+    wk[idx] += benefitForRow(r, rp, tables, rateOverride) - costForRow(r, rp, tables);
+  }
+
+  const costComposition: CostComposition = {
+    hubPeople: hubPeopleTotal,
+    hubInfra: hubInfraTotal,
+    spokePeople: spokePeopleTotal,
+    spokeInfra: spokeInfraTotal,
+  };
+
+  const bySpoke: SpokeAgg[] = [...spokeMap.entries()].map(([spoke, s]) => {
+    const cost = s.peopleCost + s.infraCost;
+    return {
+      spoke,
+      gross: s.gross,
+      peopleCost: s.peopleCost,
+      infraCost: s.infraCost,
+      cost,
+      net: s.gross - cost,
+      marginPct: s.gross ? (s.gross - cost) / s.gross : 0,
+      costPerCase: s.completed ? cost / s.completed : 0,
+      completed: s.completed,
+      netTrend12w: spokeWeek.get(spoke) ?? new Array(12).fill(0),
+      fyToDateNet: 0, // overwritten by the fiscal-year-aware merge in the model useMemo below
+    };
+  }).sort((a, b) => b.net - a.net);
+
   return {
     rows,
     completed,
@@ -426,6 +570,8 @@ function aggregate(
     byException,
     matrix: { processes: byProcess, types, cell, max },
     vdis,
+    costComposition,
+    bySpoke,
   };
 }
 
@@ -481,16 +627,34 @@ function FiltersProviderInner({ children }: { children: ReactNode }) {
     const prevLo = prevHi - (rangeDays - 1) * DAY;
     const prevAgg = aggregate(filters, prevLo, prevHi, rangeDays, peopleRate, reference, tables);
 
+    // D6: fiscal-year-to-date net benefit, current FY vs the equivalent
+    // day-offset span in the prior FY — independent of the range preset.
+    const fyStartMonth = reference.targets.fiscalYearStartMonth ?? FISCAL_YEAR_START_MONTH_DEFAULT;
+    const { start: fyStart } = fiscalYearBounds(hi, fyStartMonth);
+    const priorStart = fiscalYearBounds(fyStart - DAY, fyStartMonth).start;
+    const priorHi = priorStart + (hi - fyStart);
+    const fyAgg = aggregate(filters, fyStart, hi, Math.round((hi - fyStart) / DAY) + 1, peopleRate, reference, tables);
+    const fyPriorAgg = aggregate(filters, priorStart, priorHi, Math.round((priorHi - priorStart) / DAY) + 1, peopleRate, reference, tables);
+    const fyNetBySpoke = new Map(fyAgg.bySpoke.map((s) => [s.spoke, s.net]));
+
     return {
       rangeDays,
       cutoffTs: lo,
       ...agg,
+      bySpoke: agg.bySpoke.map((s) => ({ ...s, fyToDateNet: fyNetBySpoke.get(s.spoke) ?? 0 })),
+      fyToDateNet: fyAgg.netBenefit,
+      fyToDatePriorNet: fyPriorAgg.netBenefit,
+      fyStartTs: fyStart,
       prev: {
         completed: prevAgg.completed,
         exceptions: prevAgg.exceptions,
         costPerCase: prevAgg.costPerCase,
         completionPct: prevAgg.completionPct,
         timeSavedHours: prevAgg.timeSavedHours,
+        netBenefit: prevAgg.netBenefit,
+        grossBenefit: prevAgg.grossBenefit,
+        automationCost: prevAgg.automationCost,
+        fte: prevAgg.fte,
       },
     };
   }, [filters, peopleRate, reference, tables]);

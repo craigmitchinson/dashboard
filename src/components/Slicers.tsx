@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { fonts } from "../theme";
+import { fonts, glassOverlayVars } from "../theme";
 import { useTheme } from "../theme-context";
 import { IconChevron } from "./icons";
 import { useFilters, DATA_MIN_ISO, DATA_MAX_ISO } from "../filters-context";
 import type { RangePreset } from "../filters-context";
 import { SPOKES, SPOKE_INFO, QUEUES, TAGS } from "../rpaData";
 import { useReference } from "../reference/reference-context";
+import { Portal } from "./Portal";
+import { useAnchoredPopover } from "./useAnchoredPopover";
 
 const shortISO = (iso: string) => new Date(iso + "T00:00:00Z").toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
 
@@ -21,10 +23,17 @@ function Slicer({ label, summary, active, children, width = 178, first }: { labe
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  // Portal + useAnchoredPopover (P0 §3): outside-click now checks the
+  // (portalled) panel too, not just `box` — `box` only wraps the trigger
+  // once the panel is no longer a DOM sibling of it.
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
-      if (box.current && !box.current.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (box.current?.contains(target)) return;
+      if (panelRef.current?.contains(target)) return;
+      setOpen(false);
     };
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
@@ -40,6 +49,8 @@ function Slicer({ label, summary, active, children, width = 178, first }: { labe
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
+  const close = () => setOpen(false);
+  const anchorStyle = useAnchoredPopover(triggerRef, open, close, { width });
 
   return (
     <div ref={box} style={{ position: "relative", minWidth: 0 }}>
@@ -53,13 +64,15 @@ function Slicer({ label, summary, active, children, width = 178, first }: { labe
         style={{
           width: "100%",
           minWidth: 0,
+          height: "var(--control-h)",
+          boxSizing: "border-box",
           display: "flex",
           alignItems: "center",
           gap: 8,
           fontFamily: fonts.body,
           fontSize: 13,
-          padding: "7px 10px",
-          borderRadius: 8,
+          padding: "0 10px",
+          borderRadius: "var(--r-control)",
           border: `1px solid ${active ? t.accent : t.ruleSoft}`,
           background: active ? `${t.accent}14` : t.themeBand,
           color: t.ink,
@@ -70,27 +83,25 @@ function Slicer({ label, summary, active, children, width = 178, first }: { labe
         <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontWeight: active ? 700 : 400 }}>{summary}</span>
         <IconChevron size={13} style={{ color: t.inkSoft, transition: "transform .15s", transform: open ? "rotate(-90deg)" : "rotate(90deg)" }} />
       </button>
-      {open && (
-        <div
-          className="dropdown-panel"
-          style={{
-            position: "absolute",
-            top: "calc(100% + 5px)",
-            left: 0,
-            zIndex: 30,
-            minWidth: width,
-            maxWidth: 280,
-            maxHeight: 320,
-            overflow: "auto",
-            background: t.paper,
-            border: `1px solid ${t.ruleSoft}`,
-            boxShadow: t.shadow,
-            borderRadius: 10,
-            padding: 5,
-          }}
-        >
-          {children(() => setOpen(false))}
-        </div>
+      {open && anchorStyle && (
+        <Portal>
+          <div
+            ref={panelRef}
+            className="dropdown-panel glass-overlay"
+            style={{
+              ...anchorStyle,
+              zIndex: "var(--z-popover)" as unknown as number,
+              maxWidth: 280,
+              maxHeight: 320,
+              overflow: "auto",
+              border: `1px solid ${t.ruleSoft}`,
+              padding: 5,
+              ...glassOverlayVars(t),
+            }}
+          >
+            {children(() => setOpen(false))}
+          </div>
+        </Portal>
       )}
     </div>
   );

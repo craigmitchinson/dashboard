@@ -183,6 +183,30 @@ export interface TargetsRef {
   // field (tools/build-dashboard-data.mjs applies the same default when
   // emitting model.json's targets, so the two stay in step).
   vdiStaleDays: number;
+  // Fiscal-year start month (1 = January .. 12 = December; default 4 = UK
+  // April) driving fiscalYearBounds() (src/filters-context.tsx) wherever a
+  // page needs FY-to-date figures — see FISCAL_YEAR_START_MONTH_DEFAULT there
+  // for the fallback constant every consumer should apply when this field is
+  // absent. DELIBERATELY OPTIONAL (unlike vdiStaleDays above, which is a
+  // required field defensively defaulted at each read site): this keeps the
+  // field purely additive so no SCHEMA_VERSION bump is needed and every
+  // existing TargetsRef object literal across the codebase (tests, fixtures,
+  // the empty-reference placeholder) keeps compiling unchanged. A stale
+  // overlay saved before this field existed loads fine; every consumer must
+  // read it as `reference.targets.fiscalYearStartMonth ?? FISCAL_YEAR_START_MONTH_DEFAULT`
+  // rather than assume presence.
+  fiscalYearStartMonth?: number;
+}
+
+// One net-benefit target, either for the whole estate (spokeId === "ESTATE")
+// or for one spoke (spokeId = the full spoke NAME, matching the same
+// scopeId-as-spoke-name convention ThresholdOverrideRef.scopeId uses for
+// scope="spoke" — see that type's comment). Attainment is measured FY-to-date
+// against this figure at the current run-rate — see fyAttainment() in
+// src/pages/value-rules.ts for the exact projection math.
+export interface FinanceTargetRef {
+  spokeId: string;
+  annualNetBenefitTargetGBP: number;
 }
 
 // Per-spoke or per-process override of one global target metric. Resolution
@@ -225,6 +249,10 @@ export interface ReferenceJson {
   exceptionDisplayCodes: Record<string, string>;
   targets: TargetsRef;
   thresholdOverrides?: ThresholdOverrideRef[];
+  // Optional, additive (see the SCHEMA_VERSION comment below) — net-benefit
+  // targets used by ValueFinance.tsx's target-attainment element. Absent or
+  // empty means "no target set" (attainment simply isn't shown), not zero.
+  financeTargets?: FinanceTargetRef[];
 }
 
 // --- localStorage overlay -----------------------------------------------------
@@ -268,6 +296,13 @@ export const BP_REFERENCE_STORAGE_KEY = "bp-reference-v1";
 // as universal even where a spoke override was intended — worth invalidating
 // stale overlays for). Bumping bumps by DROPPING old overlays cleanly (see
 // loadOverlay()), never by attempting a migration.
+//
+// NOT bumped for TargetsRef.fiscalYearStartMonth or ReferenceJson.financeTargets
+// (Finance settings): both are optional additive fields — a stale overlay
+// predating them is still a fully valid ReferenceJson with them simply absent,
+// exactly like thresholdOverrides above. Every consumer must default
+// fiscalYearStartMonth to FISCAL_YEAR_START_MONTH_DEFAULT (4) and
+// financeTargets to [] rather than assume presence.
 export const SCHEMA_VERSION = 3;
 
 export interface ChangelogEntry {
@@ -414,6 +449,17 @@ export function gradesInScopeForSpoke(reference: ReferenceJson, spokeName: strin
  * the precedence: an override matching exactly this scope+scopeId+metric wins;
  * else (for scope="process" only) an override matching the process's own spoke
  * wins; else the global `reference.targets[metric]`.
+ *
+ * The `as number` casts below are safe, not a hidden runtime risk: `metric` is
+ * never actually TargetsRef's one optional field (fiscalYearStartMonth) at any
+ * real call site — it's excluded from every metric picker in the app (see
+ * ThresholdsSection.tsx's TARGET_FIELDS / metricOptions and
+ * ThresholdOverrideRef's own usage) — but adding that optional field still
+ * widens the TYPE of `reference.targets[metric]` to `number | undefined` for
+ * the whole `keyof TargetsRef` union, since indexed access doesn't narrow per
+ * call site. Keeping `metric`'s declared type as the full `keyof TargetsRef`
+ * (rather than a narrower alias) deliberately matches every existing caller
+ * (e.g. src/alerts/engine.ts) exactly, so none of them need changing.
  */
 export function resolveThreshold(
   reference: ReferenceJson,
@@ -430,10 +476,10 @@ export function resolveThreshold(
       const viaSpoke = overrides.find((o) => o.scope === "spoke" && o.scopeId === spoke && o.metric === metric);
       if (viaSpoke) return viaSpoke.value;
     }
-    return reference.targets[metric];
+    return reference.targets[metric] as number;
   }
   const direct = overrides.find((o) => o.scope === "spoke" && o.scopeId === scopeId && o.metric === metric);
-  return direct ? direct.value : reference.targets[metric];
+  return direct ? direct.value : (reference.targets[metric] as number);
 }
 
 // --- export -------------------------------------------------------------------
@@ -539,7 +585,7 @@ export function exportReferenceSql(reference: ReferenceJson): string {
     "",
     insertStatement(
       "RefProcess",
-      ["ProcessId", "ProcessName", "ProcessAcronym", "ProcessDescription", "PropositionId", "SMVMinutes", "GradeCode", "IsActive"],
+      ["ProcessId", "ProcessName", "ProcessAcronym", "ProcessDescription", "PropositionId", "SMVMinutes", "GradeCode", "IsActive", "Icon", "Tags"],
       reference.processes.map((p) => [
         sqlNum(p.processId),
         sqlStr(p.processName),
@@ -549,6 +595,8 @@ export function exportReferenceSql(reference: ReferenceJson): string {
         sqlNum(p.smvMinutes),
         sqlStr(p.grade),
         sqlBit(p.isActive),
+        sqlStr(p.icon || null),
+        sqlStr(p.tags && p.tags.length ? p.tags.join(";") : null),
       ]),
     ),
     "GO",

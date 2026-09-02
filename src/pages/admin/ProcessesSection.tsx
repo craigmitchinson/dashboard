@@ -100,7 +100,7 @@ function PropositionsBlock({ reference, spokeId, editable, save, setErr }: { ref
           {list.length === 0 && <EmptyRow colSpan={editable ? 2 : 1}>No propositions in this spoke yet.</EmptyRow>}
           {list.map((p) => (
             <tr key={p.propositionId}>
-              <Td>{editingId === p.propositionId ? <input style={inputStyle(t)} value={name} onChange={(e) => setName(e.target.value)} aria-label="Proposition name" /> : p.propositionName}</Td>
+              <Td>{editingId === p.propositionId ? <input style={inputStyle(t)} value={name} onChange={(e) => setName(e.target.value)} aria-label="Proposition name" maxLength={80} /> : p.propositionName}</Td>
               {editable && (
                 <Td align="right">
                   {editingId === p.propositionId ? (
@@ -124,7 +124,7 @@ function PropositionsBlock({ reference, spokeId, editable, save, setErr }: { ref
         adding ? (
           <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "flex-end" }}>
             <Field id="prop-add-name" label="New proposition name" width={260}>
-              <input id="prop-add-name" style={inputStyle(t)} value={addName} onChange={(e) => setAddName(e.target.value)} />
+              <input id="prop-add-name" style={inputStyle(t)} value={addName} onChange={(e) => setAddName(e.target.value)} maxLength={80} />
             </Field>
             <PrimaryButton onClick={commitAdd}>Add</PrimaryButton>
             <GhostButton onClick={() => { setAdding(false); setAddName(""); }}>Cancel</GhostButton>
@@ -228,7 +228,7 @@ function ProcessesBlock({
               <tr key={p.processId}>
                 {editing ? (
                   <>
-                    <Td><input style={inputStyle(t)} value={draft.processName} onChange={(e) => setDraft({ ...draft, processName: e.target.value })} aria-label="Process name" /></Td>
+                    <Td><input style={inputStyle(t)} value={draft.processName} onChange={(e) => setDraft({ ...draft, processName: e.target.value })} aria-label="Process name" maxLength={80} /></Td>
                     <Td><input style={inputStyle(t, { width: 90 })} value={draft.processAcronym} onChange={(e) => setDraft({ ...draft, processAcronym: e.target.value })} aria-label="Acronym" /></Td>
                     <Td>
                       <select
@@ -292,7 +292,7 @@ function ProcessesBlock({
         adding ? (
           <div style={{ border: `1px dashed ${t.ruleSoft}`, borderRadius: 10, padding: 14, marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <Field id="pa-name" label="Process name" width={220}><input id="pa-name" style={inputStyle(t)} value={addDraft.processName} onChange={(e) => setAddDraft({ ...addDraft, processName: e.target.value })} /></Field>
+              <Field id="pa-name" label="Process name" width={220}><input id="pa-name" style={inputStyle(t)} value={addDraft.processName} onChange={(e) => setAddDraft({ ...addDraft, processName: e.target.value })} maxLength={80} /></Field>
               <Field id="pa-acr" label="Acronym" width={100}><input id="pa-acr" style={inputStyle(t)} value={addDraft.processAcronym} onChange={(e) => setAddDraft({ ...addDraft, processAcronym: e.target.value })} /></Field>
               <Field id="pa-prop" label="Proposition" width={200}>
                 <select
@@ -392,13 +392,13 @@ function QueueMapBlock({ reference, processes, editable, save, setErr }: { refer
       {editable && (
         adding ? (
           <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
-            <Field id="qm-name" label="Queue name" width={200}><input id="qm-name" style={inputStyle(t)} value={draft.queueName} onChange={(e) => setDraft({ ...draft, queueName: e.target.value })} /></Field>
+            <Field id="qm-name" label="Queue name" width={200}><input id="qm-name" style={inputStyle(t)} value={draft.queueName} onChange={(e) => setDraft({ ...draft, queueName: e.target.value })} maxLength={60} /></Field>
             <Field id="qm-proc" label="Process" width={200}>
               <select id="qm-proc" style={inputStyle(t)} value={draft.processId} onChange={(e) => setDraft({ ...draft, processId: Number(e.target.value) })}>
                 {processes.map((p) => <option key={p.processId} value={p.processId}>{p.processName}</option>)}
               </select>
             </Field>
-            <Field id="qm-stage" label="Stage name (optional)" width={160}><input id="qm-stage" style={inputStyle(t)} value={draft.stageName} onChange={(e) => setDraft({ ...draft, stageName: e.target.value })} /></Field>
+            <Field id="qm-stage" label="Stage name (optional)" width={160}><input id="qm-stage" style={inputStyle(t)} value={draft.stageName} onChange={(e) => setDraft({ ...draft, stageName: e.target.value })} maxLength={60} /></Field>
             <Field id="qm-order" label="Stage order (optional)" width={110}><input id="qm-order" type="number" style={inputStyle(t)} value={draft.stageOrder} onChange={(e) => setDraft({ ...draft, stageOrder: e.target.value })} /></Field>
             <PrimaryButton onClick={commitAdd}>Add mapping</PrimaryButton>
             <GhostButton onClick={() => setAdding(false)}>Cancel</GhostButton>

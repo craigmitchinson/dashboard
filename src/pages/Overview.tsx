@@ -81,7 +81,10 @@ export function Overview() {
           <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, gap: 10, paddingTop: 6 }}>
             <div style={{ display: "flex", height: 26, borderRadius: 7, overflow: "hidden", gap: 2, flex: "0 0 auto" }}>
               {outcomeMix.map((o) => (
-                <div key={o.label} title={`${o.label} · ${fmtInt(o.value)}`} style={{ width: `${(o.value / mixTotal) * 100}%`, background: o.color, minWidth: 2 }} />
+                // minWidth only applies when this segment actually has volume — otherwise
+                // a zero-attempts period (mixTotal falls back to 1) would still render a
+                // visible sliver for every outcome, implying a split that isn't there.
+                <div key={o.label} title={`${o.label} · ${fmtInt(o.value)}`} style={{ width: `${(o.value / mixTotal) * 100}%`, background: o.color, minWidth: o.value > 0 ? 2 : 0 }} />
               ))}
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>

@@ -95,10 +95,13 @@ export function SquadsSection({ reference, update, actor, isAdmin }: SectionProp
           <div style={{ border: `1px dashed ${t.ruleSoft}`, borderRadius: 10, padding: 14, display: "flex", flexDirection: "column", gap: 10, maxWidth: 620 }}>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               <Field id="sq-add-name" label="Spoke name" width={220}>
-                <input id="sq-add-name" style={inputStyle(t)} value={addDraft.spokeName} onChange={(e) => setAddDraft({ ...addDraft, spokeName: e.target.value })} placeholder="e.g. Commercial" />
+                {/* maxLength: an unbounded name (e.g. a pasted wall of text) blows out
+                    every column's width in this table — including EDIT/DELETE for every
+                    OTHER spoke's row — since nothing here truncates a single long cell. */}
+                <input id="sq-add-name" style={inputStyle(t)} value={addDraft.spokeName} onChange={(e) => setAddDraft({ ...addDraft, spokeName: e.target.value })} placeholder="e.g. Commercial" maxLength={80} />
               </Field>
               <Field id="sq-add-short" label="Short name" width={140}>
-                <input id="sq-add-short" style={inputStyle(t)} value={addDraft.shortName} onChange={(e) => setAddDraft({ ...addDraft, shortName: e.target.value })} placeholder="e.g. COM" />
+                <input id="sq-add-short" style={inputStyle(t)} value={addDraft.shortName} onChange={(e) => setAddDraft({ ...addDraft, shortName: e.target.value })} placeholder="e.g. COM" maxLength={12} />
               </Field>
             </div>
             <div style={{ display: "flex", gap: 18, flexWrap: "wrap", alignItems: "flex-end" }}>
@@ -157,8 +160,8 @@ function SquadsTable({
           const editing = editingId === s.spokeId && editDraft && setEditDraft;
           return (
             <tr key={s.spokeId}>
-              <Td>{editing ? <input style={inputStyle(t)} value={editDraft.spokeName} onChange={(e) => setEditDraft({ ...editDraft, spokeName: e.target.value })} aria-label="Spoke name" /> : <strong style={{ fontFamily: fonts.body }}>{s.spokeName}</strong>}</Td>
-              <Td>{editing ? <input style={inputStyle(t)} value={editDraft.shortName} onChange={(e) => setEditDraft({ ...editDraft, shortName: e.target.value })} aria-label="Short name" /> : s.shortName}</Td>
+              <Td>{editing ? <input style={inputStyle(t)} value={editDraft.spokeName} onChange={(e) => setEditDraft({ ...editDraft, spokeName: e.target.value })} aria-label="Spoke name" maxLength={80} /> : <strong style={{ fontFamily: fonts.body }}>{s.spokeName}</strong>}</Td>
+              <Td>{editing ? <input style={inputStyle(t)} value={editDraft.shortName} onChange={(e) => setEditDraft({ ...editDraft, shortName: e.target.value })} aria-label="Short name" maxLength={12} /> : s.shortName}</Td>
               <Td align="center">
                 {editing ? (
                   <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 8 }}>

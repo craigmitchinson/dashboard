@@ -14,7 +14,10 @@ export function Commercial() {
   const auto = peopleRate === RATE_AUTO;
 
   const labels = m.daily.map((d) => fmtDate(d.ts));
-  const lastTs = m.daily.length ? m.daily[m.daily.length - 1].ts : 0;
+  // Fall back to the selected range's end (not the Unix epoch) so a zero-row
+  // filter combo still anchors the "N-day forecast" region at a sensible
+  // date instead of projecting from 1 Jan 1970.
+  const lastTs = m.daily.length ? m.daily[m.daily.length - 1].ts : m.cutoffTs + (m.rangeDays - 1) * DAY;
 
   // per-day cost per completed case, from the day's REAL apportioned estate
   // cost (hub pool + spoke infra at the rates in force that day)
@@ -120,6 +123,9 @@ export function Commercial() {
       <p style={{ margin: 0, fontFamily: fonts.body, fontSize: 12, color: t.inkSoft, flex: "0 0 auto" }}>
         Benefit: {fmtCompact(m.timeSavedHours)} colleague hours released this period, valued {auto ? "per process at the grade rate in force on each item's completion date (hub rate card)" : `at a flat £${peopleRate}/hr what-if override`}.
         Estate cost is the CoE hub pool (team + shared infra) apportioned across all work by bot worktime, plus each spoke's own VDI cost apportioned within the spoke — at the rates in force at the time.
+      </p>
+      <p style={{ margin: 0, fontFamily: fonts.mono, fontSize: 10.5, letterSpacing: "0.04em", textTransform: "uppercase", color: t.inkSoft, flex: "0 0 auto" }}>
+        A fuller executive P&amp;L — waterfall, spoke-level margins, value league — lives on the new Value &amp; Finance page.
       </p>
     </PageGrid>
   );

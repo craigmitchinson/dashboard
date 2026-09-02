@@ -3,5 +3,6 @@ dist
 .git
 .claude
 bp-sql-layer
+server
 *.md
 !README.md

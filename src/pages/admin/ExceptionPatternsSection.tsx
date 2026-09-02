@@ -84,7 +84,7 @@ export function ExceptionPatternsSection({ reference, update, actor, isAdmin }: 
 
       {adding ? (
         <div style={{ display: "flex", gap: 10, marginTop: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
-          <Field id="ep-pattern" label="Match pattern" width={260}><input id="ep-pattern" style={inputStyle(t)} value={addDraft.matchPattern} onChange={(e) => setAddDraft({ ...addDraft, matchPattern: e.target.value })} placeholder="e.g. timeout" /></Field>
+          <Field id="ep-pattern" label="Match pattern" width={260}><input id="ep-pattern" style={inputStyle(t)} value={addDraft.matchPattern} onChange={(e) => setAddDraft({ ...addDraft, matchPattern: e.target.value })} placeholder="e.g. timeout" maxLength={80} /></Field>
           <Field id="ep-type" label="Classify as" width={150}>
             <select id="ep-type" style={inputStyle(t)} value={addDraft.exceptionType} onChange={(e) => setAddDraft({ ...addDraft, exceptionType: e.target.value as "System" | "Business" })}>
               <option value="System">System</option>
@@ -127,7 +127,7 @@ function PatternTable({
           return (
             <tr key={r.matchPattern}>
               <Td align="right">{editing ? <input type="number" style={inputStyle(t, { width: 60, textAlign: "right" })} value={draft.priority} onChange={(e) => setDraft({ ...draft, priority: e.target.value })} aria-label="Priority" /> : r.priority}</Td>
-              <Td>{editing ? <input style={inputStyle(t)} value={draft.matchPattern} onChange={(e) => setDraft({ ...draft, matchPattern: e.target.value })} aria-label="Match pattern" /> : <span style={{ fontFamily: fonts.mono, fontSize: 11.5 }}>{r.matchPattern}</span>}</Td>
+              <Td>{editing ? <input style={inputStyle(t)} value={draft.matchPattern} onChange={(e) => setDraft({ ...draft, matchPattern: e.target.value })} aria-label="Match pattern" maxLength={80} /> : <span style={{ fontFamily: fonts.mono, fontSize: 11.5 }}>{r.matchPattern}</span>}</Td>
               <Td>
                 {editing ? (
                   <select style={inputStyle(t)} value={draft.exceptionType} onChange={(e) => setDraft({ ...draft, exceptionType: e.target.value as "System" | "Business" })} aria-label="Classify as">

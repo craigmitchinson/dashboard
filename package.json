@@ -11,7 +11,10 @@
     "data:build": "node tools/build-dashboard-data.mjs",
     "data:all": "npm run data:mock && npm run data:build",
     "data:verify": "node tools/verify-economics.mjs",
-    "docs:playbook": "node tools/build-playbook-md.mjs"
+    "docs:playbook": "node tools/build-playbook-md.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:parity": "vitest run tests/parity.test.ts"
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -22,6 +25,7 @@
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
     "typescript": "^5.6.3",
-    "vite": "^5.4.11"
+    "vite": "^5.4.11",
+    "vitest": "^2.1.9"
   }
 }

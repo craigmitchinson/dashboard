@@ -1,16 +1,24 @@
-import { createContext, useCallback, useContext, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import type { AuthProvider } from "./provider";
 import { DevAuthProvider } from "./dev-provider";
+import { EntraAuthProvider, completeEntraRedirect, tryRenewEntraSession, getAccessToken } from "./entra-provider";
 import type { Session, User } from "./types";
+import { setAuthTokenProvider } from "../data/client";
 
 // ---------------------------------------------------------------------------
 // Active auth provider. This is the ONLY place the concrete provider is
-// chosen — swapping to Entra ID is a one-line change:
-//   import { EntraAuthProvider } from "./entra-provider";
-//   const provider: AuthProvider = new EntraAuthProvider();
+// chosen — controlled by VITE_AUTH_PROVIDER ("entra" to use EntraAuthProvider,
+// anything else falls back to the dev provider).
 // ---------------------------------------------------------------------------
-const provider: AuthProvider = new DevAuthProvider();
+const provider: AuthProvider = import.meta.env.VITE_AUTH_PROVIDER === "entra" ? new EntraAuthProvider() : new DevAuthProvider();
+
+// Best-effort surface for a redirect-completion failure (see the effect
+// below) — there's no in-flight signIn() promise to reject when the failure
+// happens on the page load AFTER the redirect, since the flow spans a full
+// navigation. Not required today, but documented here in case a future
+// Login.tsx wants to surface it.
+export let lastEntraError: string | null = null;
 
 interface AuthContextValue {
   session: Session | null;
@@ -54,6 +62,63 @@ export function AuthContextProvider({ children }: { children: ReactNode }) {
 
   const refreshSession = useCallback(() => {
     setSession(provider.getSession());
+  }, []);
+
+  // Entra-only: on mount, check whether we just landed back from Microsoft's
+  // login page (redirect carries ?code=&state=) and if so complete the PKCE
+  // exchange and adopt the resulting session.
+  useEffect(() => {
+    if (!(provider instanceof EntraAuthProvider)) return;
+    let cancelled = false;
+    completeEntraRedirect()
+      .then((session) => {
+        if (!cancelled && session) setSession(session);
+      })
+      .catch((err) => {
+        // Surface a redirect-completion failure the same way DevAuthProvider's
+        // signIn() failures already surface to the Login screen: as a thrown
+        // rejection from signIn(). There's no in-flight signIn() promise to
+        // reject here (the flow spans a full page navigation), so stash the
+        // message somewhere the Login screen can read it. Simplest option
+        // that doesn't touch Login.tsx (not owned here): log it and leave
+        // session null so the user lands back on the sign-in screen; ALSO
+        // set a small module-level `lastEntraError` string this file exports,
+        // in case a future Login.tsx wants to surface it (documented, not
+        // required today).
+        console.error("Entra ID sign-in redirect failed:", err);
+        if (!cancelled) lastEntraError = err instanceof Error ? err.message : String(err);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Entra-only: periodically try a silent refresh so a long-lived tab
+  // doesn't silently drop to signed-out at the token's expiry with no
+  // attempt to renew.
+  useEffect(() => {
+    if (!(provider instanceof EntraAuthProvider)) return;
+    const id = setInterval(async () => {
+      const renewed = await tryRenewEntraSession();
+      if (renewed) setSession(renewed);
+      // if renewal fails (returns null), leave the current state as-is —
+      // getSession() will naturally start returning null once the existing
+      // token's expiry passes, and the user will be prompted to sign in
+      // again the next time something calls refreshSession()/reloads.
+    }, 5 * 60 * 1000); // check every 5 minutes; tryRenewEntraSession is cheap to call and safe to no-op
+    return () => clearInterval(id);
+  }, []);
+
+  // Entra-only: register this provider's access-token getter with the data
+  // client so every /api/* call made anywhere in the app carries a bearer
+  // token. src/main.tsx registers it too, for the very first boot-time fetch
+  // (before this component even mounts) — this effect keeps it registered
+  // for the lifetime of the app afterwards.
+  useEffect(() => {
+    if (!(provider instanceof EntraAuthProvider)) return;
+    setAuthTokenProvider(getAccessToken);
+    return () => setAuthTokenProvider(null);
   }, []);
 
   return <AuthContext.Provider value={{ session, user: session?.user ?? null, signIn, signOut, refreshSession }}>{children}</AuthContext.Provider>;

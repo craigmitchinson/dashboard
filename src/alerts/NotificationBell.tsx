@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { fonts } from "../theme";
+import { fonts, glassOverlayVars } from "../theme";
 import { useTheme } from "../theme-context";
 import { IconBell, IconAlert } from "../components/icons";
+import { Portal } from "../components/Portal";
+import { useAnchoredPopover } from "../components/useAnchoredPopover";
+import { SpokeSwatch } from "../components/SpokeSwatch";
 import { useAlerts } from "./alerts-context";
 import { headlineFor, severityLabelFor } from "./format";
 
@@ -54,10 +57,16 @@ export function NotificationBell({ setPageId }: { setPageId: (id: string) => voi
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
+  // Portal + useAnchoredPopover (§3, matching ViewsMenu/UserMenu in App.tsx):
+  // the panel is no longer a DOM descendant of `box`, so outside-click
+  // detection checks both the trigger AND the (portalled) panel.
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
-      if (box.current && !box.current.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (box.current?.contains(target)) return;
+      if (panelRef.current?.contains(target)) return;
+      setOpen(false);
     };
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
@@ -96,6 +105,9 @@ export function NotificationBell({ setPageId }: { setPageId: (id: string) => voi
     setPageId("alerts");
     setOpen(false);
   };
+
+  const close = () => setOpen(false);
+  const anchorStyle = useAnchoredPopover(triggerRef, open, close, { align: "end", width: 320 });
 
   const badgeText = unackedCount > 9 ? "9+" : String(unackedCount);
   // Unacknowledged alerts always take priority for the 5 preview slots (in
@@ -151,11 +163,12 @@ export function NotificationBell({ setPageId }: { setPageId: (id: string) => voi
         )}
       </button>
 
-      {open && (
+      {open && anchorStyle && (
+        <Portal>
         <div
           ref={panelRef}
-          className="dropdown-panel liquid-glass"
-          style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 60, width: 320, maxHeight: 420, overflowY: "auto", border: `1px solid ${t.ruleSoft}`, padding: 8 }}
+          className="dropdown-panel glass-overlay"
+          style={{ ...anchorStyle, zIndex: "var(--z-popover)" as unknown as number, maxHeight: 420, overflowY: "auto", border: `1px solid ${t.ruleSoft}`, padding: 8, ...glassOverlayVars(t) }}
         >
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 4px 8px", borderBottom: `1px solid ${t.ruleSoft}`, marginBottom: 6 }}>
             <span style={{ fontFamily: fonts.mono, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: t.ink }}>
@@ -184,6 +197,7 @@ export function NotificationBell({ setPageId }: { setPageId: (id: string) => voi
                   style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 6px", borderBottom: `1px solid ${t.ruleSoft}`, opacity: isAcked ? 0.6 : 1 }}
                 >
                   <IconAlert size={13} style={{ flex: "0 0 auto", color: a.severity === "breach" ? t.accent : t.inkSoft }} />
+                  {a.scope !== "estate" && a.spokeFilter && <SpokeSwatch spoke={a.spokeFilter} />}
                   <span
                     style={{
                       fontFamily: fonts.body,
@@ -244,6 +258,7 @@ export function NotificationBell({ setPageId }: { setPageId: (id: string) => voi
             View all alerts →
           </button>
         </div>
+        </Portal>
       )}
 
       <div aria-live="polite" role="status" className="sr-only">

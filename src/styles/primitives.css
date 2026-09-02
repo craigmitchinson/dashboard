@@ -1,0 +1,25 @@
+/* Card body scroll affordance: internal scroll with a bottom fade so users
+   only see whether more content exists, never a hard-clipped cut edge. */
+.viz-scroll {
+  overflow-y: auto;
+  mask-image: linear-gradient(#000 calc(100% - 24px), transparent);
+  -webkit-mask-image: linear-gradient(#000 calc(100% - 24px), transparent);
+}
+
+/* KPI row column counts, falling back to auto-fit below 1100px container
+   width so cards don't get crushed on narrow nav-expanded layouts. */
+.kpi-row--4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.kpi-row--5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.kpi-row--6 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+@container (max-width: 1100px) {
+  .kpi-row--4, .kpi-row--5, .kpi-row--6 {
+    grid-template-columns: repeat(auto-fit, minmax(152px, 1fr));
+  }
+}
+
+/* PageGrid / Row gap: space[3] (12px), bumping to space[4] (16px) on wide
+   canvases — class-based (not inline) so this container query can win. */
+.page-grid, .page-row { gap: 12px; }
+@container (min-width: 1680px) {
+  .page-grid, .page-row { gap: 16px; }
+}

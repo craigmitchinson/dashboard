@@ -22,7 +22,7 @@ export function DataModel() {
   const v = useViz();
 
   const tables: Tbl[] = [
-    { x: 380, y: 105, w: 250, title: "Fact_WorkItem (day grain)", kind: "fact", color: v.accent, fields: ["Date (FK) · ProcessId (FK)", "Completed · BusExc · SysExc", "WorktimeSec", "GrossBenefitGBP (grade-rate)", "EstateCostGBP (hub+spoke)"] },
+    { x: 380, y: 105, w: 250, title: "Fact_WorkItem (day grain)", kind: "fact", color: t.series, fields: ["Date (FK) · ProcessId (FK)", "Completed · BusExc · SysExc", "WorktimeSec", "GrossBenefitGBP (grade-rate)", "EstateCostGBP (hub+spoke)"] },
     { x: 60, y: 10, w: 230, title: "Dim_Process", kind: "dim", color: v.completed, fields: ["ProcessId (PK)", "Name · Proposition", "Spoke (FK) · Queues", "SMV mins · Grade (FK)"] },
     { x: 60, y: 245, w: 230, title: "Dim_DigitalWorker", kind: "dim", color: v.business, fields: ["ResourceName (PK)", "VDI · CostClass", "Spoke (FK) · Lifecycle", "ActiveFrom / ActiveTo"] },
     { x: 720, y: 10, w: 230, title: "Dim_Date", kind: "dim", color: v.good, fields: ["Date (PK)", "MonthLabel + SortKey", "QuarterLabel + SortKey", "EstateRate in force"] },
@@ -43,7 +43,7 @@ export function DataModel() {
   };
 
   const lineage = [
-    { label: "Blue Prism API", sub: "work queue items", color: v.accent },
+    { label: "Blue Prism API", sub: "work queue items", color: t.series },
     { label: "Elastic / Kibana", sub: "log store, per queue", color: v.business },
     { label: "CSV / raw layer", sub: "BPAWorkQueueItem schema", color: v.system },
     { label: "SQL warehouse", sub: "staging → core → report", color: v.completed },
@@ -118,7 +118,7 @@ export function DataModel() {
           <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", gap: 11, height: "100%" }}>
             {relationships.map((r) => (
               <div key={r} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                <span style={{ color: v.accent, fontFamily: fonts.mono, fontWeight: 700, flex: "0 0 auto" }}>→</span>
+                <span style={{ color: t.series, fontFamily: fonts.mono, fontWeight: 700, flex: "0 0 auto" }}>→</span>
                 <span style={{ fontFamily: fonts.mono, fontSize: 12, color: t.ink, lineHeight: 1.5 }}>{r}</span>
               </div>
             ))}

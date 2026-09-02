@@ -1,0 +1,156 @@
+# ---------------------------------------------------------------------------
+# deploy/cloudbuild.yaml — CI/CD pipeline: test both halves of the app, build
+# + push both images, then deploy both Cloud Run SERVICES (nginx-proxy
+# topology — see deploy/gcp.md; swap the last two steps for
+# 10_deploy_loadbalancer.sh's commands if you've adopted that topology
+# instead).
+#
+# PREREQUISITE — run once, manually, before this pipeline ever runs:
+# deploy/scripts/01 through 08 (network, Cloud SQL, secrets, schema, the
+# ingest job, and the API service's FIRST deploy — this file's own API
+# deploy step below is an UPDATE path: it assumes the API service, its
+# service account, its Secret Manager bindings, and its Cloud SQL
+# connectivity already exist, exactly as 08_deploy_api.sh created them, and
+# only refreshes the image + non-secret env vars on every subsequent build).
+# This file intentionally does NOT re-run 01-07's one-time provisioning
+# (network/instance/secrets/schema) — those are infrastructure, not
+# per-commit CI/CD, and re-running some of them on every push would be
+# actively wrong (e.g. 05_bootstrap_schema.sh's temporary public IP dance).
+#
+# Trigger this however you like (a Cloud Build trigger on push to main, or
+# `gcloud builds submit --config=deploy/cloudbuild.yaml .` from the repo
+# root manually) — substitutions below all have defaults so the bare command
+# works, but override any of them per-environment (staging vs prod) with
+# `--substitutions=_REGION=...,_API_SERVICE_NAME=...`.
+# ---------------------------------------------------------------------------
+substitutions:
+  _REGION: "europe-west2"
+  _API_SERVICE_NAME: "bp-api"
+  _FRONTEND_SERVICE_NAME: "bp-dashboard"
+  _NETWORK_NAME: "bp-vpc"
+  _SUBNET_NAME: "bp-subnet"
+  _SQL_INSTANCE_NAME: "bp-analytics-sql"
+  # Build-time SPA config — see the root Dockerfile's header comment and
+  # deploy/gcp.md's env matrix. _VITE_API_URL default "/" is the same-origin
+  # value 09_deploy_frontend.sh uses; leave it unless you've deliberately
+  # moved to a cross-origin/LB setup.
+  _VITE_API_URL: "/"
+  _VITE_AUTH_PROVIDER: "entra"
+  _VITE_ENTRA_TENANT_ID: ""
+  _VITE_ENTRA_CLIENT_ID: ""
+  _VITE_ENTRA_SCOPES: "openid profile email"
+
+images:
+  - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/bp-dashboard/bp-dashboard:${SHORT_SHA}"
+  - "${_REGION}-docker.pkg.dev/${PROJECT_ID}/bp-api/bp-api:${SHORT_SHA}"
+
+steps:
+  # --- gate 1: frontend (repo root) ---------------------------------------
+  - id: frontend-test
+    name: node:22
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        npm ci
+        npm test
+        npm run data:verify
+
+  # --- gate 2: API (server/) ------------------------------------------------
+  - id: api-test
+    name: node:22
+    entrypoint: bash
+    dir: server
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        npm ci
+        npm test
+    waitFor: ["-"]   # independent of frontend-test — run in parallel
+
+  # --- build: frontend image (api mode — see the root Dockerfile) ---------
+  - id: frontend-build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --tag=${_REGION}-docker.pkg.dev/${PROJECT_ID}/bp-dashboard/bp-dashboard:${SHORT_SHA}
+      - --tag=${_REGION}-docker.pkg.dev/${PROJECT_ID}/bp-dashboard/bp-dashboard:latest
+      - --build-arg=VITE_API_URL=${_VITE_API_URL}
+      - --build-arg=VITE_AUTH_PROVIDER=${_VITE_AUTH_PROVIDER}
+      - --build-arg=VITE_ENTRA_TENANT_ID=${_VITE_ENTRA_TENANT_ID}
+      - --build-arg=VITE_ENTRA_CLIENT_ID=${_VITE_ENTRA_CLIENT_ID}
+      - --build-arg=VITE_ENTRA_SCOPES=${_VITE_ENTRA_SCOPES}
+      # VITE_ENTRA_REDIRECT_URI deliberately NOT set here: left empty,
+      # src/auth/entra-provider.ts falls back to `window.location.origin` at
+      # runtime — safer than guessing this service's exact *.run.app URL
+      # (which includes a hash segment gcloud only assigns after the first
+      # deploy) inside a build step that runs before that deploy happens.
+      # Set it explicitly via a substitution override only once you're on a
+      # stable custom domain (see deploy/gcp.md's Entra section).
+      - .
+    waitFor: ["frontend-test"]
+
+  # --- build: API image (server/Dockerfile) --------------------------------
+  - id: api-build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --tag=${_REGION}-docker.pkg.dev/${PROJECT_ID}/bp-api/bp-api:${SHORT_SHA}
+      - --tag=${_REGION}-docker.pkg.dev/${PROJECT_ID}/bp-api/bp-api:latest
+      - ./server
+    waitFor: ["api-test"]
+
+  # --- push (images: section above also pushes at the end of the build, but
+  # the deploy steps below need the tag available NOW, mid-pipeline) --------
+  - id: frontend-push
+    name: gcr.io/cloud-builders/docker
+    args: ["push", "${_REGION}-docker.pkg.dev/${PROJECT_ID}/bp-dashboard/bp-dashboard:${SHORT_SHA}"]
+    waitFor: ["frontend-build"]
+
+  - id: api-push
+    name: gcr.io/cloud-builders/docker
+    args: ["push", "${_REGION}-docker.pkg.dev/${PROJECT_ID}/bp-api/bp-api:${SHORT_SHA}"]
+    waitFor: ["api-build"]
+
+  # --- deploy: API service (update path — see the prerequisite note above) -
+  - id: api-deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        PRIVATE_IP="$(gcloud sql instances describe "${_SQL_INSTANCE_NAME}" --format='value(ipAddresses[0].ipAddress)')"
+        INSTANCE_CONNECTION_NAME="$(gcloud sql instances describe "${_SQL_INSTANCE_NAME}" --format='value(connectionName)')"
+        gcloud run deploy "${_API_SERVICE_NAME}" \
+          --region="${_REGION}" \
+          --image="${_REGION}-docker.pkg.dev/${PROJECT_ID}/bp-api/bp-api:${SHORT_SHA}" \
+          --network="${_NETWORK_NAME}" \
+          --subnet="${_SUBNET_NAME}" \
+          --vpc-egress=private-ranges-only \
+          --set-cloudsql-instances="$INSTANCE_CONNECTION_NAME" \
+          --update-env-vars="SQL_SERVER=$PRIVATE_IP" \
+          --quiet
+        echo "$(gcloud run services describe "${_API_SERVICE_NAME}" --region="${_REGION}" --format='value(status.url)')" > /workspace/api_url.txt
+    waitFor: ["frontend-push", "api-push"]
+
+  # --- deploy: frontend service, wired to the API's current URL -----------
+  - id: frontend-deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        API_URL="$(cat /workspace/api_url.txt)"
+        gcloud run deploy "${_FRONTEND_SERVICE_NAME}" \
+          --region="${_REGION}" \
+          --image="${_REGION}-docker.pkg.dev/${PROJECT_ID}/bp-dashboard/bp-dashboard:${SHORT_SHA}" \
+          --set-env-vars="API_UPSTREAM=$API_URL" \
+          --quiet
+    waitFor: ["api-deploy"]
+
+options:
+  logging: CLOUD_LOGGING_ONLY

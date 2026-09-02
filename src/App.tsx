@@ -1,15 +1,18 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { ComponentType } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { ComponentType, ReactNode } from "react";
 import { themes } from "./theme";
 import type { Mode } from "./theme";
-import { fonts, liquidGlassVars } from "./theme";
+import { fonts, glassOverlayVars } from "./theme";
 import { ThemeProvider, useTheme } from "./theme-context";
 import { FiltersProvider, useFilters, RATE_AUTO } from "./filters-context";
 import type { SavedView } from "./filters-context";
-import { NavContext } from "./nav-context";
+import { NavContext, NavOriginContext } from "./nav-context";
 import { PAGE_LABELS } from "./page-labels";
 import { FilterBar } from "./components/Slicers";
-import { fmtDateFull, DATE_MAX, META, SPOKE_INFO } from "./rpaData";
+import { Portal } from "./components/Portal";
+import { useAnchoredPopover } from "./components/useAnchoredPopover";
+import { HeaderOverflowMenu } from "./components/HeaderOverflowMenu";
+import { fmtDateFull, DATE_MAX, META, SPOKE_INFO, PROCESS_BY_ID } from "./rpaData";
 import { AuthContextProvider, useAuth, usePermissions } from "./auth/auth-context";
 import type { PermAction } from "./auth/auth-context";
 import { DisplayPrefsProvider, useDisplayPrefs } from "./a11y/prefs-context";
@@ -29,6 +32,7 @@ import {
   IconBell,
   IconServer,
   IconCoins,
+  IconValue,
   IconRefresh,
   IconChevron,
   IconGraph,
@@ -37,10 +41,19 @@ import {
   IconClose,
   IconShield,
   IconBook,
+  IconSun,
+  IconMoon,
+  IconContrastCircle,
+  IconInfo,
+  IconSearch,
 } from "./components/icons";
+import { CommandPalette } from "./components/CommandPalette";
 import { NotificationBell } from "./alerts/NotificationBell";
 import { AlertsProvider, useAlerts } from "./alerts/alerts-context";
 import { AlertsPage } from "./alerts/AlertsPage";
+import { useReference } from "./reference/reference-context";
+import { useSystemStatus } from "./data/status";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Overview } from "./pages/Overview";
 import { InputOutcome } from "./pages/InputOutcome";
 import { ProcessAnalysis } from "./pages/ProcessAnalysis";
@@ -48,6 +61,7 @@ import { Exceptions } from "./pages/Exceptions";
 import { Capacity } from "./pages/Capacity";
 import { Commercial } from "./pages/Commercial";
 import { ProcessDetail } from "./pages/ProcessDetail";
+import { ValueFinance } from "./pages/ValueFinance";
 import { DataModel } from "./pages/DataModel";
 import { Playbook } from "./pages/Playbook";
 import { Admin } from "./pages/Admin";
@@ -68,17 +82,37 @@ interface Page {
   // page — for admin/reference/docs pages where cross-filtering doesn't
   // apply, not data-viz pages.
   noSlicers?: boolean;
+  // Rendered indented, as a child of the group above it, with no group
+  // hairline of its own — currently just process-detail under Operate (a
+  // drill-through target, not a page anyone navigates to head-on). See
+  // Report()'s nav render for the dynamic-label behaviour that goes with it.
+  indent?: boolean;
+  // Page-header contextual actions slot (nav/motion P1). Optional — no
+  // PAGES entry below sets one yet, that's the next pass, done by each
+  // page's own owner. To use it: write a small component that renders
+  // ActionButton/ExportCsvButton/GrainToggle from components/PageActions.tsx
+  // (keep it to the static 32px control height those already are) and set
+  // it here. Rendered left of the global header chrome, right after the
+  // title/blurb block — see `{page.actions && <page.actions />}` below.
+  // Known limitation: it disappears below a 1200px `.report__main`
+  // container width (see the `.hdr-page-actions` container-query rule in
+  // styles.css) until a real overflow-menu integration for it is built —
+  // HeaderOverflowMenu's flat `items: OverflowItem[]` shape doesn't
+  // generically reduce an arbitrary rendered `<page.actions/>` component to
+  // a menu row, so that collapse is structural-only for now.
+  actions?: ComponentType;
 }
 
 const PAGES: Page[] = [
-  { id: "overview", label: PAGE_LABELS.overview, group: "Monitor", Icon: IconGrid, Component: Overview, blurb: "Headline performance, outcome mix and the operational watchlist" },
-  { id: "alerts", label: PAGE_LABELS.alerts, group: "Monitor", Icon: IconBell, Component: AlertsPage, blurb: "Threshold breaches and early warnings across the estate" },
-  { id: "input-outcome", label: "Input & Outcome", group: "Monitor", Icon: IconFlow, Component: InputOutcome, blurb: "Case flow in and out, by outcome, daily or monthly" },
-  { id: "process", label: "Process Analysis", group: "Monitor", Icon: IconBars, Component: ProcessAnalysis, blurb: "Completion time, throughput and exception trends by process" },
-  { id: "exceptions", label: PAGE_LABELS.exceptions, group: "Monitor", Icon: IconAlert, Component: Exceptions, blurb: "Exception heatmap and searchable detail" },
-  { id: "process-detail", label: PAGE_LABELS["process-detail"], group: "Monitor", Icon: IconRoute, Component: ProcessDetail, blurb: "Drill-through — one process in depth (click a process anywhere)" },
+  { id: "overview", label: PAGE_LABELS.overview, group: "Overview", Icon: IconGrid, Component: Overview, blurb: "Headline performance, outcome mix and the operational watchlist" },
+  { id: "alerts", label: PAGE_LABELS.alerts, group: "Overview", Icon: IconBell, Component: AlertsPage, blurb: "Threshold breaches and early warnings across the estate" },
+  { id: "input-outcome", label: "Input & Outcome", group: "Operate", Icon: IconFlow, Component: InputOutcome, blurb: "Case flow in and out, by outcome, daily or monthly" },
+  { id: "process", label: "Process Analysis", group: "Operate", Icon: IconBars, Component: ProcessAnalysis, blurb: "Completion time, throughput and exception trends by process" },
+  { id: "exceptions", label: PAGE_LABELS.exceptions, group: "Operate", Icon: IconAlert, Component: Exceptions, blurb: "Exception heatmap and searchable detail" },
+  { id: "process-detail", label: PAGE_LABELS["process-detail"], group: "Operate", Icon: IconRoute, Component: ProcessDetail, blurb: "Drill-through — one process in depth (click a process anywhere)", indent: true },
   { id: "capacity", label: PAGE_LABELS.capacity, group: "Optimise", Icon: IconServer, Component: Capacity, blurb: "Digital-worker utilisation, idle time and estate cost" },
-  { id: "commercial", label: PAGE_LABELS.commercial, group: "Optimise", Icon: IconCoins, Component: Commercial, blurb: "Cost per case, grade-based benefit and cumulative ROI" },
+  { id: "value", label: PAGE_LABELS.value, group: "Value", Icon: IconValue, Component: ValueFinance, blurb: "Net value, ROI, cost composition and run-rate forecast for finance and the exec" },
+  { id: "commercial", label: PAGE_LABELS.commercial, group: "Value", Icon: IconCoins, Component: Commercial, blurb: "Cost per case, grade-based benefit and cumulative ROI" },
   { id: "admin", label: "Administration", group: "Manage", Icon: IconShield, Component: Admin, blurb: "Reference data, users and roles — every edit here updates the dashboards instantly", permission: "view_admin", noSlicers: true },
   { id: "model", label: "Data model", group: "Reference", Icon: IconGraph, Component: DataModel, blurb: "Architecture, star schema and the data contract under every visual", permission: "view_docs", noSlicers: true },
   { id: "playbook", label: "Playbook", group: "Reference", Icon: IconBook, Component: Playbook, blurb: "How to run, extend and troubleshoot this dashboard — plain-English operations guide", permission: "view_docs", noSlicers: true },
@@ -111,7 +145,10 @@ function readNamespaced<T>(base: string, userId: string | undefined, fallback: T
   }
 }
 
-function loadViews(userId: string | undefined): SavedView[] {
+// Exported for CommandPalette.tsx's "Saved views" group — ViewsMenu below
+// already calls this unqualified in the same file, so exporting it is a
+// safe, additive change.
+export function loadViews(userId: string | undefined): SavedView[] {
   return readNamespaced<SavedView[]>(VIEWS_KEY, userId, []);
 }
 
@@ -151,8 +188,13 @@ function AppShell() {
   );
 }
 
-// The theme accent follows the active spoke: each spoke has its own validated
-// accent per surface (SPOKE_INFO); the hub view keeps the brand accent.
+// The active spoke gets its own identity colour via `t.spoke` — it no longer
+// overrides `accent`/`accentSoft` (that silently recoloured every
+// accent-reading control across the whole app, including ones never audited
+// against the brand red's contrast pairing, to an arbitrary spoke hex — a
+// WCAG failure caught in the design audit, §1.3). Consumers that want spoke
+// identity (this file's nav active state; admin tabs/buttons/KPI accents in
+// the pages half of this pass) read `t.spoke ?? t.accent` explicitly instead.
 function ThemedReport() {
   const { filters } = useFilters();
   const { prefs } = useDisplayPrefs();
@@ -162,7 +204,12 @@ function ThemedReport() {
   const mode: Mode = prefs.theme === "light" ? "light" : "dark";
   const spokeColor = filters.spoke !== "All" ? SPOKE_INFO[filters.spoke]?.[mode === "dark" ? "dark" : "light"] : undefined;
   const base = themes[mode];
-  const theme = spokeColor ? { ...base, accent: spokeColor, accentSoft: spokeColor } : base;
+  const theme = spokeColor ? { ...base, spoke: spokeColor } : base;
+  // Ambient accent: the active spoke colour at a very low alpha, consumed by
+  // `.report`'s radial-gradient background-image (styles.css) — undefined
+  // (no spoke) resolves to that rule's own `transparent` fallback, so the
+  // hub view still gets the two neutral ambient layers with no accent tint.
+  const ambientAccent = spokeColor ? `color-mix(in srgb, ${spokeColor} ${mode === "dark" ? "10%" : "8%"}, transparent)` : undefined;
 
   useEffect(() => {
     document.body.style.background = theme.page;
@@ -172,7 +219,7 @@ function ThemedReport() {
   return (
     <ThemeProvider value={theme}>
       <AlertsProvider>
-        <Report />
+        <Report ambientAccent={ambientAccent} />
       </AlertsProvider>
     </ThemeProvider>
   );
@@ -214,10 +261,17 @@ function ViewsMenu({ pageId, setPageId }: { pageId: string; setPageId: (id: stri
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
+  // Portal + useAnchoredPopover (§3): the panel is no longer a DOM
+  // descendant of `box`, so outside-click detection checks both the trigger
+  // AND the (portalled) panel now — previously `box` wrapped both as
+  // siblings and a single `.contains()` check covered the whole widget.
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
-      if (box.current && !box.current.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (box.current?.contains(target)) return;
+      if (panelRef.current?.contains(target)) return;
+      setOpen(false);
     };
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
@@ -252,6 +306,9 @@ function ViewsMenu({ pageId, setPageId }: { pageId: string; setPageId: (id: stri
     }
   }, [open]);
 
+  const close = () => setOpen(false);
+  const anchorStyle = useAnchoredPopover(triggerRef, open, close, { align: "end", width: 262 });
+
   const persist = (v: SavedView[]) => {
     setViews(v);
     try {
@@ -276,13 +333,21 @@ function ViewsMenu({ pageId, setPageId }: { pageId: string; setPageId: (id: stri
         className="bar-btn"
         aria-expanded={open}
         aria-haspopup="menu"
+        aria-label={`Views${views.length ? `, ${views.length} saved` : ""}`}
         style={btn(t)}
       >
         <span aria-hidden="true" style={{ fontSize: 12, lineHeight: 1 }}>☆</span>
-        Views{views.length ? ` (${views.length})` : ""}
+        {/* Full label >=1400px container width; icon+count compact form
+            below that — see the .hdr-views-* container queries in
+            styles.css. Kept inline (not collapsed into the ⋯ overflow menu
+            like accessibility/theme) even below 1040px — see the deviation
+            note on `.hdr-overflow-trigger` in styles.css. */}
+        <span className="hdr-views-full">Views{views.length ? ` (${views.length})` : ""}</span>
+        <span className="hdr-views-compact" aria-hidden>{views.length || ""}</span>
       </button>
-      {open && (
-        <div ref={panelRef} className="dropdown-panel liquid-glass" style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 60, width: 262, border: `1px solid ${t.ruleSoft}`, padding: 6 }}>
+      {open && anchorStyle && (
+        <Portal>
+          <div ref={panelRef} className="dropdown-panel glass-overlay" style={{ ...anchorStyle, zIndex: "var(--z-popover)" as unknown as number, border: `1px solid ${t.ruleSoft}`, padding: 6, ...glassOverlayVars(t) }}>
           {views.length === 0 && (
             <div style={{ fontFamily: fonts.body, fontSize: 12.5, color: t.inkSoft, padding: "8px 9px", textTransform: "none", letterSpacing: 0 }}>
               <Bionic>No saved views yet. Set your spoke and slicers, then save them as a named view.</Bionic>
@@ -338,16 +403,19 @@ function ViewsMenu({ pageId, setPageId }: { pageId: string; setPageId: (id: stri
               </button>
             )}
           </div>
-        </div>
+          </div>
+        </Portal>
       )}
     </div>
   );
 }
 
 // Header user chip: name + highest-role badge, opens a small dropdown with
-// "Sign out" — same visual idiom as ViewsMenu's dropdown (position:absolute
-// panel anchored under the trigger, closes on outside click).
-function UserMenu({ user, signOut }: { user: User; signOut: () => void }) {
+// "Sign out" — same visual idiom as ViewsMenu's dropdown (portalled panel
+// anchored under the trigger, closes on outside click). `extra` renders the
+// greeting+clocks (Welcome/Clocks) at the top of the popover once the header
+// container drops below 1400px — see Report()'s `headerCompactGreeting`.
+function UserMenu({ user, signOut, extra }: { user: User; signOut: () => void; extra?: ReactNode }) {
   const t = useTheme();
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
@@ -357,7 +425,10 @@ function UserMenu({ user, signOut }: { user: User; signOut: () => void }) {
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
-      if (box.current && !box.current.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (box.current?.contains(target)) return;
+      if (panelRef.current?.contains(target)) return;
+      setOpen(false);
     };
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
@@ -392,6 +463,9 @@ function UserMenu({ user, signOut }: { user: User; signOut: () => void }) {
     }
   }, [open]);
 
+  const close = () => setOpen(false);
+  const anchorStyle = useAnchoredPopover(triggerRef, open, close, { align: "end", width: 220 });
+
   return (
     <div ref={box} style={{ position: "relative" }}>
       <button
@@ -400,31 +474,171 @@ function UserMenu({ user, signOut }: { user: User; signOut: () => void }) {
         className="bar-btn"
         aria-expanded={open}
         aria-haspopup="menu"
-        style={{ ...btn(t), gap: 7, color: t.ink, textTransform: "none", letterSpacing: 0, padding: "4px 12px 4px 5px" }}
+        aria-label={`${user.name}, ${highestRoleLabel(user.roles)}`}
+        style={{ ...btn(t), gap: 7, color: t.ink, textTransform: "none", letterSpacing: 0, padding: "0 12px 0 5px" }}
       >
         <span style={{ display: "grid", placeItems: "center", width: 20, height: 20, borderRadius: "50%", background: t.accentFill, color: "#fff", fontFamily: fonts.mono, fontSize: 10, fontWeight: 700, flex: "0 0 auto" }}>
           {user.name.charAt(0).toUpperCase()}
         </span>
-        <span style={{ fontFamily: fonts.body, fontWeight: 600 }}>{user.name}</span>
-        <span style={{ fontFamily: fonts.mono, fontSize: 9, letterSpacing: "0.05em", textTransform: "uppercase", color: t.inkSoft }}>{highestRoleLabel(user.roles)}</span>
+        {/* Full name+role >=1040px container width; avatar-only below that —
+            see the .hdr-user-* container queries in styles.css. */}
+        <span className="hdr-user-name" style={{ fontFamily: fonts.body, fontWeight: 600 }}>{user.name}</span>
+        <span className="hdr-user-role" style={{ fontFamily: fonts.mono, fontSize: 9, letterSpacing: "0.05em", textTransform: "uppercase", color: t.inkSoft }}>{highestRoleLabel(user.roles)}</span>
       </button>
-      {open && (
-        <div ref={panelRef} className="dropdown-panel liquid-glass" style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 60, minWidth: 180, border: `1px solid ${t.ruleSoft}`, padding: 6 }}>
-          <div style={{ padding: "7px 9px", fontFamily: fonts.body, fontSize: 12, color: t.inkSoft, borderBottom: `1px solid ${t.ruleSoft}`, marginBottom: 4 }}>{user.email}</div>
-          <button
-            onClick={() => {
-              setOpen(false);
-              signOut();
-            }}
-            style={{ width: "100%", textAlign: "left", fontFamily: fonts.body, fontSize: 13, padding: "7px 9px", borderRadius: 7, border: "none", background: "transparent", color: t.accent, cursor: "pointer", fontWeight: 700 }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = t.themeBand)}
-            onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-          >
-            Sign out
-          </button>
-        </div>
+      {open && anchorStyle && (
+        <Portal>
+          <div ref={panelRef} className="dropdown-panel glass-overlay" style={{ ...anchorStyle, zIndex: "var(--z-popover)" as unknown as number, border: `1px solid ${t.ruleSoft}`, padding: 6, ...glassOverlayVars(t) }}>
+            {extra && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: "6px 9px 9px", borderBottom: `1px solid ${t.ruleSoft}`, marginBottom: 4 }}>
+                {extra}
+              </div>
+            )}
+            <div style={{ padding: "7px 9px", fontFamily: fonts.body, fontSize: 12, color: t.inkSoft, borderBottom: `1px solid ${t.ruleSoft}`, marginBottom: 4 }}>{user.email}</div>
+            <button
+              onClick={() => {
+                setOpen(false);
+                signOut();
+              }}
+              style={{ width: "100%", textAlign: "left", fontFamily: fonts.body, fontSize: 13, padding: "7px 9px", borderRadius: 7, border: "none", background: "transparent", color: t.accent, cursor: "pointer", fontWeight: 700 }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = t.themeBand)}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+            >
+              Sign out
+            </button>
+          </div>
+        </Portal>
       )}
     </div>
+  );
+}
+
+// One collapsed-nav item: the nav button plus its custom tooltip (role=
+// tooltip, hover + focus, replacing the native `title` attribute — §5). The
+// tooltip bubble is Portal-rendered to document.body, NOT a CSS `.tip__bubble`
+// positioned relative to the button in-place — `<nav>` (App.tsx's Report())
+// is `overflow-y:auto` for its own scrolling, and a mismatched overflow-x
+// stays a clipping box in every major engine despite being set to "visible"
+// (the visible/non-visible-axis quirk), so an in-place absolutely-positioned
+// bubble would get silently clipped at the nav's right edge. A tiny
+// hover/focus-driven position capture sidesteps that entirely.
+function NavItem({ collapsed, indent, on, label, Icon, showBadge, badgeCount, onClick, isActiveRef }: {
+  collapsed: boolean;
+  indent?: boolean;
+  on: boolean;
+  label: string;
+  Icon: ComponentType<{ size?: number }>;
+  showBadge: boolean;
+  badgeCount: number;
+  onClick: () => void;
+  isActiveRef: (el: HTMLButtonElement | null) => void;
+}) {
+  const t = useTheme();
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [tipPos, setTipPos] = useState<{ top: number; left: number } | null>(null);
+  const tipId = useRef(`nav-tip-${Math.random().toString(36).slice(2)}`).current;
+
+  useEffect(() => {
+    if (!collapsed) {
+      setTipPos(null);
+      return;
+    }
+    const el = btnRef.current;
+    if (!el) return;
+    const show = () => {
+      const r = el.getBoundingClientRect();
+      setTipPos({ top: r.top + r.height / 2, left: r.right + 8 });
+    };
+    const hide = () => setTipPos(null);
+    el.addEventListener("mouseenter", show);
+    el.addEventListener("mouseleave", hide);
+    el.addEventListener("focus", show);
+    el.addEventListener("blur", hide);
+    return () => {
+      el.removeEventListener("mouseenter", show);
+      el.removeEventListener("mouseleave", hide);
+      el.removeEventListener("focus", show);
+      el.removeEventListener("blur", hide);
+    };
+  }, [collapsed]);
+
+  return (
+    <>
+      <button
+        ref={(el) => {
+          (btnRef as { current: HTMLButtonElement | null }).current = el;
+          isActiveRef(el);
+        }}
+        onClick={onClick}
+        aria-current={on ? "page" : undefined}
+        aria-describedby={collapsed ? tipId : undefined}
+        className={`nav-item${on ? " is-active" : ""}`}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 11,
+          width: "100%",
+          textAlign: "left",
+          padding: collapsed ? "10px" : indent ? "9px 10px 9px 26px" : "9px 10px",
+          justifyContent: collapsed ? "center" : "flex-start",
+          border: "none",
+          borderRadius: 8,
+          cursor: "pointer",
+          marginBottom: 2,
+          background: "transparent",
+          color: t.ink,
+          fontFamily: fonts.body,
+          fontSize: indent ? 12.5 : 13.5,
+          fontWeight: on ? 700 : 500,
+          position: "relative",
+        }}
+      >
+        <Icon size={indent ? 15 : 18} />
+        {!collapsed && <span style={{ minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>}
+        {showBadge && (
+          <span
+            aria-hidden
+            className="nav-badge"
+            style={{
+              background: on ? t.paper : t.accentFill,
+              color: on ? t.ink : "#fff",
+              ...(collapsed ? { position: "absolute", top: 4, right: 4 } : { marginLeft: "auto" }),
+            }}
+          >
+            {badgeCount > 9 ? "9+" : badgeCount}
+          </span>
+        )}
+        {showBadge && <span className="sr-only">, {badgeCount} unacknowledged</span>}
+      </button>
+      {collapsed && tipPos && (
+        <Portal>
+          <span
+            role="tooltip"
+            id={tipId}
+            style={{
+              position: "fixed",
+              top: tipPos.top,
+              left: tipPos.left,
+              transform: "translateY(-50%)",
+              zIndex: "var(--z-popover)" as unknown as number,
+              transitionDuration: "60ms",
+              pointerEvents: "none",
+              display: "block",
+              background: t.paper,
+              color: t.ink,
+              border: `1px solid ${t.ruleSoft}`,
+              borderRadius: 7,
+              padding: "5px 9px",
+              fontFamily: fonts.body,
+              fontSize: 12,
+              boxShadow: t.shadow,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {label}
+          </span>
+        </Portal>
+      )}
+    </>
   );
 }
 
@@ -438,30 +652,242 @@ interface ShortcutEntry {
   run: () => void;
 }
 
-function Report() {
+// True when motion should be skipped: either the OS-level media query or the
+// in-app "Reduce motion" override (data-reduce-motion="true" on <html>, set
+// by DisplayPrefsProvider — see src/a11y/prefs-context.tsx). Mirrors the two
+// conditions every animated CSS class in styles.css is already gated behind.
+function prefersReducedMotion(): boolean {
+  return (
+    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ||
+    document.documentElement.getAttribute("data-reduce-motion") === "true"
+  );
+}
+
+// Page-transition crossfade buffer (nav/motion P1). `.anim-up` (styles.css)
+// already gives every page an "incoming fade+rise" on mount via React's
+// key={page.id} swap — what it can't give is an "outgoing fade" for the OLD
+// page, since a key change unmounts it instantly with no chance to animate
+// out. This holds the previous page on screen for --d-fast (120ms) behind a
+// `.page-leaving` opacity transition before swapping to the new one.
+function PageTransition({ page }: { page: Page }) {
+  const [shown, setShown] = useState(page);
+  const [leaving, setLeaving] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  useEffect(() => {
+    if (page.id === shown.id) return;
+    if (timerRef.current) clearTimeout(timerRef.current);
+    if (prefersReducedMotion()) {
+      setShown(page);
+      setLeaving(false);
+      return;
+    }
+    setLeaving(true);
+    // 120ms == --d-fast — keep in sync with that CSS token and with
+    // .page-leaving's own transition-duration in styles.css.
+    timerRef.current = setTimeout(() => {
+      setShown(page);
+      setLeaving(false);
+    }, 120);
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page]);
+
+  const ShownComponent = shown.Component;
+  return (
+    <div className={leaving ? "page-leaving" : undefined} style={{ height: "100%", minHeight: 0, display: "flex", flexDirection: "column" }}>
+      <ErrorBoundary resetKey={shown.id} label="This page">
+        <ShownComponent key={shown.id} />
+      </ErrorBoundary>
+    </div>
+  );
+}
+
+function Report({ ambientAccent }: { ambientAccent?: string }) {
   const t = useTheme();
-  const { reset, filters, peopleRate } = useFilters();
+  const { reset, filters, setFilters, peopleRate, applyView } = useFilters();
   const { user, signOut } = useAuth();
   const { can } = usePermissions();
-  const { unackedCount } = useAlerts();
+  const { unackedCount, sortedAlerts, acked, ackAll } = useAlerts();
+  const { pendingSync } = useReference();
+  const systemStatus = useSystemStatus();
   const { prefs, cycleTheme } = useDisplayPrefs();
   // High-contrast is a black/white CSS overlay (see styles.css) layered on top
   // of the dark-mode JS tokens — there is no separate "high-contrast" Mode in
   // theme.ts, so it maps to "dark" here for token/spoke-colour purposes.
   const mode: Mode = prefs.theme === "light" ? "light" : "dark";
+  const warnDot = t.status.warn;
   const persistKey = keyFor(PERSIST, user?.id);
   const [pageId, setPageId] = useState<string>(() => readNamespaced(PERSIST, user?.id, {} as { pageId?: string; collapsed?: boolean }).pageId ?? "overview");
   const [collapsed, setCollapsed] = useState<boolean>(() => readNamespaced(PERSIST, user?.id, {} as { pageId?: string; collapsed?: boolean }).collapsed ?? false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showA11yPanel, setShowA11yPanel] = useState(false);
+  // Command palette (nav/motion P1). Report() owns this state and passes
+  // everything CommandPalette needs down as props — see that component's
+  // file header for why (mirrors ViewsMenu/UserMenu's pageId/setPageId
+  // props rather than a new context).
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const cmdkFullRef = useRef<HTMLButtonElement>(null);
+  const cmdkIconRef = useRef<HTMLButtonElement>(null);
+  // Only one of the full/icon-label trigger buttons is ever visible at a
+  // given `.report__main` container width (see the .hdr-cmdk-full/
+  // .hdr-cmdk-icon container queries in styles.css, toggled via display:none
+  // — both stay mounted). A getter-based ref always reads whichever one is
+  // currently on-screen, so the coach mark (anchored via useAnchoredPopover
+  // inside CommandPalette) positions correctly regardless of header width.
+  const cmdkTriggerRef = useMemo<{ current: HTMLElement | null }>(
+    () => ({
+      get current() {
+        return cmdkFullRef.current?.offsetParent != null ? cmdkFullRef.current : cmdkIconRef.current;
+      },
+    }),
+    []
+  );
   const mainRef = useRef<HTMLElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const navRef = useRef<HTMLElement>(null);
+  const topRef = useRef<HTMLDivElement>(null);
+  const [navOrigin, setNavOrigin] = useState<string | null>(null);
+
+  // Sliding nav active-state indicator (§4): one shared absolutely-positioned
+  // bar, repositioned to the active item's offset within the nav list rather
+  // than rendered per-button, so it can visibly slide between items. Nav is
+  // `position:relative` (see the aside JSX) so offsetTop/offsetHeight are
+  // already relative to it, scroll-position included, with no extra math.
+  const navListRef = useRef<HTMLElement>(null);
+  const activeItemRef = useRef<HTMLButtonElement | null>(null);
+  const [barRect, setBarRect] = useState<{ top: number; height: number } | null>(null);
+
+  // Drill-through origin + browser Back support (§5). setPageId already
+  // flows through NavContext unchanged (other-owned pages call it as a plain
+  // `(id) => void` — see nav-context.ts's file header for why that contract
+  // is preserved) — `go` wraps it here, transparently, so origin-tracking
+  // and history both work regardless of whether navigation came from a
+  // nav-item click or a page's own useNav() call.
+  const go = (id: string) => {
+    setPageId((prev) => {
+      if (prev !== id) setNavOrigin(prev);
+      return id;
+    });
+  };
+  // `isPopRef` skips the push below when a page change came FROM popstate
+  // (the browser Back/Forward buttons already moved the history pointer —
+  // pushing again there would stack a duplicate entry and break Forward).
+  const isPopRef = useRef(false);
+  useEffect(() => {
+    if (isPopRef.current) {
+      isPopRef.current = false;
+      return;
+    }
+    try {
+      window.history.pushState({ pageId }, "", window.location.pathname + window.location.search);
+    } catch {
+      /* ignore (e.g. sandboxed iframe) */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageId]);
+  useEffect(() => {
+    const onPop = (e: PopStateEvent) => {
+      const id = (e.state as { pageId?: string } | null)?.pageId;
+      if (id) {
+        isPopRef.current = true;
+        setPageId(id);
+      }
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+  const navOriginValue = useMemo(
+    () => ({ from: navOrigin, back: () => { if (navOrigin) setPageId(navOrigin); } }),
+    [navOrigin],
+  );
+
+  // Header priority collapse (§2): most breakpoints are pure CSS container
+  // queries against `.report__main` (see styles.css) — the one exception is
+  // greeting+clocks relocating into the user-menu popover below 1400px,
+  // which can't be a container query because the destination (UserMenu's
+  // portalled panel) isn't a DOM descendant of the container being queried.
+  // ResizeObserver drives that one relocation at the same threshold instead.
+  const [headerCompactGreeting, setHeaderCompactGreeting] = useState(false);
+  useLayoutEffect(() => {
+    const el = topRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver((entries) => {
+      const rect = entries[0]?.contentRect;
+      const w = rect?.width ?? el.clientWidth;
+      setHeaderCompactGreeting(w < 1400);
+      // --top-h (nav/motion P1): the sticky band's live height, published on
+      // the scroll container so data pages can size to
+      // calc(100dvh - var(--top-h) - 2*var(--canvas-pad)). Same observer as
+      // headerCompactGreeting above (not a second one) — ResizeObserver
+      // fires once synchronously-ish on observe(), same as that state's own
+      // already-correct-on-first-paint behaviour, so no separate initial
+      // measurement call is needed here either.
+      const h = rect?.height ?? el.clientHeight;
+      scrollRef.current?.style.setProperty("--top-h", `${h}px`);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // will-change on the persistent glass surfaces only while `.report__main`
+  // is actively scrolling (cleared 150ms after the last scroll event) — see
+  // the .glass-persistent comment in styles.css.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    let idleTimer: ReturnType<typeof setTimeout> | undefined;
+    const onScroll = () => {
+      navRef.current?.classList.add("is-scrolling");
+      topRef.current?.classList.add("is-scrolling");
+      // Sticky band shadow (nav/motion P1): tracks scrollTop live, on every
+      // scroll event — unlike is-scrolling above, this is NOT idle-debounced.
+      topRef.current?.classList.toggle("report__top--shadow", el.scrollTop > 8);
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        navRef.current?.classList.remove("is-scrolling");
+        topRef.current?.classList.remove("is-scrolling");
+      }, 150);
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      if (idleTimer) clearTimeout(idleTimer);
+    };
+  }, []);
 
   // Pages gated behind a permission (e.g. Admin behind view_admin, Playbook
   // and Data Model behind view_docs — see the Page.permission comment) drop
   // out of the nav entirely for a user who can't view them.
   const visiblePages = PAGES.filter((p) => !p.permission || can(p.permission));
   const page = visiblePages.find((p) => p.id === pageId) ?? visiblePages[0];
-  const PageBody = page.Component;
+
+  // Recomputed whenever the active item might have moved: page change,
+  // collapse toggle, or the visible-page set itself changing (e.g. a
+  // permission change altering the group layout above it). Deliberately
+  // dependency-gated rather than run-after-every-render-unconditionally —
+  // an earlier version relied on returning the SAME object reference from
+  // the setState updater to make an unconditional (no-deps) effect safe,
+  // which is the textbook pattern, but empirically still produced a real
+  // "Maximum update depth exceeded" loop at a fractional `zoom` text-scale
+  // (115%/130% — confirmed via the P0 acceptance harness) even though the
+  // updater verifiably always returned the prior reference once stable —
+  // i.e. something about a zoomed layout pass appears to defeat React's
+  // eager-bailout optimisation for a same-value functional update fired
+  // from a no-deps useLayoutEffect. Gating on real dependencies sidesteps
+  // that class of risk entirely rather than depending on the optimisation.
+  useLayoutEffect(() => {
+    const el = activeItemRef.current;
+    if (!el) return;
+    // Rounded to whole pixels — purely cosmetic insurance against subpixel
+    // jitter under `zoom`, not load-bearing for the loop above (which is
+    // now prevented by the dependency array instead).
+    setBarRect({ top: Math.round(el.offsetTop), height: Math.round(el.offsetHeight) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageId, collapsed, visiblePages.length]);
 
   useEffect(() => {
     try {
@@ -497,17 +923,26 @@ function Report() {
   const shortcuts: ShortcutEntry[] = useMemo(
     () => [
       { keys: "?", description: "Show keyboard shortcuts", test: (e) => e.key === "?", run: () => setShowShortcuts(true) },
+      // The real Ctrl/Cmd+K handler lives outside this registry, in the
+      // keydown effect below — it must fire even while typing in an input
+      // (this array's entries are all skipped while typing, see that
+      // effect's `typing` guard), so `test` here is inert. ShortcutsDialog
+      // only ever renders `.keys`/`.description` off this array — it never
+      // calls `.test`/`.run` — so a dummy `test` is safe: this entry exists
+      // purely so the cheat-sheet lists the shortcut.
+      { keys: "⌘K / Ctrl+K", description: "Open the command palette", test: () => false, run: () => {} },
       { keys: "Shift+A", description: "Open Accessibility & display settings", test: (e) => e.shiftKey && e.key.toLowerCase() === "a", run: () => setShowA11yPanel(true) },
-      { keys: "/", description: "Focus the first slicer (Spoke)", test: (e) => e.key === "/", run: () => { if (!page.noSlicers) (document.querySelector('[data-first-slicer="true"]') as HTMLElement | null)?.focus(); } },
+      { keys: "/", description: "Focus the first slicer (Spoke)", test: (e) => e.key === "/", run: () => { if (!page?.noSlicers) (document.querySelector('[data-first-slicer="true"]') as HTMLElement | null)?.focus(); } },
       { keys: "[", description: "Toggle navigation collapse", test: (e) => e.key === "[", run: () => setCollapsed((c) => !c) },
       { keys: "Esc", description: "Close the shortcuts list", test: (e) => e.key === "Escape", run: () => setShowShortcuts(false) },
       ...visiblePages.slice(0, 9).map((p, i) => ({
         keys: `Alt+${i + 1}`,
         description: `Go to ${p.label}`,
         test: (e: KeyboardEvent) => e.altKey && e.key === String(i + 1),
-        run: () => setPageId(p.id),
+        run: () => go(p.id),
       })),
     ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [visiblePages, collapsed, page]
   );
 
@@ -518,9 +953,31 @@ function Report() {
       // Escape handling) — global shortcuts like Alt+1..9 or "/" must not
       // reach through the modal and change the page/focus behind it.
       if (showA11yPanel || showShortcuts) return;
+      // Command palette trigger (nav/motion P1): registered directly here,
+      // not through the `shortcuts` registry above, and checked BEFORE the
+      // `typing` early-return below — Ctrl/Cmd+K must open the palette even
+      // while focus is inside an input/textarea/select (that early-return
+      // exists to protect ordinary text entry from single-key shortcuts
+      // like "?" or "/", which a modifier chord like this never collides
+      // with).
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen(true);
+        return;
+      }
       const el = e.target as HTMLElement;
       const typing = el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable;
-      if (typing) return;
+      // Alt+1..9 (below) must keep working even while the command palette's
+      // own search input has focus (a real INPUT element, which the
+      // `typing` gate above would otherwise block every shortcut behind).
+      // Scoped to `paletteOpen` specifically, NOT a blanket "any Alt-chord
+      // bypasses typing everywhere" rule: e.altKey is also true for AltGr on
+      // many European keyboard layouts (Windows reports it as Ctrl+Alt), so
+      // a global bypass would let AltGr-typed characters in an ordinary
+      // text field (e.g. "@" on a German layout) accidentally trigger page
+      // navigation. Every OTHER registry entry above (?, Shift+A, /, [, Esc)
+      // stays fully blocked while typing, unchanged, in every context.
+      if (typing && !(paletteOpen && e.altKey)) return;
       for (const s of shortcuts) {
         if (s.test(e)) {
           e.preventDefault();
@@ -531,7 +988,29 @@ function Report() {
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [shortcuts, showA11yPanel, showShortcuts]);
+  }, [shortcuts, showA11yPanel, showShortcuts, paletteOpen]);
+
+  // Hardening: every render below this point assumes `page` exists. It
+  // normally always does (Overview/Alerts/etc. carry no permission gate at
+  // all), but a role with no visible pages at all must render an empty
+  // state rather than crash on `page.Component`/`page.label`/etc. This check
+  // MUST come after every hook above (all of which must run unconditionally
+  // on every render, per the Rules of Hooks) rather than as an early return
+  // above them — an early return before a hook call would change how many
+  // hooks run between renders (e.g. if a live permission change, via
+  // refreshSession(), makes visiblePages empty on an already-mounted Report).
+  if (!page) {
+    return (
+      <div className="report" data-mode={mode} style={{ background: t.page, color: t.ink, display: "grid", placeItems: "center" }}>
+        <div style={{ textAlign: "center", padding: 24, maxWidth: 360 }}>
+          <p style={{ fontFamily: fonts.display, fontSize: 18, color: t.ink, marginBottom: 6 }}>No pages available</p>
+          <p style={{ fontFamily: fonts.body, fontSize: 13, color: t.inkSoft, margin: 0 }}>
+            Your account doesn't have access to any dashboard page. Contact an administrator.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -545,79 +1024,69 @@ function Report() {
       >
         Skip to content
       </a>
-      <div className="report" data-mode={mode} style={{ background: t.page, color: t.ink }}>
+      <div className="report" data-mode={mode} style={{ background: t.page, color: t.ink, ["--ink" as string]: t.ink, ...(ambientAccent ? { ["--ambient-accent" as string]: ambientAccent } : {}) }}>
         <div aria-live="polite" className="sr-only">
           {page.label} page loaded. {activeFilters} filter{activeFilters === 1 ? "" : "s"} active.
         </div>
         <ReadingRuler />
         {/* ---- left navigation ---- */}
-        <aside className="report__nav" style={{ width: collapsed ? 62 : 232, background: t.paper, borderRight: `1px solid ${t.ruleSoft}` }}>
+        <aside ref={navRef} className="report__nav glass-persistent" style={{ width: collapsed ? 62 : 232, borderRight: `1px solid ${t.ruleSoft}` }}>
           <div className="report__brand" style={{ borderBottom: `1px solid ${t.ruleSoft}` }}>
-            <span style={{ display: "grid", placeItems: "center", width: 32, height: 32, borderRadius: 9, background: t.accentFill, color: "#fff", flex: "0 0 auto", fontFamily: fonts.display, fontWeight: 700, fontSize: 17 }}>IA</span>
+            <span style={{ position: "relative", display: "grid", placeItems: "center", width: 32, height: 32, borderRadius: 9, background: t.accentFill, color: "#fff", flex: "0 0 auto", fontFamily: fonts.display, fontWeight: 700, fontSize: 17 }}>
+              IA
+              {/* Spoke dot under the brand mark when a spoke is active, even
+                  collapsed — the only spoke-identity cue left once the label
+                  (and its own dot, below) is hidden by collapse. */}
+              {collapsed && filters.spoke !== "All" && (
+                <span aria-hidden style={{ position: "absolute", bottom: -2, right: -2, width: 8, height: 8, borderRadius: "50%", background: t.spoke ?? t.accent, border: `1.5px solid ${t.paper}` }} />
+              )}
+            </span>
             {!collapsed && (
               <span style={{ minWidth: 0 }}>
                 <span style={{ display: "block", fontFamily: fonts.display, fontSize: 13, fontWeight: 700, lineHeight: 1.15, color: t.ink }}>Intelligent Automation</span>
                 {/* brand sub-label carries the active spoke identity + its colour */}
-                <span style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: fonts.mono, fontSize: 9.5, letterSpacing: "0.08em", textTransform: "uppercase", color: filters.spoke !== "All" ? t.accent : t.inkSoft, whiteSpace: "nowrap", overflow: "hidden" }}>
-                  {filters.spoke !== "All" && <span style={{ width: 6, height: 6, borderRadius: "50%", background: t.accent, flex: "0 0 auto" }} />}
+                <span style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: fonts.mono, fontSize: 9.5, letterSpacing: "0.08em", textTransform: "uppercase", color: filters.spoke !== "All" ? t.spoke ?? t.accent : t.inkSoft, whiteSpace: "nowrap", overflow: "hidden" }}>
+                  {filters.spoke !== "All" && <span style={{ width: 6, height: 6, borderRadius: "50%", background: t.spoke ?? t.accent, flex: "0 0 auto" }} />}
                   <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{filters.spoke !== "All" ? SPOKE_INFO[filters.spoke]?.short ?? filters.spoke : "IA CoE · Hub view"}</span>
                 </span>
               </span>
             )}
           </div>
 
-          <nav aria-label="Pages" style={{ flex: 1, overflow: "auto", padding: "10px 8px" }}>
-            {groups.map((g) => (
+          <nav ref={navListRef} aria-label="Pages" style={{ flex: 1, overflow: "auto", padding: "10px 8px", position: "relative" }}>
+            <div
+              aria-hidden
+              className="nav-active-bar"
+              style={{ top: barRect?.top ?? 0, height: barRect?.height ?? 0, opacity: barRect ? 1 : 0, background: t.spoke ?? t.accent }}
+            />
+            {groups.map((g, gi) => (
               <div key={g} style={{ marginBottom: 10 }}>
+                {collapsed && gi > 0 && <div style={{ borderTop: `1px solid ${t.ruleSoft}`, margin: "6px 8px 8px" }} />}
                 {!collapsed && <div style={{ fontFamily: fonts.mono, fontSize: 9, letterSpacing: "0.12em", textTransform: "uppercase", color: t.inkSoft, padding: "6px 10px 4px", opacity: 0.8 }}>{g}</div>}
                 {visiblePages.filter((p) => p.group === g).map((p) => {
                   const on = p.id === pageId;
                   const isAlerts = p.id === "alerts";
                   const showBadge = isAlerts && unackedCount > 0;
+                  // process-detail (the one `indent` page) shows the drilled
+                  // process's name instead of its generic label once a drill
+                  // is active, so the nav itself previews where "back" leads.
+                  const activeProcess = p.indent && filters.processId !== "All" ? PROCESS_BY_ID.get(filters.processId)?.name : undefined;
+                  const label = activeProcess ?? p.label;
                   return (
-                    <button
+                    <NavItem
                       key={p.id}
-                      onClick={() => setPageId(p.id)}
-                      title={p.label}
-                      aria-current={on ? "page" : undefined}
-                      className={`nav-item${on ? " is-active" : ""}`}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 11,
-                        width: "100%",
-                        textAlign: "left",
-                        padding: collapsed ? "10px" : "9px 10px",
-                        justifyContent: collapsed ? "center" : "flex-start",
-                        border: "none",
-                        borderRadius: 8,
-                        cursor: "pointer",
-                        marginBottom: 2,
-                        background: on ? t.accent : "transparent",
-                        color: on ? "#fff" : t.ink,
-                        fontFamily: fonts.body,
-                        fontSize: 13.5,
-                        fontWeight: on ? 700 : 500,
-                        position: "relative",
+                      collapsed={collapsed}
+                      indent={p.indent}
+                      on={on}
+                      label={label}
+                      Icon={p.Icon}
+                      showBadge={showBadge}
+                      badgeCount={unackedCount}
+                      onClick={() => go(p.id)}
+                      isActiveRef={(el) => {
+                        if (on) activeItemRef.current = el;
                       }}
-                    >
-                      <p.Icon size={18} />
-                      {!collapsed && <span style={{ minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.label}</span>}
-                      {showBadge && (
-                        <span
-                          aria-hidden
-                          className="nav-badge"
-                          style={{
-                            background: on ? "#fff" : t.accentFill,
-                            color: on ? t.accent : "#fff",
-                            ...(collapsed ? { position: "absolute", top: 4, right: 4 } : { marginLeft: "auto" }),
-                          }}
-                        >
-                          {unackedCount > 9 ? "9+" : unackedCount}
-                        </span>
-                      )}
-                      {showBadge && <span className="sr-only">, {unackedCount} unacknowledged</span>}
-                    </button>
+                    />
                   );
                 })}
               </div>
@@ -635,48 +1104,126 @@ function Report() {
         </aside>
 
         {/* ---- main column ---- */}
-        <div className="report__main">
-          <header className="report__header" style={{ background: t.paper, borderBottom: `1px solid ${t.ruleSoft}` }}>
+        <div className="report__main" ref={scrollRef}>
+          {/* Sticky glass band: header + slicer bar scroll together, pinned
+              to the top of `.report__main` (the actual scroll container —
+              see styles.css) while canvas content passes beneath them. Also
+              the container-query root for the header's priority collapse. */}
+          <div ref={topRef} className="report__top glass-persistent">
+          <header className="report__header" style={{ borderBottom: `1px solid ${t.ruleSoft}` }}>
             {/* Title + blurb share one baseline row (blurb truncates first) so
-                the header fits the shared --header-h band. */}
+                the header fits the shared --header-h band. h1 has a fixed
+                160px floor (styles.css) and never truncates. */}
             <div style={{ minWidth: 0, display: "flex", alignItems: "baseline", gap: 10, overflow: "hidden" }}>
               <h1 style={{ margin: 0, fontFamily: fonts.display, fontSize: 18, fontWeight: 700, color: t.ink, lineHeight: 1.1, whiteSpace: "nowrap" }}>{page.label}</h1>
-              <p style={{ margin: 0, fontFamily: fonts.body, fontSize: 12, color: t.inkSoft, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>
+              <p className="hdr-blurb-text" style={{ margin: 0, fontFamily: fonts.body, fontSize: 12, color: t.inkSoft, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>
                 <Bionic>{page.blurb}</Bionic>
               </p>
             </div>
+            {/* <1680px container width: the blurb collapses to an info
+                tooltip rather than disappearing outright. Kept OUTSIDE the
+                title row above (that row's own overflow:hidden, needed for
+                the blurb's text-overflow:ellipsis, would otherwise clip this
+                tooltip's popup). */}
+            <span className="tip hdr-blurb-tip" tabIndex={0} aria-label={page.blurb} style={{ color: t.inkSoft, flex: "0 0 auto", cursor: "help" }}>
+              <IconInfo size={15} />
+              <span role="tooltip" className="tip__bubble tip__bubble--below" style={{ left: 0, transform: "none", transitionDuration: "60ms" }}>
+                <span style={{ display: "block", background: t.paper, color: t.ink, border: `1px solid ${t.ruleSoft}`, borderRadius: 7, padding: "7px 10px", fontFamily: fonts.body, fontSize: 12, boxShadow: t.shadow }}>
+                  {page.blurb}
+                </span>
+              </span>
+            </span>
+            {/* Page-header contextual actions slot (nav/motion P1) — see the
+                Page.actions field's doc comment above. Sits left, grouped
+                with the title, not with the global chrome to the right of
+                the spacer below. */}
+            {page.actions && (
+              <span className="hdr-page-actions">
+                <page.actions />
+              </span>
+            )}
             <div style={{ flex: 1 }} />
             {/* Right cluster: data-freshness pill · greeting · clocks — each a
                 SINGLE line, centre-aligned in the 56px band, separated by
                 hairline dividers. Detail (source, build time, full date,
                 season) lives in tooltips, not extra visual lines. */}
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: fonts.mono, fontSize: 10.5, letterSpacing: "0.04em", color: t.inkSoft, whiteSpace: "nowrap" }} title={`Data through ${fmtDateFull(DATE_MAX)} · Source: ${META.source} · ${META.sourceRows.toLocaleString()} queue items · built ${META.generatedAt.slice(0, 16).replace("T", " ")}`}>
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: t.status.committed.dot, flex: "0 0 auto" }} className="pulse-soft" />
+            <span
+              className="hdr-fresh-full"
+              style={{ alignItems: "center", gap: 6, fontFamily: fonts.mono, fontSize: 10.5, letterSpacing: "0.04em", color: t.inkSoft, whiteSpace: "nowrap" }}
+              title={
+                systemStatus.apiOk
+                  ? `Data through ${fmtDateFull(DATE_MAX)} · Source: ${META.source} · ${META.sourceRows.toLocaleString()} queue items · built ${META.generatedAt.slice(0, 16).replace("T", " ")}`
+                  : "API unreachable — showing last loaded data"
+              }
+            >
+              {/* Colour-only state change (same 6px dot, same position in every
+                  theme): amber when the API health poll is failing, the
+                  usual status colour otherwise — see src/data/status.tsx. */}
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: systemStatus.apiOk ? t.status.committed.dot : warnDot, flex: "0 0 auto" }} className="pulse-soft" />
               Data to {fmtDateFull(DATE_MAX)} · {META.sourceRows.toLocaleString()}
             </span>
-            <span aria-hidden="true" style={{ width: 1, height: 18, background: t.ruleSoft, flex: "0 0 auto" }} />
-            {/* Personalisation: greeting + live clocks, grouped near the user
-                chip since both are per-user rather than per-page content. */}
-            <Welcome name={user!.name} />
-            <span aria-hidden="true" style={{ width: 1, height: 18, background: t.ruleSoft, flex: "0 0 auto" }} />
-            <Clocks />
-            <ViewsMenu pageId={pageId} setPageId={setPageId} />
-            <button onClick={reset} className="hdr-btn" style={btn(t)} title="Clear all slicers">
-              <IconRefresh size={13} /> Reset{activeFilters ? ` (${activeFilters})` : ""}
-            </button>
-            <NotificationBell setPageId={setPageId} />
-            <button
-              onClick={() => setShowA11yPanel(true)}
-              className="bar-btn"
-              aria-label="Accessibility and display settings"
-              title="Accessibility & display (Shift+A)"
-              style={{ ...btn(t), padding: "6px 9px" }}
+            {/* <1040px: the pill collapses to a dot + tooltip (same info, on hover/focus). */}
+            <span
+              className="hdr-fresh-dot"
+              aria-label={`Data to ${fmtDateFull(DATE_MAX)}, ${META.sourceRows.toLocaleString()} queue items`}
+              title={systemStatus.apiOk ? `Data through ${fmtDateFull(DATE_MAX)} · ${META.sourceRows.toLocaleString()} queue items` : "API unreachable — showing last loaded data"}
+              style={{ alignItems: "center" }}
             >
-              <IconAccessibility size={15} />
+              <span style={{ width: 7, height: 7, borderRadius: "50%", background: systemStatus.apiOk ? t.status.committed.dot : warnDot, flex: "0 0 auto" }} className="pulse-soft" />
+            </span>
+            {pendingSync && (
+              <span
+                title="Unsynced edit — saved locally and will sync automatically"
+                aria-label="Unsynced edit — saved locally and will sync automatically"
+                style={{ display: "inline-flex", alignItems: "center", gap: 5, fontFamily: fonts.mono, fontSize: 9.5, letterSpacing: "0.05em", textTransform: "uppercase", color: t.inkSoft, whiteSpace: "nowrap" }}
+              >
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: warnDot, flex: "0 0 auto" }} className="pulse-soft" />
+                Unsynced
+              </span>
+            )}
+            {/* Personalisation: greeting + live clocks. Full inline
+                >=1400px container width; below that they relocate into the
+                user menu's popover (see UserMenu's `extra` prop below) since
+                a container query can't reach portalled content — driven by
+                `headerCompactGreeting` (ResizeObserver on .report__top). */}
+            {!headerCompactGreeting && (
+              <>
+                <span aria-hidden="true" style={{ width: 1, height: 18, background: t.ruleSoft, flex: "0 0 auto" }} />
+                <Welcome name={user!.name} />
+                <span aria-hidden="true" style={{ width: 1, height: 18, background: t.ruleSoft, flex: "0 0 auto" }} />
+                <Clocks />
+              </>
+            )}
+            <ViewsMenu pageId={pageId} setPageId={go} />
+            <button onClick={reset} className="hdr-btn bar-btn" style={btn(t)} title="Clear all slicers">
+              <IconRefresh size={13} />
+              <span className="hdr-reset-label">Reset</span>
+              {activeFilters > 0 && (
+                <span aria-hidden className="nav-badge" style={{ background: t.accentFill, color: "#fff" }}>
+                  {activeFilters}
+                </span>
+              )}
+              {activeFilters > 0 && <span className="sr-only">, {activeFilters} active</span>}
             </button>
+            <NotificationBell setPageId={go} />
+            <span className="hdr-a11y-inline">
+              <button
+                onClick={() => setShowA11yPanel(true)}
+                className="bar-btn"
+                aria-label="Accessibility and display settings"
+                title="Accessibility & display (Shift+A)"
+                style={{ ...btn(t), padding: "0 9px" }}
+              >
+                <IconAccessibility size={15} />
+              </button>
+            </span>
+            {/* Theme control: full text label >=1400px, icon-only 1200-1399px,
+                collapsed into the ⋯ overflow menu below 1200px (see
+                HeaderOverflowMenu below and the .hdr-theme-* / .hdr-overflow-
+                trigger container queries in styles.css). */}
             <button
               onClick={cycleTheme}
-              className="bar-btn"
+              className="bar-btn hdr-theme-full"
               // minWidth + centered text: this button's own label IS the
               // current theme name ("Light" / "Dark" / "High contrast"), so
               // without a fixed floor its content-driven width would grow
@@ -690,24 +1237,159 @@ function Report() {
             >
               {prefs.theme === "light" ? "Light" : prefs.theme === "dark" ? "Dark" : "High contrast"}
             </button>
-            {user && <UserMenu user={user} signOut={signOut} />}
+            <button
+              onClick={cycleTheme}
+              className="bar-btn hdr-theme-icon"
+              aria-label={`Theme: ${prefs.theme === "light" ? "Light" : prefs.theme === "dark" ? "Dark" : "High contrast"}. Activate to cycle.`}
+              title="Cycle theme (light / dark / high contrast)"
+              style={{ ...btn(t), padding: "0 9px" }}
+            >
+              {prefs.theme === "light" ? <IconSun size={15} /> : prefs.theme === "dark" ? <IconMoon size={15} /> : <IconContrastCircle size={15} />}
+            </button>
+            <HeaderOverflowMenu
+              items={[
+                { key: "a11y", label: "Accessibility & display", icon: <IconAccessibility size={15} />, onClick: () => setShowA11yPanel(true) },
+                {
+                  key: "theme",
+                  label: `Theme: ${prefs.theme === "light" ? "Light" : prefs.theme === "dark" ? "Dark" : "High contrast"}`,
+                  icon: prefs.theme === "light" ? <IconSun size={15} /> : prefs.theme === "dark" ? <IconMoon size={15} /> : <IconContrastCircle size={15} />,
+                  onClick: cycleTheme,
+                },
+              ]}
+            />
+            {user && (
+              <UserMenu
+                user={user}
+                signOut={signOut}
+                extra={
+                  headerCompactGreeting ? (
+                    <>
+                      <Welcome name={user.name} />
+                      <Clocks />
+                    </>
+                  ) : undefined
+                }
+              />
+            )}
+            {/* Command palette trigger (nav/motion P1) — priority 3 after
+                the user menu: last, rightmost in the header. Own single
+                1200px full/icon threshold, kept OUT of the ⋯ overflow menu
+                (see the .hdr-cmdk-* container queries in styles.css) — the
+                flagship feature must always stay reachable inline. */}
+            <button
+              ref={cmdkFullRef}
+              onClick={() => setPaletteOpen(true)}
+              className="bar-btn hdr-cmdk-full"
+              style={btn(t)}
+              aria-haspopup="dialog"
+              title="Search everything (Ctrl+K)"
+            >
+              <IconSearch size={13} />
+              Search…
+              <span
+                className="cmdk-kbd"
+                aria-hidden="true"
+                style={{ fontFamily: fonts.mono, fontSize: 10, fontWeight: 700, background: t.themeBand, border: `1px solid ${t.ruleSoft}`, borderRadius: 6, padding: "1px 6px", marginLeft: 2 }}
+              >
+                ⌘K
+              </span>
+            </button>
+            <button
+              ref={cmdkIconRef}
+              onClick={() => setPaletteOpen(true)}
+              className="bar-btn hdr-cmdk-icon"
+              aria-label="Search (Ctrl+K)"
+              title="Search everything (Ctrl+K)"
+              style={{ ...btn(t), padding: "0 9px" }}
+            >
+              <IconSearch size={15} />
+            </button>
           </header>
 
           {!page.noSlicers && (
-            <div className="report__slicers" style={{ background: t.page, borderBottom: `1px solid ${t.ruleSoft}` }}>
+            <div className="report__slicers" style={{ borderBottom: `1px solid ${t.ruleSoft}` }}>
               <FilterBar />
+              {/* Drill chip (nav/motion P1) — Slicers.tsx's "Process name"
+                  slicer already surfaces the active process as its own
+                  summary text, but nothing else on the page names it or
+                  offers a one-click way out of the drill; this adds that.
+                  See the task report for the "existing drill chip"
+                  investigation this followed. */}
+              {filters.processId !== "All" && (
+                <span
+                  className="drill-chip"
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    marginTop: 10,
+                    padding: "4px 6px 4px 10px",
+                    borderRadius: 999,
+                    background: t.themeBand,
+                    border: `1px solid ${t.ruleSoft}`,
+                    fontFamily: fonts.mono,
+                    fontSize: 11,
+                    color: t.ink,
+                  }}
+                >
+                  Process: {PROCESS_BY_ID.get(filters.processId)?.name ?? filters.processId}
+                  <button
+                    onClick={() => setFilters({ processId: "All" })}
+                    aria-label="Clear process filter"
+                    style={{ border: "none", background: "transparent", color: t.inkSoft, cursor: "pointer", fontSize: 14, lineHeight: 1, padding: "0 2px" }}
+                  >
+                    ×
+                  </button>
+                </span>
+              )}
             </div>
           )}
+          </div>
 
           <main id="main-content" tabIndex={-1} ref={mainRef} className="report__canvas">
-            <NavContext.Provider value={setPageId}>
-              <PageBody key={page.id} />
+            <NavContext.Provider value={go}>
+              <NavOriginContext.Provider value={navOriginValue}>
+                {/* Page-level crash containment: resetKey={shown.id} (inside
+                    PageTransition) means a crash on one page never takes the
+                    nav/header down with it, and navigating to a different
+                    page (or back to the same one via a fresh key) always
+                    recovers automatically. The app-wide ErrorBoundary in
+                    src/main.tsx is the last line of defence beyond this one.
+                    PageTransition (nav/motion P1) wraps this crossfade —
+                    see its own comment above. */}
+                <PageTransition page={page} />
+              </NavOriginContext.Provider>
             </NavContext.Provider>
           </main>
         </div>
       </div>
       {showA11yPanel && <DisplayPanel onClose={() => setShowA11yPanel(false)} />}
       {showShortcuts && <ShortcutsDialog shortcuts={shortcuts} onClose={() => setShowShortcuts(false)} />}
+      {/* Always mounted (unlike the two dialogs above) so its one-time coach
+          mark can show near the trigger before the palette is ever opened —
+          see CommandPalette.tsx's own file header. */}
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        triggerRef={cmdkTriggerRef}
+        go={go}
+        visiblePages={visiblePages}
+        savedViews={loadViews(user?.id)}
+        setFilters={setFilters}
+        applyView={applyView}
+        user={user}
+        reset={reset}
+        cycleTheme={cycleTheme}
+        collapsed={collapsed}
+        setCollapsed={setCollapsed}
+        setShowA11yPanel={setShowA11yPanel}
+        setShowShortcuts={setShowShortcuts}
+        signOut={signOut}
+        can={can}
+        sortedAlerts={sortedAlerts}
+        acked={acked}
+        ackAll={ackAll}
+      />
     </>
   );
 }
@@ -749,8 +1431,8 @@ function ShortcutsDialog({ shortcuts, onClose }: { shortcuts: ShortcutEntry[]; o
         role="dialog"
         aria-modal="true"
         aria-labelledby="shortcuts-dialog-title"
-        className="modal-dialog liquid-glass"
-        style={liquidGlassVars(t)}
+        className="modal-dialog glass-overlay"
+        style={glassOverlayVars(t)}
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
@@ -790,21 +1472,35 @@ function ShortcutsDialog({ shortcuts, onClose }: { shortcuts: ShortcutEntry[]; o
   );
 }
 
+// Unified control recipe (§2): every header control is exactly
+// --control-h (32px) tall, box-sizing:border-box so padding can't push past
+// that, and never wraps — controls grow sideways only. Callers that need a
+// different horizontal padding (icon-only buttons, the width-floored theme
+// toggle) override `padding`/`minWidth` alone; height/border/radius/font
+// stay identical everywhere so every header control is visually unified.
 function btn(t: ReturnType<typeof useTheme>) {
   return {
-    display: "inline-flex",
+    // display is NOT set here — it lives in the `.bar-btn` CSS class instead
+    // (styles.css) so the .hdr-theme-full/.hdr-theme-icon container-query
+    // rules can override it; an inline style always beats an external rule
+    // of any specificity, which silently defeated those container queries
+    // when display used to be set here (every btn(t) consumer also carries
+    // className="bar-btn" — see that class's comment).
     alignItems: "center",
     gap: 6,
     fontFamily: fonts.mono,
     fontSize: 11,
     letterSpacing: "0.04em",
     textTransform: "uppercase" as const,
-    padding: "7px 12px",
-    borderRadius: 8,
+    height: "var(--control-h)",
+    padding: "0 12px",
+    borderRadius: "var(--r-control)",
     cursor: "pointer",
     fontWeight: 700,
     border: `1px solid ${t.ruleSoft}`,
     background: "transparent",
     color: t.inkSoft,
+    whiteSpace: "nowrap" as const,
+    boxSizing: "border-box" as const,
   };
 }

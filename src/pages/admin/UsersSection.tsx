@@ -123,7 +123,7 @@ export function UsersSection({ reference }: SectionProps) {
               const isSelf = u.id === me?.id;
               return (
                 <tr key={u.id}>
-                  <Td>{editing ? <input style={inputStyle(t)} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} aria-label="Name" /> : <>{u.name}{isSelf && <span style={{ marginLeft: 6, fontFamily: fonts.mono, fontSize: 9.5, color: t.inkSoft }}>(you)</span>}</>}</Td>
+                  <Td>{editing ? <input style={inputStyle(t)} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} aria-label="Name" maxLength={80} /> : <>{u.name}{isSelf && <span style={{ marginLeft: 6, fontFamily: fonts.mono, fontSize: 9.5, color: t.inkSoft }}>(you)</span>}</>}</Td>
                   <Td muted>{editing ? <input style={inputStyle(t)} value={draft.email} onChange={(e) => setDraft({ ...draft, email: e.target.value })} aria-label="Email" /> : u.email}</Td>
                   <Td>
                     {editing ? (
@@ -178,7 +178,7 @@ export function UsersSection({ reference }: SectionProps) {
       {adding ? (
         <div style={{ border: `1px dashed ${t.ruleSoft}`, borderRadius: 10, padding: 14, marginTop: 12, display: "flex", flexDirection: "column", gap: 10, maxWidth: 640 }}>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <Field id="ua-name" label="Name" width={200}><input id="ua-name" style={inputStyle(t)} value={addDraft.name} onChange={(e) => setAddDraft({ ...addDraft, name: e.target.value })} /></Field>
+            <Field id="ua-name" label="Name" width={200}><input id="ua-name" style={inputStyle(t)} value={addDraft.name} onChange={(e) => setAddDraft({ ...addDraft, name: e.target.value })} maxLength={80} /></Field>
             <Field id="ua-email" label="Email" width={220}><input id="ua-email" type="email" style={inputStyle(t)} value={addDraft.email} onChange={(e) => setAddDraft({ ...addDraft, email: e.target.value })} /></Field>
             <Field id="ua-pass" label="Initial passphrase" width={160}><input id="ua-pass" style={inputStyle(t)} value={addPass} onChange={(e) => setAddPass(e.target.value)} /></Field>
           </div>

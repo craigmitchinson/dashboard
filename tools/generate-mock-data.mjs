@@ -80,7 +80,21 @@ const PROD_VDIS = [
   { name: "VDI-RPA-PROD-10", spoke: 4, from: START, to: null },
   { name: "VDI-RPA-PROD-11", spoke: 4, from: Date.UTC(2025, 8, 1), to: null },
 ];
-const liveVdis = (ts, spoke) => PROD_VDIS.filter((v) => v.spoke === spoke && ts >= v.from && (v.to === null || ts <= v.to));
+// D6 demonstrability: exactly one ACTIVE, registered VDI goes idle ~30 days
+// before data-through and stays idle through the end of the window, so the
+// stale-VDI alert (src/alerts/engine.ts) and the Capacity page's idle-review
+// queue have something real to fire on against the mock dataset — without
+// this, every active VDI has activity through data-through and that feature
+// path is permanently untested/invisible. VDI-RPA-PROD-06 (spoke 1) is
+// picked because spoke 1 has plenty of OTHER live VDIs (01/02/04/05/07) to
+// absorb its share of the workload, so removing it from the selection pool
+// doesn't starve any queue. Deterministic: same seed -> same last-seen date.
+const STALE_VDI = "VDI-RPA-PROD-06";
+const STALE_IDLE_DAYS = 30;
+const STALE_CUTOFF = END - STALE_IDLE_DAYS * DAY; // STALE_VDI may only be picked on/before this ts
+
+const liveVdis = (ts, spoke) =>
+  PROD_VDIS.filter((v) => v.spoke === spoke && ts >= v.from && (v.to === null || ts <= v.to) && !(v.name === STALE_VDI && ts > STALE_CUTOFF));
 
 // --- exception reason catalogue ---------------------------------------------
 // base text -> emitted either prefixed (the convention, ~85%) or legacy/unprefixed.

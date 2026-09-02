@@ -2,9 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { useTheme } from "../theme-context";
 import { fonts } from "../theme";
-import { useAuth } from "../auth/auth-context";
+import { useAuth, lastEntraError } from "../auth/auth-context";
 import { listUsers } from "../auth/dev-provider";
+import { isEntraConfigured } from "../auth/entra-provider";
 import { highestRoleLabel } from "../auth/types";
+
+// Which provider is active — the ONLY other place this same check is made is
+// auth-context.tsx's own provider selection. Reading the env var directly
+// here (rather than exporting a helper from auth/**, which isn't ours to
+// touch) keeps the two in lockstep without adding a dependency either way.
+const ENTRA_MODE = import.meta.env.VITE_AUTH_PROVIDER === "entra";
 
 // Full-viewport branded sign-in. Rendered inside a dark ThemeProvider by
 // App.tsx (there's no persisted theme preference to read before sign-in),
@@ -13,15 +20,28 @@ import { highestRoleLabel } from "../auth/types";
 export function Login() {
   const t = useTheme();
   const { signIn } = useAuth();
-  const [users] = useState(() => listUsers());
+  const [users] = useState(() => (ENTRA_MODE ? [] : listUsers()));
   const [userId, setUserId] = useState<string>(users[0]?.id ?? "");
   const [passphrase, setPassphrase] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  // Entra mode: a redirect-completion failure (see auth-context.tsx) lands
+  // here via the module-level `lastEntraError`, not a thrown promise — the
+  // PKCE round trip is a full page navigation, so there's no in-flight
+  // signIn() call left to reject by the time this component (re)mounts.
+  // Best-effort only: if the exchange is still in flight when this check
+  // runs, it'll still be null and nothing shows — see auth-context.tsx's own
+  // comment on the same limitation.
+  const [error, setError] = useState<string | null>(() => (ENTRA_MODE ? lastEntraError : null));
   const [busy, setBusy] = useState(false);
   const firstFieldRef = useRef<HTMLSelectElement>(null);
+  const msButtonRef = useRef<HTMLButtonElement>(null);
+  const entraConfigured = isEntraConfigured();
 
   useEffect(() => {
-    firstFieldRef.current?.focus();
+    if (ENTRA_MODE) {
+      msButtonRef.current?.focus();
+    } else {
+      firstFieldRef.current?.focus();
+    }
   }, []);
 
   const handleSubmit = async (e: FormEvent) => {
@@ -38,6 +58,23 @@ export function Login() {
     }
   };
 
+  // Entra mode: signIn() with no credentials starts the PKCE redirect (see
+  // auth-context.tsx / entra-provider.ts) — on success this navigates the
+  // whole page away to Microsoft's login and never resolves here, so `busy`
+  // is only ever cleared by the catch path (a same-tab failure, e.g. popup
+  // blocked or config rejected before the redirect fires).
+  const handleMicrosoftSignIn = async () => {
+    if (busy || !entraConfigured) return;
+    setError(null);
+    setBusy(true);
+    try {
+      await signIn();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Sign-in failed");
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="login" style={{ background: t.page, color: t.ink }}>
       <div className="login__card" style={{ background: t.paper, border: `1px solid ${t.ruleSoft}`, boxShadow: t.shadow }}>
@@ -49,61 +86,71 @@ export function Login() {
           </div>
         </div>
 
-        <form onSubmit={handleSubmit}>
-          <label htmlFor="login-user" style={{ color: t.inkSoft }}>Sign in as</label>
-          <select
-            id="login-user"
-            ref={firstFieldRef}
-            value={userId}
-            onChange={(e) => {
-              setUserId(e.target.value);
-              setError(null);
-            }}
-            style={{ background: t.themeBand, color: t.ink, border: `1px solid ${t.ruleSoft}`, colorScheme: "dark" }}
-          >
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.name} — {highestRoleLabel(u.roles)}
-              </option>
-            ))}
-          </select>
+        {!ENTRA_MODE && (
+          <>
+            <form onSubmit={handleSubmit}>
+              <label htmlFor="login-user" style={{ color: t.inkSoft }}>Sign in as</label>
+              <select
+                id="login-user"
+                ref={firstFieldRef}
+                value={userId}
+                onChange={(e) => {
+                  setUserId(e.target.value);
+                  setError(null);
+                }}
+                style={{ background: t.themeBand, color: t.ink, border: `1px solid ${t.ruleSoft}`, colorScheme: "dark" }}
+              >
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name} — {highestRoleLabel(u.roles)}
+                  </option>
+                ))}
+              </select>
 
-          <label htmlFor="login-pass" style={{ color: t.inkSoft }}>Passphrase</label>
-          <input
-            id="login-pass"
-            type="password"
-            autoComplete="current-password"
-            value={passphrase}
-            onChange={(e) => {
-              setPassphrase(e.target.value);
-              setError(null);
-            }}
-            style={{ background: t.themeBand, color: t.ink, border: `1px solid ${t.ruleSoft}`, colorScheme: "dark" }}
-          />
+              <label htmlFor="login-pass" style={{ color: t.inkSoft }}>Passphrase</label>
+              <input
+                id="login-pass"
+                type="password"
+                autoComplete="current-password"
+                value={passphrase}
+                onChange={(e) => {
+                  setPassphrase(e.target.value);
+                  setError(null);
+                }}
+                style={{ background: t.themeBand, color: t.ink, border: `1px solid ${t.ruleSoft}`, colorScheme: "dark" }}
+              />
 
-          {error && (
-            <p className="login__error" role="alert" aria-live="assertive" style={{ color: t.accent }}>
-              {error}
-            </p>
-          )}
+              {error && (
+                <p className="login__error" role="alert" aria-live="assertive" style={{ color: t.accent }}>
+                  {error}
+                </p>
+              )}
 
-          <button type="submit" className="login__submit" disabled={busy} style={{ background: t.accentFill, fontFamily: fonts.mono }}>
-            {busy ? "Signing in…" : "Sign in"}
-          </button>
-        </form>
+              <button type="submit" className="login__submit" disabled={busy} style={{ background: t.accentFill, fontFamily: fonts.mono }}>
+                {busy ? "Signing in…" : "Sign in"}
+              </button>
+            </form>
 
-        <div className="login__divider" style={{ color: t.inkSoft }}>
-          <span style={{ background: t.ruleSoft }} />
-          or
-          <span style={{ background: t.ruleSoft }} />
-        </div>
+            <div className="login__divider" style={{ color: t.inkSoft }}>
+              <span style={{ background: t.ruleSoft }} />
+              or
+              <span style={{ background: t.ruleSoft }} />
+            </div>
+          </>
+        )}
 
         <button
+          ref={msButtonRef}
           type="button"
           className="login__sso-btn"
-          disabled
-          aria-disabled="true"
-          title="Coming soon — Entra ID integration pending"
+          disabled={!entraConfigured || busy}
+          aria-disabled={!entraConfigured || busy}
+          title={
+            entraConfigured
+              ? undefined
+              : "Coming soon — Entra ID integration pending. Needs VITE_AUTH_PROVIDER=entra, VITE_ENTRA_TENANT_ID and VITE_ENTRA_CLIENT_ID."
+          }
+          onClick={entraConfigured ? handleMicrosoftSignIn : undefined}
         >
           <span className="login__sso-icon" aria-hidden="true">
             <span />
@@ -111,12 +158,21 @@ export function Login() {
             <span />
             <span />
           </span>
-          Sign in with Microsoft
+          {busy && entraConfigured ? "Signing in…" : "Sign in with Microsoft"}
         </button>
-        <p className="login__note" style={{ color: t.inkSoft }}>
-          Production sign-in will use "Sign in with Microsoft" via Entra ID — every seeded demo account above uses the
-          passphrase <code>demo</code>.
-        </p>
+
+        {ENTRA_MODE && error && (
+          <p className="login__error" role="alert" aria-live="assertive" style={{ color: t.accent }}>
+            {error}
+          </p>
+        )}
+
+        {!ENTRA_MODE && (
+          <p className="login__note" style={{ color: t.inkSoft }}>
+            Production sign-in will use "Sign in with Microsoft" via Entra ID — every seeded demo account above uses the
+            passphrase <code>demo</code>.
+          </p>
+        )}
       </div>
     </div>
   );

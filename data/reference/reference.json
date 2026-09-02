@@ -254,6 +254,8 @@
     "costPerCase": 9.0,
     "utilMin": 0.15,
     "utilMax": 0.6,
-    "vdiStaleDays": 14
-  }
+    "vdiStaleDays": 14,
+    "fiscalYearStartMonth": 4
+  },
+  "financeTargets": []
 }

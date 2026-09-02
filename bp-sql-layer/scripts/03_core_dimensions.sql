@@ -147,8 +147,30 @@ CREATE TABLE core.RefProcess (
     -- colleague's grade rate, cost is the CoE team plus infrastructure.
     SMVMinutes       DECIMAL(8,2)  NOT NULL,   -- standard minutes value per case
     GradeCode        NVARCHAR(10)  NOT NULL,   -- grade automated against (see RefGradeRate)
-    IsActive         BIT           NOT NULL DEFAULT 1
+    IsActive         BIT           NOT NULL DEFAULT 1,
+    -- presentation metadata for the dashboard's process cards/slicers. Icon
+    -- is a UI icon key (see the dashboard repo's icon registry, e.g. 'form',
+    -- 'shield', 'route'); Tags is a ';'-delimited free-text list (e.g.
+    -- 'Onboarding;Customer-facing') -- NULL/empty = no tags. Both optional.
+    -- Formerly persisted as a core.RefAppSettings JSON stopgap
+    -- ('processExtras'); these are now first-class columns -- see
+    -- 13_api_model_views.sql for the one-time migration that reclaims any
+    -- already-deployed processExtras document into these columns.
+    Icon             NVARCHAR(40)  NULL,
+    Tags             NVARCHAR(400) NULL
 );
+GO
+
+-- Upgrade path: this file's convention is DROP+CREATE (above), so a fresh
+-- install always has Icon/Tags. This guard only matters if some deployment
+-- path ever applies this script to an existing core.RefProcess without the
+-- DROP first (e.g. a future non-destructive variant) -- add the columns
+-- without discarding data if they're not already there.
+IF COL_LENGTH('core.RefProcess', 'Icon') IS NULL
+    ALTER TABLE core.RefProcess ADD Icon NVARCHAR(40) NULL;
+GO
+IF COL_LENGTH('core.RefProcess', 'Tags') IS NULL
+    ALTER TABLE core.RefProcess ADD Tags NVARCHAR(400) NULL;
 GO
 
 /* =====================================================================

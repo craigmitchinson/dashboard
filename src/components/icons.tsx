@@ -436,3 +436,55 @@ export const IconAccessibility = (p: IconProps) => (
     <path d="M7 11.4c2.7 1 7.3 1 10 0M12 10v5.5M9.5 19.3L12 15.5l2.5 3.8" />
   </Svg>
 );
+
+/* --- Header priority-collapse (design elevation P0) ----------------------- */
+export const IconSun = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="4.2" />
+    <path d="M12 3.5v2.3M12 18.2v2.3M20.5 12h-2.3M5.8 12H3.5M17.7 6.3l-1.6 1.6M7.9 16.1l-1.6 1.6M17.7 17.7l-1.6-1.6M7.9 7.9 6.3 6.3" />
+  </Svg>
+);
+
+export const IconMoon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M19.5 14.5A8 8 0 1 1 9.5 4.5a6.5 6.5 0 0 0 10 10z" />
+  </Svg>
+);
+
+export const IconContrastCircle = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor" stroke="none" />
+  </Svg>
+);
+
+export const IconInfo = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="M12 11v6M12 7.2v.2" />
+  </Svg>
+);
+
+export const IconMore = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="5" cy="12" r="1.5" fill="currentColor" stroke="none" />
+    <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
+    <circle cx="19" cy="12" r="1.5" fill="currentColor" stroke="none" />
+  </Svg>
+);
+
+export const IconValue = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M3.5 16.5l5-6 4 3.5 7.5-9" />
+    <path d="M15.5 4.5h4.5V9" />
+  </Svg>
+);
+
+// Download / export-to-file (nav/motion P1: PageActions.tsx's ExportCsvButton)
+export const IconDownload = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M12 3v12" />
+    <path d="M7.5 10.5L12 15l4.5-4.5" />
+    <path d="M4.5 19h15" />
+  </Svg>
+);

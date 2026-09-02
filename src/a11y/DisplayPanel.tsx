@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import { fonts, liquidGlassVars } from "../theme";
+import { fonts, glassOverlayVars } from "../theme";
 import { useTheme } from "../theme-context";
 import type { ThemeTokens } from "../theme";
 import { IconClose } from "../components/icons";
@@ -30,10 +30,12 @@ import { useDisplayPrefs } from "./prefs-context";
 const FOCUSABLE_SELECTOR = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
 // Dialog chrome. Text contrast vs the active `t.paper`-based glass surface:
-//   light: ink #0B3239 on paper #FAF7F2 (~4.84:1 worst-case scrim, see the
-//          liquid-glass comment in styles.css) — was 12.85:1 solid.
-//   dark:  ink #F4F1EB on paper #0C2329 (~5.05:1 worst-case scrim) — was
-//          14.46:1 solid.
+//   light: ink #0B3239 on paper #FAF7F2 (~4.84:1 worst-case scrim at
+//          .liquid-glass's old .62 alpha; glass-overlay's .78 is strictly
+//          higher — see glassOverlayVars()'s comment in src/theme.ts) — was
+//          12.85:1 solid.
+//   dark:  ink #F4F1EB on paper #0C2329 (~5.05:1 worst-case scrim, same .62
+//          -> .78 note) — was 14.46:1 solid.
 // (high-contrast mode is untouched by this — its `!important` rules in
 // styles.css already target `.modal-dialog` via `:root[data-theme=...]`,
 // which — unlike `.report[data-mode=...]` — matches regardless of the
@@ -48,12 +50,14 @@ function dialogStyle(t: ThemeTokens): CSSProperties {
     // for its dark variant and, like the rest of this panel, never reached
     // this subtree; that left a ~1.2:1 (invisible) ring in dark mode.
     ["--a11y-focus-color" as string]: t.ink,
-    // background/box-shadow/rim now come from `.liquid-glass` (styles.css);
-    // this dialog renders as a *sibling* of `.report` (see the file header
-    // note above), so the `.report[data-mode="dark"] .liquid-glass` cascade
-    // can't reach it — liquidGlassVars() supplies the same --lg-* values
-    // inline instead, exactly like --a11y-focus-color just above.
-    ...liquidGlassVars(t),
+    // background/box-shadow/rim now come from `.glass-overlay` (styles.css) —
+    // unlike `.liquid-glass`, it has no `.report[data-mode="dark"]` cascade
+    // variant at all (every one of its consumers is either portalled or, like
+    // this dialog, a sibling of `.report` — see that class's comment in
+    // styles.css), so glassOverlayVars() supplying the --go-* values inline
+    // is the ONLY way any consumer gets the dark variant, not a fallback for
+    // an unreachable cascade the way liquidGlassVars() was.
+    ...glassOverlayVars(t),
   } as CSSProperties;
 }
 
@@ -80,7 +84,22 @@ export function DisplayPanel({ onClose }: { onClose: () => void }): JSX.Element 
   requestCloseRef.current = requestClose;
 
   useEffect(() => {
-    openerRef.current = document.activeElement as HTMLElement | null;
+    // Only capture on the FIRST invocation of this effect, never overwrite
+    // once set. React 18 StrictMode (dev only — see main.tsx) intentionally
+    // double-invokes mount effects (run -> cleanup -> run again) to surface
+    // impure effects; without this guard, the SECOND invocation's capture
+    // read `document.activeElement` AFTER the first invocation's own
+    // `closeBtnRef.current?.focus()` had already moved focus onto the close
+    // button itself, silently overwriting openerRef with the dialog's own
+    // close button instead of whatever opened it — a real, reproducible
+    // focus-return bug caught by the P0 harness (Escape returned focus to
+    // <body>, not the opener), not merely a StrictMode artifact: the
+    // clobbered ref is what every real close path (Escape, Tab-out via
+    // requestClose, cleanup's safety net) then relied on for the rest of
+    // this dialog's lifetime.
+    if (openerRef.current == null) {
+      openerRef.current = document.activeElement as HTMLElement | null;
+    }
     closeBtnRef.current?.focus();
 
     const onKeyDown = (e: KeyboardEvent) => {
@@ -139,7 +158,7 @@ export function DisplayPanel({ onClose }: { onClose: () => void }): JSX.Element 
         role="dialog"
         aria-modal="true"
         aria-labelledby="a11y-panel-title"
-        className="modal-dialog liquid-glass"
+        className="modal-dialog glass-overlay"
         style={dialogStyle(t)}
         onClick={(e) => e.stopPropagation()}
       >

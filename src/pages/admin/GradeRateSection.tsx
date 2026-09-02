@@ -234,7 +234,7 @@ export function GradeRateSection({ reference, update, actor, can, isAdmin }: Sec
               return (
                 <tr key={g.grade}>
                   <Td><span style={{ fontFamily: fonts.mono, fontSize: 11 }}>{g.grade}</span></Td>
-                  <Td>{renaming ? <input style={inputStyle(t)} value={renameDraft} onChange={(e) => setRenameDraft(e.target.value)} aria-label="Grade name" /> : g.gradeName}</Td>
+                  <Td>{renaming ? <input style={inputStyle(t)} value={renameDraft} onChange={(e) => setRenameDraft(e.target.value)} aria-label="Grade name" maxLength={80} /> : g.gradeName}</Td>
                   <Td muted>
                     {editingScope ? (
                       <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
@@ -281,8 +281,8 @@ export function GradeRateSection({ reference, update, actor, can, isAdmin }: Sec
             {addingGrade ? (
               <div style={{ border: `1px dashed ${t.ruleSoft}`, borderRadius: 10, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
-                  <Field id="ng-code" label="Grade code" width={100}><input id="ng-code" style={inputStyle(t)} value={newGrade.grade} onChange={(e) => setNewGrade({ ...newGrade, grade: e.target.value })} placeholder="e.g. G4" /></Field>
-                  <Field id="ng-name" label="Grade name" width={180}><input id="ng-name" style={inputStyle(t)} value={newGrade.gradeName} onChange={(e) => setNewGrade({ ...newGrade, gradeName: e.target.value })} placeholder="e.g. Senior analyst" /></Field>
+                  <Field id="ng-code" label="Grade code" width={100}><input id="ng-code" style={inputStyle(t)} value={newGrade.grade} onChange={(e) => setNewGrade({ ...newGrade, grade: e.target.value })} placeholder="e.g. G4" maxLength={12} /></Field>
+                  <Field id="ng-name" label="Grade name" width={180}><input id="ng-name" style={inputStyle(t)} value={newGrade.gradeName} onChange={(e) => setNewGrade({ ...newGrade, gradeName: e.target.value })} placeholder="e.g. Senior analyst" maxLength={80} /></Field>
                   <Field id="ng-date" label="Effective from" width={150}><input id="ng-date" type="date" style={inputStyle(t)} value={newGrade.effectiveFrom} onChange={(e) => setNewGrade({ ...newGrade, effectiveFrom: e.target.value })} /></Field>
                   <Field id="ng-rate" label="Hourly cost (£)" width={130}><input id="ng-rate" type="number" min={0} step={0.5} style={inputStyle(t)} value={newGrade.hourlyCostGBP} onChange={(e) => setNewGrade({ ...newGrade, hourlyCostGBP: e.target.value })} /></Field>
                 </div>

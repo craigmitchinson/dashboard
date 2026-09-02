@@ -1,6 +1,6 @@
 # Architecture — Intelligent Automation — Performance (hub & spoke IA CoE)
 
-One universal model, four swappable hops. Every visual in the dashboard binds to
+One universal model, five swappable hops. Every visual in the dashboard binds to
 data whose lineage is:
 
 ```
@@ -35,8 +35,31 @@ downstream changes:
 |---|---|---|---|
 | Source | `tools/generate-mock-data.mjs` (deterministic mock) | Elastic (preferred), Blue Prism work queue API (documented alternative) | drop-in CSV, same 16 columns |
 | Extract | committed mock CSV | `bp-sql-layer/ingest/elastic_to_csv.py` (preferred: env-var config — URL, index, API key, date range; no impact on the BP production database) or `ingest/bp_api_to_csv.py` (alternative: OAuth client-credentials, `lastUpdated` watermark + overlap window) | writes the same CSV |
-| Transform | `tools/build-dashboard-data.mjs` (Node port of the SQL) | `bp-sql-layer` warehouse: `10_bulk_load_csv.sql` → `core.usp_RunPull` | identical rules, verified shapes |
-| Serve | static `/data/*.json` baked at build | API over `report.vw_*` views (Cloud Run + Cloud SQL) | `VITE_DATA_URL` env var |
+| Transform | `tools/build-dashboard-data.mjs` (Node port of the SQL) | On self-managed SQL Server: `10_bulk_load_csv.sql` → `core.usp_RunPull`. On Cloud SQL for SQL Server (where `BULK INSERT` from a local path isn't viable): `bp-sql-layer/ingest/run_pipeline.py` → `load_to_sql.py` → `core.usp_RunPull`, with a durable watermark/run ledger in `core.IngestWatermark`/`core.PipelineRun` | identical rules, verified shapes |
+| Serve | static `/data/*.json` baked at build | `server/`'s data API, reading `report.vw_Model*`/`report.vw_Dim*`/`report.vw_EstateRateByDate` live from Cloud SQL | Both paths go through the ONE `shared/model-assembler.mjs` (so they can't drift — see below). `src/data/client.ts` (built, `VITE_API_URL`-aware `fetchModel()`/`DATA_MODE`) is the intended swap mechanism, but **`src/main.tsx`'s boot sequence has not been wired to call it yet** — see the note below the table |
+| Reference | localStorage overlay on `data/reference/reference.json`, exported by hand as JSON/SQL | `PUT /api/reference` on `server/`'s data API writes SQL directly — versioned (`core.RefVersion`) and audited (`core.RefChangeLog`); JSON/SQL export remains for local mode and for audits | Same caveat as Serve: `src/data/client.ts` has a ready `putReferenceApi()`, but nothing in `src/pages/Admin.tsx`/`src/reference/*` calls it yet |
+
+`shared/model-assembler.mjs` is the one function that turns "rowsets" (plain
+arrays shaped like SQL view output, or their JSON-fixture twins) into the
+exact `ModelJson` the dashboard reads. Both `tools/build-dashboard-data.mjs`
+(the static build) and `server/`'s data API call it — a bug fixed there is
+fixed in both places at once, and a CI test
+(`server/test/assembler.test.ts`) proves the two paths stay identical by
+replaying the static build's own view-fixture files through that same
+assembler and asserting a byte-for-byte match against `public/data/model.json`.
+
+**Known gap, verified against the code, not yet fixed:** `server/` (the data
+API) is real and tested; `src/data/client.ts` (the frontend module meant to
+call it — `fetchModel()`, `DATA_MODE`, `putReferenceApi()`, retry/backoff,
+typed errors) is also built. But nothing in the app calls it yet —
+`src/main.tsx`'s boot sequence still does a bare `fetch` against
+`VITE_DATA_URL` only (client.ts's own code comment says so explicitly: "mode
+behaviour must not change when main.tsx is wired to call fetchModel()"), and
+no `src/reference/*`/`Admin.tsx` code calls `putReferenceApi()` either
+(`src/reference/backend.ts`, referenced in client.ts's comments as the
+future caller, does not exist yet). Building the SPA with `VITE_API_URL` set
+today therefore does not yet make it call the API — that wiring is
+SPA-side work still landing; see `PLAYBOOK.md` sections 4 and 10.
 
 ## The 16-column contract (raw.WorkQueueItem)
 
@@ -135,24 +158,32 @@ All of it lives in `data/reference/reference.json` (JSON twin of
   evaluates `reference.targets`/`thresholdOverrides` against the trailing
   7-day window at estate/spoke/process/vdi scope and surfaces breach/warn
   alerts in a header bell; in-app only today, no email/Teams push — see
-  `PLAYBOOK.md` section 11.
+  `PLAYBOOK.md` section 14.
 
 Power BI is not embedded in this app — there is no render-mode toggle. It is a
 valid *external* consumer that connects directly to the same `report.vw_*` SQL
 views (see `deploy/gcp.md`).
 
 For the operational runbook — Blue Prism / Elastic ingest setup, the SQL
-script tour, the reference sync loop, adding a new spoke, roles/sign-in,
-performance/scale guidance, accessibility and troubleshooting — see
+script tour, the data API's own contract, deploying to GCP, the reference
+sync loop, adding a new spoke, roles/sign-in, performance/scale guidance,
+tests & CI, accessibility and troubleshooting — see
 [PLAYBOOK.md](PLAYBOOK.md).
 
 ## GCP deployment
 
-See `deploy/gcp.md`. Short version: static demo = this repo's Dockerfile
-(nginx on Cloud Run). Production = same frontend + a small data API on Cloud
-Run reading Cloud SQL (SQL Server) where `bp-sql-layer` runs; a Cloud
-Scheduler job runs the Elastic pull (or the Blue Prism API adapter as the
-documented alternative) + `usp_RunPull` on a schedule.
+See `deploy/gcp.md` (the entry point) and `deploy/cloudsql.md` (the Cloud
+SQL-specific reference); PLAYBOOK.md section 5 is the operational summary.
+Short version: static demo = this repo's Dockerfile (nginx on Cloud Run),
+self-contained. Production is five services around one Cloud SQL for SQL
+Server instance: a Cloud Scheduler-triggered Cloud Run Job (`bp-ingest-pull`)
+runs the Elastic pull (or the Blue Prism API adapter as the documented
+alternative) through to `core.usp_RunPull`; `server/`'s data API
+(`bp-api`, Cloud Run service, `AUTH_MODE=entra`) reads the warehouse and
+serves the dashboard; the dashboard SPA (`bp-dashboard`, Cloud Run service)
+reaches it via a same-origin nginx proxy (default) or an external Load
+Balancer (production recommendation) — see `deploy/gcp.md` §5 for the
+choice between the two.
 
 ## Repo map
 
@@ -163,8 +194,16 @@ tools/generate-mock-data.mjs    deterministic mock generator
 tools/build-dashboard-data.mjs  CSV + reference -> /public/data (SQL-parity transform)
 public/data/                    model.json + views/vw_*.json + manifest.json
 src/                            the dashboard app
-bp-sql-layer/                   the SQL warehouse (schemas, procs, views, runbook)
+shared/                         model-assembler.mjs (rowsets -> ModelJson, used by BOTH
+                                 tools/build-dashboard-data.mjs and server/) + auth-mappings.mjs
+server/                         the production data API (GET/PUT /api/model, /api/reference,
+                                 /api/health) — see server/README.md
+bp-sql-layer/                   the SQL warehouse (schemas, procs, views, runbook); scripts
+                                 11-13 add the pipeline-ops tables, scale hardening, and the
+                                 API-model views + RefAppSettings/RefVersion/RefChangeLog
 bp-sql-layer/ingest/            elastic_to_csv.py (preferred: Elastic -> CSV, no BP DB load)
                                  bp_api_to_csv.py (documented alternative: BP work queue API -> CSV)
-deploy/                         nginx.conf + gcp.md; Dockerfile at repo root
+                                 run_pipeline.py / load_to_sql.py (Cloud SQL production loader)
+deploy/                         nginx.conf.template + gcp.md + cloudsql.md + scripts/; Dockerfile
+                                 at repo root, server/Dockerfile for the data API
 ```

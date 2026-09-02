@@ -1,6 +1,6 @@
 import { fonts } from "../theme";
 import { useTheme } from "../theme-context";
-import { VisualCard, PageGrid, Row, useViz } from "../components/viz";
+import { VisualCard } from "../components/viz";
 import { Bionic } from "../a11y/Bionic";
 import { PLAYBOOK_SECTIONS } from "./playbook-content";
 import type { PlaybookBlock } from "./playbook-content";
@@ -129,7 +129,11 @@ function Block({ block }: { block: PlaybookBlock }) {
         </pre>
       );
     case "callout": {
-      const v = block.tone === "warn";
+      // Warn tone keeps the semantic warn colour (genuinely "pay attention");
+      // the default/info tone is not a warning, so it reads in the neutral
+      // series colour rather than the brand accent red (§7, red-means-negative).
+      const isWarn = block.tone === "warn";
+      const calloutColor = isWarn ? t.status.warn : t.series;
       return (
         <div
           style={{
@@ -137,13 +141,13 @@ function Block({ block }: { block: PlaybookBlock }) {
             gap: 9,
             alignItems: "flex-start",
             border: `1px solid ${t.ruleSoft}`,
-            borderLeft: `3px solid ${v ? "#D55E00" : t.accent}`,
+            borderLeft: `3px solid ${calloutColor}`,
             borderRadius: 8,
             padding: "9px 12px",
             background: t.themeBand,
           }}
         >
-          <span style={{ fontWeight: 700, color: v ? "#D55E00" : t.accent, flex: "0 0 auto" }}>{v ? "!" : "i"}</span>
+          <span style={{ fontWeight: 700, color: calloutColor, flex: "0 0 auto" }}>{isWarn ? "!" : "i"}</span>
           <span style={{ fontFamily: fonts.body, fontSize: 13, color: t.ink, lineHeight: 1.5 }}>
             <Bionic>{block.text ?? ""}</Bionic>
           </span>
@@ -156,30 +160,54 @@ function Block({ block }: { block: PlaybookBlock }) {
 }
 
 export function Playbook() {
-  const v = useViz();
+  const t = useTheme();
 
   return (
-    <PageGrid>
-      {/* jump nav */}
-      <Row cols="1fr" grow={false}>
-        <VisualCard title="Jump to a section" subtitle="Operational playbook — also generated as PLAYBOOK.md via npm run docs:playbook">
-          <nav aria-label="Playbook sections" style={{ display: "flex", flexWrap: "wrap", gap: "6px 14px", paddingTop: 2 }}>
-            {PLAYBOOK_SECTIONS.map((s) => (
-              <a
-                key={s.id}
-                href={`#${anchorFor(s.id)}`}
-                style={{ fontFamily: fonts.body, fontSize: 12.5, fontWeight: 600, color: v.accent, textDecoration: "none" }}
-              >
-                {s.title}
-              </a>
-            ))}
-          </nav>
-        </VisualCard>
-      </Row>
+    <div className="anim-up" style={{ height: "100%", minHeight: 0, display: "flex", gap: 18 }}>
+      {/* Scoped hover/focus rule for the jump links below — this page's own
+          inline <style>, not a styles.css addition (that file is owned by
+          the shell worker for this pass): ink text with an accent underline
+          only on hover/focus, replacing the previous plain-red link
+          treatment (§7, red-means-negative). */}
+      <style>{`.playbook-jumpnav a:hover, .playbook-jumpnav a:focus-visible { border-bottom-color: ${t.accent} !important; }`}</style>
 
-      {PLAYBOOK_SECTIONS.map((s) => (
-        <div key={s.id} id={anchorFor(s.id)}>
-          <Row cols="1fr" grow={false}>
+      {/* Sticky left rail — stays in view while the section list scrolls to
+          its right, so a long playbook never loses its own table of
+          contents (previously a single horizontal link row at the top,
+          scrolled out of view with everything else). */}
+      <nav
+        aria-label="Playbook sections"
+        className="playbook-jumpnav"
+        style={{
+          position: "sticky",
+          top: 0,
+          alignSelf: "flex-start",
+          flex: "0 0 190px",
+          display: "flex",
+          flexDirection: "column",
+          gap: 2,
+          maxHeight: "100%",
+          overflowY: "auto",
+          paddingRight: 4,
+        }}
+      >
+        <div style={{ fontFamily: fonts.mono, fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: t.inkSoft, padding: "2px 0 8px" }}>
+          Jump to a section
+        </div>
+        {PLAYBOOK_SECTIONS.map((s) => (
+          <a
+            key={s.id}
+            href={`#${anchorFor(s.id)}`}
+            style={{ fontFamily: fonts.body, fontSize: 12.5, fontWeight: 600, color: t.ink, textDecoration: "none", borderBottom: "1px solid transparent", padding: "5px 0" }}
+          >
+            {s.title}
+          </a>
+        ))}
+      </nav>
+
+      <div style={{ flex: 1, minWidth: 0, height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", gap: 12, paddingRight: 2 }}>
+        {PLAYBOOK_SECTIONS.map((s) => (
+          <div key={s.id} id={anchorFor(s.id)}>
             <VisualCard title={s.title}>
               <div style={{ display: "flex", flexDirection: "column", gap: 12, paddingTop: 2 }}>
                 {s.blocks.map((b, i) => (
@@ -187,9 +215,9 @@ export function Playbook() {
                 ))}
               </div>
             </VisualCard>
-          </Row>
-        </div>
-      ))}
-    </PageGrid>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }

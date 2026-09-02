@@ -356,7 +356,7 @@ export function VdiSection({ reference, update, actor, can }: SectionProps) {
               Register {d.resourceName} — first seen {fmtDate(parseISODate(d.activity.firstSeen))}, last seen {fmtDate(parseISODate(d.activity.lastSeen))}
             </div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <Field id="vr-vdi" label="VDI name (optional)" width={180}><input id="vr-vdi" style={inputStyle(t)} value={registerDraft.vdiName} onChange={(e) => setRegisterDraft({ ...registerDraft, vdiName: e.target.value })} /></Field>
+              <Field id="vr-vdi" label="VDI name (optional)" width={180}><input id="vr-vdi" style={inputStyle(t)} value={registerDraft.vdiName} onChange={(e) => setRegisterDraft({ ...registerDraft, vdiName: e.target.value })} maxLength={80} /></Field>
               <Field id="vr-class" label="Cost class" width={140}><input id="vr-class" style={inputStyle(t)} value={registerDraft.costClass} onChange={(e) => setRegisterDraft({ ...registerDraft, costClass: e.target.value })} list="vdi-cost-classes" /></Field>
               <Field id="vr-owner" label={d.activity.spokesServed.length > 1 ? "Multiple spokes — choose" : "Owner"} width={220}>
                 <select id="vr-owner" style={inputStyle(t)} value={registerDraft.owner} onChange={(e) => setRegisterDraft({ ...registerDraft, owner: e.target.value })}>
@@ -385,10 +385,10 @@ export function VdiSection({ reference, update, actor, can }: SectionProps) {
         adding ? (
           <div style={{ border: `1px dashed ${t.ruleSoft}`, borderRadius: 10, padding: 14, marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <Field id="va-name" label="Resource name" width={200}><input id="va-name" style={inputStyle(t)} value={addDraft.resourceName} onChange={(e) => setAddDraft({ ...addDraft, resourceName: e.target.value })} placeholder="e.g. VDI-RPA-COM-04" /></Field>
-              <Field id="va-bot" label="Bot name (optional)" width={160}><input id="va-bot" style={inputStyle(t)} value={addDraft.botName} onChange={(e) => setAddDraft({ ...addDraft, botName: e.target.value })} /></Field>
+              <Field id="va-name" label="Resource name" width={200}><input id="va-name" style={inputStyle(t)} value={addDraft.resourceName} onChange={(e) => setAddDraft({ ...addDraft, resourceName: e.target.value })} placeholder="e.g. VDI-RPA-COM-04" maxLength={80} /></Field>
+              <Field id="va-bot" label="Bot name (optional)" width={160}><input id="va-bot" style={inputStyle(t)} value={addDraft.botName} onChange={(e) => setAddDraft({ ...addDraft, botName: e.target.value })} maxLength={80} /></Field>
               <Field id="va-acr" label="Bot acronym (optional)" width={120}><input id="va-acr" style={inputStyle(t)} value={addDraft.botAcronym} onChange={(e) => setAddDraft({ ...addDraft, botAcronym: e.target.value })} /></Field>
-              <Field id="va-vdi" label="VDI name (optional)" width={160}><input id="va-vdi" style={inputStyle(t)} value={addDraft.vdiName} onChange={(e) => setAddDraft({ ...addDraft, vdiName: e.target.value })} /></Field>
+              <Field id="va-vdi" label="VDI name (optional)" width={160}><input id="va-vdi" style={inputStyle(t)} value={addDraft.vdiName} onChange={(e) => setAddDraft({ ...addDraft, vdiName: e.target.value })} maxLength={80} /></Field>
             </div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               <Field id="va-class" label="Cost class" width={140}><input id="va-class" style={inputStyle(t)} value={addDraft.costClass} onChange={(e) => setAddDraft({ ...addDraft, costClass: e.target.value })} list="vdi-cost-classes" /></Field>
@@ -419,7 +419,7 @@ export function VdiSection({ reference, update, actor, can }: SectionProps) {
         <HelperText>The annual list price per VDI for each cost class, in force on each date. A class-rate change takes effect per VDI at that VDI's NEXT renewal — rates lock in for a VDI at the start of its current cover cycle, so changing today's class rate never retroactively changes what a VDI already mid-cycle is charged.</HelperText>
 
         <Field id="vdi-rate-class" label="Cost class" width={220}>
-          <input id="vdi-rate-class" style={inputStyle(t)} value={rateClass} onChange={(e) => setRateClass(e.target.value)} list="vdi-cost-classes" placeholder="e.g. prod" />
+          <input id="vdi-rate-class" style={inputStyle(t)} value={rateClass} onChange={(e) => setRateClass(e.target.value)} list="vdi-cost-classes" placeholder="e.g. prod" maxLength={40} />
         </Field>
 
         <VdiRateHistoryBlock
