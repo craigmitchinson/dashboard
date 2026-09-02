@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ComponentType, KeyboardEvent as ReactKeyboardEvent } from "react";
-import { fonts } from "../theme";
+import { fonts, glassOverlayVars } from "../theme";
 import { useTheme } from "../theme-context";
 import { useAuth, usePermissions } from "../auth/auth-context";
 import type { PermAction } from "../auth/auth-context";
@@ -177,7 +177,7 @@ function ConflictResolutionDialog({
 
   return (
     <div className="modal-backdrop">
-      <div ref={dialogRef} role="alertdialog" aria-modal="true" aria-labelledby="conflict-dialog-title" tabIndex={-1} className="modal-dialog liquid-glass" style={{ maxWidth: 480, outline: "none" }}>
+      <div ref={dialogRef} role="alertdialog" aria-modal="true" aria-labelledby="conflict-dialog-title" tabIndex={-1} className="modal-dialog glass-overlay" style={{ maxWidth: 480, outline: "none", ...glassOverlayVars(t) }}>
         <h2 id="conflict-dialog-title" style={{ margin: 0, fontFamily: fonts.display, fontSize: 17, fontWeight: 700, color: t.ink }}>
           Someone else changed the reference data
         </h2>

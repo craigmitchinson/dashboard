@@ -38,10 +38,10 @@
   --s-5: 20px;
   --s-6: 24px;
   --s-8: 32px;
-  /* Canvas padding as its own token (nav/motion P1) — data pages can size
-     themselves to calc(100dvh - var(--top-h) - 2*var(--canvas-pad)); --top-h
-     is set inline on .report__main by App.tsx's ResizeObserver (see the
-     .report__top rule below). */
+  /* Canvas padding as its own token — .report__canvas is the scroll
+     container (see its rule below); a `fit` page (PageGrid in
+     src/components/viz.tsx) fills its 100%-height content box directly, no
+     viewport-unit calc needed. */
   --canvas-pad: 16px;
 
   --r-card: 12px;
@@ -171,8 +171,8 @@ body {
 }
 
 /* --- report shell: full-height left nav + content column ------------------
-   .report__main is now the single scroll container (see .report__top /
-   .report__canvas below) — .report itself never scrolls. */
+   .report__canvas is the single scroll container (see the .report__canvas
+   rule below) — .report and .report__main never scroll. */
 .report {
   display: flex;
   height: 100vh;
@@ -268,30 +268,29 @@ body {
   transition: none !important;
 }
 
-/* .report__main is the scroll container (was .report__canvas) — .report__top
-   (header + slicer bar) is sticky inside it, so the glass band stays fixed
-   at the top while canvas content scrolls beneath it. container-type:
-   inline-size turns it into the query container consumed by the header's
-   priority-collapse rules below. */
+/* .report__main is a plain, non-scrolling flex column: .report__top (header
+   + slicer bar) sits above .report__canvas as an ordinary flex child — never
+   `position: sticky` — so the band's own padding/structure can never scroll
+   away, and .report__canvas below is the only element that scrolls.
+   container-type: inline-size turns .report__main into the query container
+   consumed by the header's priority-collapse rules below (unchanged by this
+   — a container query only needs an ancestor with a definite inline size,
+   not the scroll container itself). */
 .report__main {
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
-  overflow-x: hidden;
   position: relative;
   container-type: inline-size;
 }
 
 .report__top {
   flex: 0 0 auto;
-  position: sticky;
-  top: 0;
-  z-index: var(--z-band);
-  /* Sticky-shadow (nav/motion P1): .report__top--shadow is toggled live
-     (not idle-debounced, unlike .is-scrolling above) off `scrollTop > 8` in
-     the same scroll-glass effect in App.tsx's Report(). */
+  /* Band shadow-on-scroll (nav/motion P1): .report__top--shadow is toggled
+     live (not idle-debounced, unlike .is-scrolling above) off
+     `.report__canvas`'s own `scrollTop > 8`, in the scroll-glass effect in
+     App.tsx's Report(). */
   transition: box-shadow var(--d-base) var(--ease-out);
 }
 .report__top--shadow {
@@ -326,8 +325,11 @@ body {
 
 .report__canvas {
   flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: var(--canvas-pad) var(--gutter);
 }
 .report__canvas > * {
@@ -510,8 +512,7 @@ body {
    data-glass="off" user toggle / high-contrast):
 
    .glass-persistent — nav rail + the sticky top band (header+slicers). Both
-   are descendants of `.report`, so the dark variant below (like
-   `.liquid-glass`'s existing `.report[data-mode="dark"]` cascade) reaches
+   are descendants of `.report`, so the dark variant below reaches
    them for free; no inline vars needed. `contain: paint` scopes each
    surface's own paint/blur work so it can't be invalidated by the rest of
    the page repainting. will-change is added only while `.report__main` is
@@ -525,26 +526,18 @@ body {
    siblings of `.report` (DisplayPanel, the shortcuts dialog), so — unlike
    .glass-persistent — the `.report[data-mode="dark"]` cascade can never
    reach them; every consumer supplies the dark variant inline instead via
-   `glassOverlayVars()` (src/theme.ts), exactly like `.liquid-glass` already
-   does via `liquidGlassVars()`. */
+   `glassOverlayVars()` (src/theme.ts). */
 .glass-persistent {
-  /* `position: relative` is the DEFAULT here (a positioning context for the
-     ::before rim below) — NOT a hard requirement. `.report__top` also
-     carries this class but needs `position: sticky` instead (see its own
-     rule) to stay pinned while `.report__main` scrolls beneath it; without
-     the compound selector below, that sticky value was silently lost — both
-     rules are single-class selectors of equal specificity, so the one
-     appearing later in this file (this one) was winning by source order
-     alone, turning the header+slicer band into an ordinary scrolling
-     element. Higher specificity here beats relying on source order. */
+  /* `position: relative` is a positioning context for the ::before rim
+     below. `.report__top` carries this class too but is a plain, non-sticky
+     flex child of `.report__main` as of the scroll-model rework (see
+     .report__top's own rule) — the band's padding/structure can never
+     scroll away, only `.report__canvas` beneath it scrolls. */
   position: relative;
   contain: paint;
   background: var(--gp-bg, rgba(250, 247, 242, 0.72));
   backdrop-filter: var(--gp-backdrop, blur(14px) saturate(1.4));
   -webkit-backdrop-filter: var(--gp-backdrop, blur(14px) saturate(1.4));
-}
-.report__top.glass-persistent {
-  position: sticky;
 }
 .glass-persistent::before {
   content: "";
@@ -563,8 +556,9 @@ body {
 .glass-persistent.is-scrolling {
   will-change: backdrop-filter;
 }
-/* Worst-case scrim contrast for ink text directly on the band (same method
-   as the .liquid-glass comment below): LIGHT rgba(250,247,242,.72) over a
+/* Worst-case scrim contrast for ink text directly on the band (standard WCAG
+   relative-luminance compositing against the extreme opposite-luminance
+   backdrop): LIGHT rgba(250,247,242,.72) over a
    pure-black backdrop vs ink #0B3239 -> ~6.47:1 (clears the 6:1 target).
    DARK rgba(12,35,41,.72) over a pure-WHITE backdrop vs ink #F4F1EB ->
    ~5.77:1 — short of the 6:1 aspirational target (still well clear of the
@@ -655,9 +649,9 @@ body {
 }
 
 /* --- scrollbars -----------------------------------------------------------
-   .report__main is the scroll container as of the P0 shell rework (was
-   .report__canvas) — see the .report__main rule above. */
-.report__main::-webkit-scrollbar,
+   .report__canvas is the scroll container as of the scroll-model rework
+   (was .report__main) — see the .report__canvas rule above. */
+.report__canvas::-webkit-scrollbar,
 .report__nav nav::-webkit-scrollbar,
 .report ::-webkit-scrollbar {
   width: 10px;
@@ -1308,15 +1302,12 @@ html {
   outline: 2px solid #00E5FF !important;
   outline-offset: 2px !important;
 }
-/* .liquid-glass (below, near .dropdown-panel) adds a ::before rim/specular
-   pseudo-element that the .dropdown-panel/.modal-dialog reset above doesn't
-   reach (it only resets those two real elements' own background/box-shadow,
-   which already fully covers the pseudo since it's opaque #000). This one
-   extra rule (higher specificity than plain `.liquid-glass::before` — no
-   !important needed, so it doesn't add to the "!important only in this
-   section" set above) removes the pseudo outright so no rim highlight can
+/* .glass-persistent/.glass-overlay (below, near .dropdown-panel) add a
+   ::before rim/specular pseudo-element that the .dropdown-panel/.modal-dialog
+   reset above doesn't reach (it only resets those two real elements' own
+   background/box-shadow, which already fully covers the pseudo since it's
+   opaque #000). This rule removes the pseudo outright so no rim highlight can
    show over the solid black surface. */
-:root[data-theme="high-contrast"] .liquid-glass::before,
 :root[data-theme="high-contrast"] .glass-persistent::before,
 :root[data-theme="high-contrast"] .glass-overlay::before {
   content: none;
@@ -1491,15 +1482,35 @@ html {
   box-shadow: 0 24px 60px rgba(11, 50, 57, 0.28);
   padding: 24px 26px;
 }
-.report[data-mode="dark"] .modal-dialog:not(.liquid-glass) {
+.report[data-mode="dark"] .modal-dialog:not(.glass-overlay) {
   background: #0c2329;
   color: #f4f1eb;
   border-color: rgba(244, 241, 235, 0.18);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
 }
-.report[data-mode="dark"] .modal-dialog.liquid-glass {
-  color: #f4f1eb;
-  border-color: rgba(244, 241, 235, 0.18);
+/* `.modal-dialog.glass-overlay` (CommandPalette's .cmdk-dialog, App.tsx's
+   ShortcutsDialog, DisplayPanel's Accessibility panel) — a compound,
+   higher-specificity override, NOT reliance on source order. Without it,
+   `.modal-dialog`'s own OWN background/color above (an equal-specificity,
+   single-class rule that happens to sit LATER in this file than
+   `.glass-overlay`'s own `background: var(--go-bg, ...)`) wins the cascade
+   and paints straight over it with the literal light var(--paper)/
+   var(--teal) — every one of these three dialogs is portalled or a plain
+   sibling of `.report` (never a descendant of it), so the
+   `.report[data-mode="dark"]` dark-mode rule above can never reach them to
+   correct it either. Net effect, confirmed via a rendered dark-mode
+   screenshot: the command palette (and the other two) painted as a flat
+   light-cream box regardless of theme — the exact "liquid glass just shows
+   as white" bug — even though glassOverlayVars() was correctly supplying a
+   theme-correct `--go-bg` inline the whole time; it was simply never being
+   read. `color: inherit` is safe here specifically because every text node
+   inside all three dialogs already sets its own inline colour from `t`
+   (confirmed by inspection) — this rule only stops a stray teal-on-cream
+   default from painting the dialog's own root box, it is not load-bearing
+   for any visible text. */
+.modal-dialog.glass-overlay {
+  background: var(--go-bg, rgba(250, 247, 242, 0.78));
+  color: inherit;
 }
 
 /* --- command palette (nav/motion P1) ---------------------------------------
@@ -1721,154 +1732,23 @@ html {
 /* --- shared dropdown-panel chrome hook --------------------------------------
    Base positioning is set per-component (Views menu, User menu, the
    notifications preview); background/shadow visuals now come from
-   `.liquid-glass` below. High-contrast mode still has something concrete to
+   `.glass-overlay` above. High-contrast mode still has something concrete to
    target regardless (see section above). */
-
-/* --- liquid glass (floating-surface material) -------------------------------
-   Applied to: `.dropdown-panel` (ViewsMenu/UserMenu in src/App.tsx,
-   NotificationBell's preview in src/alerts/NotificationBell.tsx) and
-   `.modal-dialog` (the keyboard-shortcuts sheet in src/App.tsx, DisplayPanel,
-   ConfirmDialog in src/pages/admin/shared.tsx) — never `.modal-backdrop`,
-   which stays the plain full-screen dim. Deliberately NOT applied to
-   `.tip__bubble`: that surface is ~40px tall with 11.5px reference text: the
-   rim + specular read as noise at that scale and a translucent scrim risks
-   legibility against whatever's behind it for content that's often read in a
-   hurry, so it keeps its existing solid t.paper/t.shadow treatment.
-
-   This is optically-clear "liquid glass", not frosted glass: a small, fixed
-   blur (2px) keeps the centre of the panel legible and highly saturated, while
-   the visual "glass" read comes from three things layered on top of a
-   translucent paper-colour scrim — a diagonal sheen, a crisp rim line + soft
-   inner glow at the edge, and a 1px top specular highlight — plus a two-layer
-   (tight + diffuse) drop shadow for real depth.
-
-   Values are carried as custom properties (--lg-*) rather than hardcoded on
-   `.liquid-glass` itself so the two dialogs that render as siblings of
-   `.report` (DisplayPanel, the keyboard-shortcuts sheet — see the theming
-   note atop src/a11y/DisplayPanel.tsx; `.report[data-mode="dark"]` scoping
-   can't reach them) can supply the dark variant inline from `t`, exactly like
-   they already do for --a11y-focus-color, while everything inside `.report`
-   (the two dropdown panels, admin's ConfirmDialog) gets it for free via the
-   `.report[data-mode="dark"] .liquid-glass` cascade below. Every colour here
-   reuses src/theme.ts's actual paper/ink/shadow rgba components (see the
-   contrast + shadow-derivation notes below), never an invented colour.
-
-   Rim technique: masked backdrop-filter (a ::before with a padding-box/
-   border-box double mask so only a thin ring re-blurs more strongly) was
-   deliberately NOT used. Chromium's backdrop-filter, when a second
-   backdrop-filter is nested inside an element that itself sits inside (or
-   behind, in paint order) another backdrop-filtered/composited layer, is
-   well known to sometimes sample the wrong backdrop snapshot (an
-   already-filtered intermediate rather than the true page backdrop) —
-   compositing order for stacked/masked backdrop-filters is not reliably
-   consistent across Chromium versions, and every floating surface here (a
-   dropdown over the canvas, a modal over its backdrop) is exactly that
-   nested case. The inset-box-shadow-ring + gradient-sheen fallback the task
-   describes is deterministic, has none of that nested-compositing risk, and
-   is what shipped for every surface, not only as a defensive fallback. */
-.liquid-glass {
-  position: relative;
-  border-radius: 16px;
-  background: var(
-    --lg-bg,
-    linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0) 35%),
-    rgba(250, 247, 242, 0.62)
-  );
-  backdrop-filter: var(--lg-backdrop, blur(2px) saturate(1.7) brightness(1.06));
-  -webkit-backdrop-filter: var(--lg-backdrop, blur(2px) saturate(1.7) brightness(1.06));
-  box-shadow: var(--lg-shadow, 0 2px 6px rgba(11, 50, 57, 0.18), 0 24px 60px rgba(11, 50, 57, 0.22));
-}
-/* Edge refraction rim + specular highlight. A separate pseudo-element (rather
-   than folding these insets into .liquid-glass's own box-shadow) so the
-   high-contrast rule above can delete just this and nothing else. */
-.liquid-glass::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  box-shadow: var(
-    --lg-rim,
-    inset 0 1px 0 rgba(255, 255, 255, 0.45),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.5),
-    inset 0 0 16px 0 rgba(255, 255, 255, 0.22)
-  );
-}
-/* Dark variant. brightness is tuned to 0.9 (below 1, per the task's guidance)
-   so the backdrop doesn't wash out the way a >=1 brightness would on a dark
-   ground; saturate is pulled back slightly from the light variant's 1.7 to
-   1.6 for the same reason. Shadow + scrim reuse darkTheme's actual rgba
-   components from src/theme.ts (paper #0C2329 -> 12,35,41; shadow ->
-   rgba(0,0,0,0.5) diffuse, a matching rgba(0,0,0,0.4) derived for the tight
-   layer) — see the contrast worked example below for the 0.68 scrim alpha. */
-.report[data-mode="dark"] .liquid-glass {
-  --lg-bg: linear-gradient(135deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0) 35%), rgba(12, 35, 41, 0.68);
-  --lg-backdrop: blur(2px) saturate(1.6) brightness(0.9);
-  --lg-shadow: 0 2px 6px rgba(0, 0, 0, 0.4), 0 24px 60px rgba(0, 0, 0, 0.5);
-  --lg-rim: inset 0 1px 0 rgba(255, 255, 255, 0.55), inset 0 0 0 1px rgba(255, 255, 255, 0.22),
-    inset 0 0 16px 0 rgba(255, 255, 255, 0.1);
-  --lg-solid: #0c2329;
-}
-/* Worst-case scrim contrast (standard WCAG relative-luminance formula,
-   compositing done in sRGB space the way the browser paints it: C = a*scrim +
-   (1-a)*backdrop per channel, then luminance of C):
-
-   LIGHT — scrim rgba(250,247,242,0.62) vs ink #0B3239 text, worst-case
-   backdrop = pure black (black is the true worst case here: ink is dark, so
-   a darker backdrop showing through the translucent scrim only pulls the
-   composited surface darker, toward the text colour, shrinking contrast;
-   white/bright backdrops only help). At a=0.62 over #000, composited channels
-   -> (155,153,150)/255 = (0.608,0.601,0.588) sRGB.
-     linearised: R=0.3282 G=0.3193 B=0.3055
-     L = 0.2126*0.3282 + 0.7152*0.3193 + 0.0722*0.3055 = 0.3202
-   Ink #0B3239 linearised: R=0.00335 G=0.0319 B=0.0409
-     L = 0.2126*0.00335 + 0.7152*0.0319 + 0.0722*0.0409 = 0.0265
-   Contrast = (0.3202+0.05)/(0.0265+0.05) = 0.3702/0.0765 = 4.84:1 (>=4.5 AA).
-
-   DARK — scrim rgba(12,35,41,0.68) vs ink #F4F1EB text, worst-case backdrop =
-   pure white (the mirror case: ink is light, so a bright backdrop bleeding
-   through the translucent scrim pulls the composited surface lighter, toward
-   the text colour, shrinking contrast; black backdrops only help). At
-   a=0.68 over #fff, composited channels -> c_r=1-0.9529*0.68=0.3520,
-   c_g=1-0.8627*0.68=0.4134, c_b=1-0.8392*0.68=0.4293 (sRGB, 0-1).
-     linearised: R=0.1016 G=0.1425 B=0.1543
-     L = 0.2126*0.1016 + 0.7152*0.1425 + 0.0722*0.1543 = 0.1347
-   Ink #F4F1EB linearised: R=0.9049 G=0.8797 B=0.8308
-     L = 0.2126*0.9049 + 0.7152*0.8797 + 0.0722*0.8308 = 0.8817
-   Contrast = (0.8817+0.05)/(0.1347+0.05) = 0.9317/0.1847 = 5.05:1 (>=4.5 AA).
-
-   Both extremes (#000 and #fff) bound every possible backdrop luminance, so
-   these are the true worst cases, not estimates for a "typical" backdrop.
-
-   The above ignores the diagonal sheen gradient layered on top of the scrim
-   (the first `background` layer) — it also affects the worst-case corner
-   pixel and must be folded in:
-   LIGHT sheen (5% white, top-left, over the #000-backdrop worst case) only
-   lightens the surface further away from the dark ink colour, which
-   *increases* contrast, so 4.84:1 still holds as the true worst case.
-   DARK sheen (4% white, chosen — not 7% — specifically to keep this
-   comfortable) makes things worse: it lightens the already-lightened
-   white-backdrop worst case, pulling the surface toward the light ink and
-   shrinking contrast. Compositing the sheen's un-faded 0% stop (a=0.04) on
-   top of the prior dark worst-case sRGB triple (0.352,0.4134,0.4293):
-     C = 0.04*1 + 0.96*C_prior -> (0.3779,0.4369,0.4521)
-     linearised: R=0.1180 G=0.1602 B=0.1723
-     L = 0.2126*0.1180 + 0.7152*0.1602 + 0.0722*0.1723 = 0.1521
-   Contrast = (0.8817+0.05)/(0.1521+0.05) = 0.9317/0.2021 = 4.61:1 (>=4.5 AA,
-   still holds — this is why the dark sheen was capped at 4%, the low end of
-   the 4-6% spec range, rather than 7%; at 7% this drops under 4.5). This
-   corner pixel also sits under the dialog's ~24px padding, before any real
-   title text starts, so real rendered contrast is better than this bound. */
 
 /* No backdrop-filter support (old Safari/Firefox) and the explicit
    prefers-reduced-transparency override both fall back to the same thing: a
    fully solid paper surface, no blur, no rim/sheen — i.e. "no glass". The
    dark-mode branch is written out explicitly (equal specificity to, and
-   placed after, the `.report[data-mode="dark"] .liquid-glass` block above) so
-   it wins the tie in dark mode too. */
-@supports not (backdrop-filter: blur(1px)) {
-  .liquid-glass,
-  .report[data-mode="dark"] .liquid-glass,
+   placed after, the `.report[data-mode="dark"] .glass-persistent` block
+   above) so it wins the tie in dark mode too. Tested against BOTH the
+   unprefixed and `-webkit-` prefixed properties (`or`'d together) — a
+   `@supports not (backdrop-filter: ...)` test alone reports false support in
+   engines that only ever shipped the prefixed property (older Safari), which
+   would otherwise leave those engines rendering backdrop-filter: none from
+   the base .glass-persistent/.glass-overlay rules with none of this
+   solid-fallback background swapped in — a transparent, unblurred surface
+   with no scrim underneath. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .glass-persistent,
   .report[data-mode="dark"] .glass-persistent,
   .glass-overlay {
@@ -1876,15 +1756,12 @@ html {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
-  .liquid-glass::before,
   .glass-persistent::before,
   .glass-overlay::before {
     content: none;
   }
 }
 @media (prefers-reduced-transparency: reduce) {
-  .liquid-glass,
-  .report[data-mode="dark"] .liquid-glass,
   .glass-persistent,
   .report[data-mode="dark"] .glass-persistent,
   .glass-overlay {
@@ -1892,7 +1769,6 @@ html {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
-  .liquid-glass::before,
   .glass-persistent::before,
   .glass-overlay::before {
     content: none;
@@ -1900,14 +1776,12 @@ html {
 }
 
 /* User-facing "Liquid glass" toggle (src/a11y/DisplayPanel.tsx), default on.
-   Same "no glass" fallback as the two blocks above, reusing --lg-solid as the
-   single source of truth rather than duplicating its scrim value. Placed
+   Same "no glass" fallback as the two blocks above, reusing the same
+   background fallback chain rather than duplicating its scrim value. Placed
    after both existing fallback blocks and left unconditioned on data-theme
    (same as they are) so it doesn't jump ahead of them in the cascade; the
    high-contrast `!important` rule targets `:root[data-theme="high-contrast"]`
    directly and keeps winning regardless of data-glass. */
-:root[data-glass="off"] .liquid-glass,
-:root[data-glass="off"] .report[data-mode="dark"] .liquid-glass,
 :root[data-glass="off"] .glass-persistent,
 :root[data-glass="off"] .report[data-mode="dark"] .glass-persistent,
 :root[data-glass="off"] .glass-overlay {
@@ -1915,7 +1789,6 @@ html {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
-:root[data-glass="off"] .liquid-glass::before,
 :root[data-glass="off"] .glass-persistent::before,
 :root[data-glass="off"] .glass-overlay::before {
   content: none;

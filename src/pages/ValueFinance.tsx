@@ -1,14 +1,20 @@
+import { useMemo, useState } from "react";
 import { fonts } from "../theme";
 import { useTheme } from "../theme-context";
 import { useFilters, fiscalYearBounds, FISCAL_YEAR_START_MONTH_DEFAULT } from "../filters-context";
 import { fmtDate, TARGETS } from "../rpaData";
 import { useReference } from "../reference/reference-context";
 import { KpiCard, VisualCard, PageGrid, Row, useViz, fmtGBPc, fmtMoney2, fmtPct, fmtInt } from "../components/viz";
+import { ExportCsvButton } from "../components/PageActions";
 import { WaterfallChart, ParetoChart, StackedCostTrend, SpokePLTable, fyFinanceColors } from "../components/viz-finance";
 import type { WaterfallStep } from "../components/viz-finance";
 import { classifyReviewCandidate, fyAttainment } from "./value-rules";
 
 const DAY = 86400000;
+// Stable fallback so `reference.financeTargets` being undefined doesn't
+// itself produce a fresh `[]` reference every render (see the
+// spokeFinanceTargets memo below).
+const NO_FINANCE_TARGETS: NonNullable<ReturnType<typeof useReference>["reference"]["financeTargets"]> = [];
 
 export function ValueFinance() {
   const { model } = useFilters();
@@ -18,6 +24,9 @@ export function ValueFinance() {
   const t = useTheme();
   const colors = fyFinanceColors(t.mode);
   const hasRows = m.rows.length > 0;
+  // Tracks the Spoke P&L table's current sort order (see SpokePLTable's
+  // onSortedChange) so its CSV export matches exactly what's on screen.
+  const [spokePlSorted, setSpokePlSorted] = useState(m.bySpoke);
 
   // --- KPI strip -------------------------------------------------------
   const runRateNet = (m.netBenefit * 365.25) / m.rangeDays;
@@ -33,15 +42,15 @@ export function ValueFinance() {
   const comp = m.costComposition;
   const waterfallSteps: WaterfallStep[] = [
     { key: "gross", label: "Gross", value: gross, isTotal: true, color: v.accent },
-    { key: "hubPeople", label: "Hub people", value: -comp.hubPeople, color: colors.hubPeople, pctOfBase: gross ? comp.hubPeople / gross : 0 },
-    { key: "hubInfra", label: "Hub infra", value: -comp.hubInfra, color: colors.hubInfra, pctOfBase: gross ? comp.hubInfra / gross : 0 },
-    { key: "spokePeople", label: "Spoke people", value: -comp.spokePeople, color: colors.spokePeople, pctOfBase: gross ? comp.spokePeople / gross : 0 },
-    { key: "spokeInfra", label: "Spoke infra", value: -comp.spokeInfra, color: colors.spokeInfra, pctOfBase: gross ? comp.spokeInfra / gross : 0 },
+    { key: "hubPeople", label: "CoE team", value: -comp.hubPeople, color: colors.hubPeople, pctOfBase: gross ? comp.hubPeople / gross : 0 },
+    { key: "hubInfra", label: "CoE machines (VDIs)", value: -comp.hubInfra, color: colors.hubInfra, pctOfBase: gross ? comp.hubInfra / gross : 0 },
+    { key: "spokePeople", label: "Squad teams", value: -comp.spokePeople, color: colors.spokePeople, pctOfBase: gross ? comp.spokePeople / gross : 0 },
+    { key: "spokeInfra", label: "Squad machines (VDIs)", value: -comp.spokeInfra, color: colors.spokeInfra, pctOfBase: gross ? comp.spokeInfra / gross : 0 },
     { key: "net", label: "Net", value: gross - m.automationCost, isTotal: true, color: v.accent },
     { key: "unattributed", label: "Unattributed idle (memo)", value: -m.unattributedCostGBP, color: colors.unattributed, memo: true },
   ];
   const waterfallSummary = hasRows
-    ? `Gross benefit ${fmtGBPc(gross)}, less hub people ${fmtGBPc(comp.hubPeople)} (${fmtPct(gross ? comp.hubPeople / gross : 0)}), hub infra ${fmtGBPc(comp.hubInfra)} (${fmtPct(gross ? comp.hubInfra / gross : 0)}), spoke people ${fmtGBPc(comp.spokePeople)} (${fmtPct(gross ? comp.spokePeople / gross : 0)}), spoke infra ${fmtGBPc(comp.spokeInfra)} (${fmtPct(gross ? comp.spokeInfra / gross : 0)}), leaves net benefit of ${fmtGBPc(m.netBenefit)}. Unattributed idle pool cost of ${fmtGBPc(m.unattributedCostGBP)} is shown as a memo and is not subtracted from net.`
+    ? `Gross benefit ${fmtGBPc(gross)}, less CoE team ${fmtGBPc(comp.hubPeople)} (${fmtPct(gross ? comp.hubPeople / gross : 0)}), CoE machines (VDIs) ${fmtGBPc(comp.hubInfra)} (${fmtPct(gross ? comp.hubInfra / gross : 0)}), squad teams ${fmtGBPc(comp.spokePeople)} (${fmtPct(gross ? comp.spokePeople / gross : 0)}), squad machines (VDIs) ${fmtGBPc(comp.spokeInfra)} (${fmtPct(gross ? comp.spokeInfra / gross : 0)}), leaves net benefit of ${fmtGBPc(m.netBenefit)}. Unattributed idle pool cost of ${fmtGBPc(m.unattributedCostGBP)} is shown as a memo and is not subtracted from net.`
     : "No data for the current filters.";
 
   // --- Row 2: monthly value trend (derived proportional split) ----------
@@ -50,10 +59,10 @@ export function ValueFinance() {
     ? { hubPeople: comp.hubPeople / m.automationCost, hubInfra: comp.hubInfra / m.automationCost, spokePeople: comp.spokePeople / m.automationCost, spokeInfra: comp.spokeInfra / m.automationCost }
     : { hubPeople: 0, hubInfra: 0, spokePeople: 0, spokeInfra: 0 };
   const monthlyStacks = [
-    { key: "hubPeople", label: "Hub people", color: colors.hubPeople, values: m.monthly.map((mo) => mo.cost * ratio.hubPeople) },
-    { key: "hubInfra", label: "Hub infra", color: colors.hubInfra, values: m.monthly.map((mo) => mo.cost * ratio.hubInfra) },
-    { key: "spokePeople", label: "Spoke people", color: colors.spokePeople, values: m.monthly.map((mo) => mo.cost * ratio.spokePeople) },
-    { key: "spokeInfra", label: "Spoke infra", color: colors.spokeInfra, values: m.monthly.map((mo) => mo.cost * ratio.spokeInfra) },
+    { key: "hubPeople", label: "CoE team", color: colors.hubPeople, values: m.monthly.map((mo) => mo.cost * ratio.hubPeople) },
+    { key: "hubInfra", label: "CoE machines (VDIs)", color: colors.hubInfra, values: m.monthly.map((mo) => mo.cost * ratio.hubInfra) },
+    { key: "spokePeople", label: "Squad teams", color: colors.spokePeople, values: m.monthly.map((mo) => mo.cost * ratio.spokePeople) },
+    { key: "spokeInfra", label: "Squad machines (VDIs)", color: colors.spokeInfra, values: m.monthly.map((mo) => mo.cost * ratio.spokeInfra) },
   ];
   const monthlyNet = m.monthly.map((mo) => mo.benefit - mo.cost);
 
@@ -107,30 +116,35 @@ export function ValueFinance() {
   const forecastDelta = projectedFyEndNet - m.fyToDatePriorNet;
 
   // --- Target attainment (Finance settings: reference.financeTargets) -----
-  const financeTargets = reference.financeTargets ?? [];
+  const financeTargets = reference.financeTargets ?? NO_FINANCE_TARGETS;
   const estateTargetGBP = financeTargets.find((f) => f.spokeId === "ESTATE")?.annualNetBenefitTargetGBP;
   const estateAttainment =
     estateTargetGBP != null
       ? fyAttainment({ fyToDateNet: m.fyToDateNet, runRateNetPerDay: runRatePerDay, daysRemaining: daysRemainingInFY, target: estateTargetGBP })
       : undefined;
-  // Per-spoke targets: bySpoke only carries WINDOW-scoped net (no per-spoke
-  // fiscal-year-to-date figure exists in the model — only the estate-wide
-  // m.fyToDateNet does), so the per-spoke "vs target" comparison below uses
-  // the spoke's annualised run-rate net (same 365.25/window-days basis as the
-  // "Annualised run-rate net" KPI above) rather than a true FY-to-date
-  // projection like the estate figure. Extending bySpoke with a genuine
-  // per-spoke FY-to-date net is a filters-context.tsx change, out of scope here.
-  const spokeAttainment = new Map<string, { runRateNet: number; target: number; pct: number; onTrack: boolean }>();
-  for (const target of financeTargets) {
-    if (target.spokeId === "ESTATE") continue;
-    const spoke = m.bySpoke.find((s) => s.spoke === target.spokeId);
-    if (!spoke) continue;
-    const runRateNet = m.rangeDays ? (spoke.net * 365.25) / m.rangeDays : 0;
-    spokeAttainment.set(target.spokeId, { runRateNet, target: target.annualNetBenefitTargetGBP, pct: target.annualNetBenefitTargetGBP ? runRateNet / target.annualNetBenefitTargetGBP : 0, onTrack: runRateNet >= target.annualNetBenefitTargetGBP });
-  }
+  // Per-spoke targets: bySpoke now carries a genuine per-spoke fiscal-year-
+  // to-date net benefit (SpokeAgg.fyToDateNet), so the "vs target" comparison
+  // is rendered as a column directly on SpokePLTable (see viz-finance.tsx)
+  // rather than as a separate strip below the table — this list (ESTATE
+  // excluded) is exactly what that column needs.
+  // Memoized: SpokePLTable's onSortedChange feeds this page's own
+  // spokePlSorted state, so an unmemoized `.filter()` here — a new array
+  // reference every render even when financeTargets hasn't changed — would
+  // retrigger SpokePLTable's internal sort memo (which depends on this
+  // prop), refire its onSortedChange effect, setState here, and loop
+  // forever (React's "Maximum update depth exceeded").
+  const spokeFinanceTargets = useMemo(() => financeTargets.filter((f) => f.spokeId !== "ESTATE"), [financeTargets]);
 
   return (
-    <PageGrid>
+    // Document-style page: it has more content (KPI strip, FY attainment,
+    // waterfall + trend, spoke P&L, value league + review candidates) than
+    // reliably fits any one viewport, so it scrolls inside .report__canvas
+    // rather than being height-locked like the "fitted" operational pages —
+    // see PageGrid's own doc comment. Every Row below also gets an explicit
+    // min-height so its charts get a real, non-zero measured height even
+    // when several rows are competing for space (the root cause of the
+    // waterfall/monthly-trend charts rendering blank).
+    <PageGrid fit={false}>
       <div className="kpi-row kpi-row--6">
         <KpiCard
           label="Net benefit (window)"
@@ -195,9 +209,20 @@ export function ValueFinance() {
         </VisualCard>
       </Row>
 
-      <Row cols="minmax(0,1fr) minmax(0,1fr)">
+      <Row cols="minmax(0,1fr) minmax(0,1fr)" style={{ minHeight: 380 }}>
         <VisualCard title="Benefit waterfall" subtitle="Gross benefit less the 4-way apportioned estate cost, reconciling to net benefit" summary={waterfallSummary}>
-          {hasRows ? <WaterfallChart steps={waterfallSteps} /> : <EmptyNote text="No data for the current filters." />}
+          {hasRows ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, height: "100%", minHeight: 0 }}>
+              <div style={{ flex: 1, minHeight: 260 }}>
+                <WaterfallChart steps={waterfallSteps} />
+              </div>
+              <p style={{ margin: 0, flex: "0 0 auto", fontFamily: fonts.body, fontSize: 11.5, color: t.inkSoft, lineHeight: 1.4 }}>
+                CoE costs are spread across all work by bot time; squad costs across that squad's own work.
+              </p>
+            </div>
+          ) : (
+            <EmptyNote text="No data for the current filters." />
+          )}
         </VisualCard>
 
         <VisualCard
@@ -207,7 +232,7 @@ export function ValueFinance() {
         >
           {hasRows && monthLabels.length > 0 ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 6, height: "100%", minHeight: 0 }}>
-              <div style={{ flex: 1, minHeight: 0 }}>
+              <div style={{ flex: 1, minHeight: 260 }}>
                 <StackedCostTrend labels={monthLabels} stacks={monthlyStacks} net={monthlyNet} />
               </div>
               <div style={{ display: "flex", alignItems: "baseline", gap: 8, flex: "0 0 auto", fontFamily: fonts.body, fontSize: 12, color: t.inkSoft }}>
@@ -231,28 +256,42 @@ export function ValueFinance() {
       </Row>
 
       <Row cols="1fr" grow={false} style={{ minHeight: 320 }}>
-        <VisualCard title="Spoke P&L" subtitle={`Gross benefit, apportioned cost and margin by spoke, data through ${dataThroughISO}`} summary={spokePlSummary}>
+        <VisualCard
+          title="Spoke P&L"
+          subtitle={`Gross benefit, apportioned cost, margin and vs-target by spoke, data through ${dataThroughISO}`}
+          summary={spokePlSummary}
+          right={
+            <ExportCsvButton
+              filename="spoke-pl"
+              rows={() => {
+                const targetMap = new Map(spokeFinanceTargets.map((f) => [f.spokeId, f.annualNetBenefitTargetGBP]));
+                return spokePlSorted.map((r) => {
+                  const target = targetMap.get(r.spoke);
+                  return {
+                    Spoke: r.spoke,
+                    Gross: r.gross.toFixed(2),
+                    "People cost": r.peopleCost.toFixed(2),
+                    "Infra cost": r.infraCost.toFixed(2),
+                    Net: r.net.toFixed(2),
+                    "Margin %": (r.marginPct * 100).toFixed(2),
+                    "Cost/case": r.costPerCase.toFixed(2),
+                    "Completed cases": r.completed,
+                    "vs target FYTD %": target ? ((r.fyToDateNet / target) * 100).toFixed(1) : "",
+                  };
+                });
+              }}
+            />
+          }
+        >
           <div style={{ display: "flex", flexDirection: "column", gap: 8, height: "100%", minHeight: 0 }}>
             <div style={{ flex: 1, minHeight: 0 }}>
-              <SpokePLTable rows={m.bySpoke} dataThroughISO={dataThroughISO} />
+              <SpokePLTable rows={m.bySpoke} financeTargets={spokeFinanceTargets} onSortedChange={setSpokePlSorted} />
             </div>
-            {spokeAttainment.size > 0 && (
-              <div style={{ flex: "0 0 auto", display: "flex", flexWrap: "wrap", gap: 10, borderTop: `1px solid ${t.ruleSoft}`, paddingTop: 8 }}>
-                <span style={{ fontFamily: fonts.mono, fontSize: 10, letterSpacing: "0.05em", textTransform: "uppercase", color: t.inkSoft, fontWeight: 700, alignSelf: "center" }}>
-                  vs target (annualised run-rate):
-                </span>
-                {[...spokeAttainment.entries()].map(([spoke, a]) => (
-                  <span key={spoke} style={{ fontFamily: fonts.body, fontSize: 12, color: t.ink }} title={`${spoke}: annualised run-rate net ${fmtGBPc(a.runRateNet)} vs a target of ${fmtGBPc(a.target)}`}>
-                    {spoke}: <strong style={{ color: a.onTrack ? v.good : v.bad }}>{fmtPct(a.pct)}</strong>
-                  </span>
-                ))}
-              </div>
-            )}
           </div>
         </VisualCard>
       </Row>
 
-      <Row cols="minmax(0,1fr) minmax(0,1fr)">
+      <Row cols="minmax(0,1fr) minmax(0,1fr)" style={{ minHeight: 340 }}>
         <VisualCard
           title="Process value league"
           subtitle="Top processes by net benefit (Pareto)"
@@ -267,7 +306,7 @@ export function ValueFinance() {
               <p style={{ margin: 0, fontFamily: fonts.body, fontSize: 12, color: t.inkSoft, flex: "0 0 auto" }}>
                 {pctOfTotalShown}% of value comes from {thresholdCount} processes{thresholdCount > 15 ? ` (showing the top 15 of ${positiveNet.length})` : ""}.
               </p>
-              <div style={{ flex: 1, minHeight: 0 }}>
+              <div style={{ flex: 1, minHeight: 220 }}>
                 <ParetoChart items={paretoItems} barColor={v.accent} lineColor={colors.netLine} thresholdPct={0.8} thresholdLabel="80% of positive net" />
               </div>
             </div>

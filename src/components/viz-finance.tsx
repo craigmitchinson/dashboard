@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties, MouseEvent } from "react";
 import { fonts } from "../theme";
 import { useTheme } from "../theme-context";
@@ -33,6 +33,53 @@ export function fyFinanceColors(mode: "light" | "dark") {
         unattributed: "#e87ba4",
         netLine: "#4a3aa7",
       };
+}
+
+// Cached canvas-measurement helper (module scope), same technique as
+// viz.tsx's own private `measureTextWidth` (not exported from there, hence
+// this small duplicate — see this file's header comment on that convention).
+// Used to word-wrap the waterfall's per-bar x-axis labels onto up to two
+// lines: several of the cost-composition labels ("CoE machines (VDIs)",
+// "Squad machines (VDIs)", "Unattributed idle (memo)") are long enough that,
+// packed one per (of up to 7) narrow bar columns, single-line text
+// overlapped its neighbours.
+let measureCanvas: HTMLCanvasElement | null = null;
+function measureTextWidth(text: string, font: string): number {
+  if (!measureCanvas) measureCanvas = document.createElement("canvas");
+  const ctx = measureCanvas.getContext("2d");
+  if (!ctx) return text.length * 5.5;
+  ctx.font = font;
+  return ctx.measureText(text).width;
+}
+
+// Greedily wraps `label` onto at most `maxLines` lines that each fit within
+// `maxWidth` at the given font — a plain word-wrap (never mid-word), with
+// the last permitted line ellipsised if words remain.
+function wrapLabel(label: string, maxWidth: number, font: string, maxLines = 2): string[] {
+  const words = label.split(" ");
+  const lines: string[] = [];
+  let cur = "";
+  let i = 0;
+  while (i < words.length && lines.length < maxLines) {
+    const word = words[i];
+    const candidate = cur ? `${cur} ${word}` : word;
+    if (cur && measureTextWidth(candidate, font) > maxWidth) {
+      lines.push(cur);
+      cur = "";
+    } else {
+      cur = candidate;
+      i++;
+    }
+  }
+  if (cur) lines.push(cur);
+  // Words remain unplaced (label too long even at maxLines) — ellipsise the
+  // last line down until "<text>…" fits.
+  if (i < words.length && lines.length) {
+    let last = lines[lines.length - 1];
+    while (last.length > 1 && measureTextWidth(last + "…", font) > maxWidth) last = last.slice(0, -1);
+    lines[lines.length - 1] = last + "…";
+  }
+  return lines;
 }
 
 function niceMax(v: number) {
@@ -107,7 +154,11 @@ export function WaterfallChart({ steps, valueFormat = fmtGBPc, height }: { steps
   const v = useViz();
   const [ref, size] = useSize();
   const w = size.w;
-  const H = height ?? size.h;
+  // Fall back to a real minimum height (240) rather than a possibly-still-0
+  // `size.h` — the ResizeObserver's first callback can race a 0-height
+  // parent (e.g. a flex row mid-layout on the very first paint), and 0 would
+  // otherwise make the `H > 0` guard below skip rendering entirely.
+  const H = height ?? (size.h || 240);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
 
   const chain = steps.filter((s) => !s.memo);
@@ -137,7 +188,11 @@ export function WaterfallChart({ steps, valueFormat = fmtGBPc, height }: { steps
   const padL = 46,
     padR = 14,
     padT = 40,
-    padB = 34;
+    // 46 (was 34): room for the axis label to wrap onto 2 lines — several
+    // of the cost-composition labels ("CoE machines (VDIs)", "Squad
+    // machines (VDIs)", "Unattributed idle (memo)") no longer fit one line
+    // per bar without overlapping their neighbours at typical card widths.
+    padB = 46;
   const iw = Math.max(10, w - padL - padR);
   const ih = Math.max(10, H - padT - padB);
 
@@ -165,7 +220,7 @@ export function WaterfallChart({ steps, valueFormat = fmtGBPc, height }: { steps
   return (
     <div style={{ width: "100%", height: height ?? "100%", minHeight: 0, display: "flex", flexDirection: "column", gap: 8 }}>
       <Legend items={legendItems} />
-      <div ref={ref} style={{ flex: 1, minHeight: 0, position: "relative" }}>
+      <div ref={ref} className="viz-enter" style={{ flex: 1, minHeight: 0, position: "relative" }}>
         {w > 0 && H > 0 && n > 0 && (
           <svg width={w} height={H} style={{ display: "block", fontFamily: fonts.mono }}>
             <line x1={padL} x2={w - padR} y1={y0} y2={y0} stroke={v.grid} strokeWidth={1} />
@@ -215,9 +270,11 @@ export function WaterfallChart({ steps, valueFormat = fmtGBPc, height }: { steps
                       {fmtPct(b.step.pctOfBase)} of gross
                     </text>
                   )}
-                  <text x={bx + barW / 2} y={H - 10} textAnchor="middle" fontSize={10} fill={v.soft}>
-                    {b.step.label}
-                  </text>
+                  {wrapLabel(b.step.label, cell - 4, "10px " + fonts.mono).map((line, li, lines) => (
+                    <text key={li} x={bx + barW / 2} y={H - 10 - (lines.length - 1 - li) * 11} textAnchor="middle" fontSize={10} fill={v.soft}>
+                      {line}
+                    </text>
+                  ))}
                 </g>
               );
             })}
@@ -273,7 +330,7 @@ export function ParetoChart({
   const v = useViz();
   const [ref, size] = useSize();
   const w = size.w;
-  const H = height ?? size.h;
+  const H = height ?? (size.h || 240);
   const [hi, setHi] = useState<number | null>(null);
   const n = items.length;
 
@@ -313,7 +370,7 @@ export function ParetoChart({
   return (
     <div style={{ width: "100%", height: height ?? "100%", minHeight: 0, display: "flex", flexDirection: "column", gap: 8 }}>
       <Legend items={[{ label: "Value", color: barColor }, { label: "Cumulative", color: lineColor }]} />
-      <div ref={ref} style={{ flex: 1, minHeight: 0, position: "relative" }}>
+      <div ref={ref} className="viz-enter" style={{ flex: 1, minHeight: 0, position: "relative" }}>
         {w > 0 && H > 0 && n > 0 && (
           <svg width={w} height={H} style={{ display: "block", fontFamily: fonts.mono }}>
             {Array.from({ length: ticks + 1 }, (_, i) => {
@@ -441,7 +498,7 @@ export function StackedCostTrend({
   const colors = fyFinanceColors(t.mode);
   const [ref, size] = useSize();
   const w = size.w;
-  const H = height ?? size.h;
+  const H = height ?? (size.h || 240);
   const [hi, setHi] = useState<number | null>(null);
   const n = labels.length;
 
@@ -474,7 +531,7 @@ export function StackedCostTrend({
   return (
     <div style={{ width: "100%", height: height ?? "100%", minHeight: 0, display: "flex", flexDirection: "column", gap: 8 }}>
       <Legend items={legendItems} />
-      <div ref={ref} style={{ flex: 1, minHeight: 0, position: "relative" }}>
+      <div ref={ref} className="viz-enter" style={{ flex: 1, minHeight: 0, position: "relative" }}>
         {w > 0 && H > 0 && n > 0 && (
           <svg width={w} height={H} style={{ display: "block", fontFamily: fonts.mono }}>
             {Array.from({ length: ticks + 1 }, (_, i) => {
@@ -568,25 +625,57 @@ export function StackedCostTrend({
 // ===========================================================================
 // 4. SpokePLTable
 // ===========================================================================
-type SpokeSortKey = "spoke" | "gross" | "peopleCost" | "infraCost" | "net" | "marginPct" | "costPerCase" | "completed";
+type SpokeSortKey = "spoke" | "gross" | "peopleCost" | "infraCost" | "net" | "marginPct" | "costPerCase" | "completed" | "vsTarget";
 
 function cellStyle(t: ReturnType<typeof useTheme>, align: "left" | "right" = "left"): CSSProperties {
   return { textAlign: align, padding: "8px 12px", fontSize: 12.5, color: t.ink, borderBottom: `1px solid ${t.ruleSoft}`, whiteSpace: "nowrap" };
 }
 
-export function SpokePLTable({ rows, dataThroughISO }: { rows: SpokeAgg[]; dataThroughISO: string }) {
+export interface SpokeFinanceTarget {
+  spokeId: string;
+  annualNetBenefitTargetGBP: number;
+}
+
+export function SpokePLTable({
+  rows,
+  financeTargets,
+  onSortedChange,
+}: {
+  rows: SpokeAgg[];
+  // Per-spoke annual net benefit targets (ESTATE excluded by the caller) —
+  // drives the "vs target" column below. Undefined/empty renders "—" for
+  // every row rather than hiding the column, so its position never shifts.
+  financeTargets?: SpokeFinanceTarget[];
+  // Current sorted row order, for a caller-owned CSV export that must match
+  // what's on screen (see viz.tsx's DataTable onSortedChange for the same
+  // pattern).
+  onSortedChange?: (rows: SpokeAgg[]) => void;
+}) {
   const t = useTheme();
   const v = useViz();
   const [sort, setSort] = useState<{ key: SpokeSortKey; dir: "asc" | "desc" }>({ key: "net", dir: "desc" });
 
   const toggle = (key: SpokeSortKey) => setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "desc" }));
 
-  const sorted = [...rows].sort((a, b) => {
-    const va = a[sort.key];
-    const vb = b[sort.key];
-    const cmp = typeof va === "number" && typeof vb === "number" ? va - vb : String(va).localeCompare(String(vb));
-    return sort.dir === "asc" ? cmp : -cmp;
-  });
+  const targetMap = useMemo(() => new Map((financeTargets ?? []).map((f) => [f.spokeId, f.annualNetBenefitTargetGBP])), [financeTargets]);
+  const vsTargetPct = (r: SpokeAgg): number | undefined => {
+    const target = targetMap.get(r.spoke);
+    return target ? r.fyToDateNet / target : undefined;
+  };
+
+  const sorted = useMemo(
+    () =>
+      [...rows].sort((a, b) => {
+        const va = sort.key === "vsTarget" ? (vsTargetPct(a) ?? -Infinity) : a[sort.key as Exclude<SpokeSortKey, "vsTarget">];
+        const vb = sort.key === "vsTarget" ? (vsTargetPct(b) ?? -Infinity) : b[sort.key as Exclude<SpokeSortKey, "vsTarget">];
+        const cmp = typeof va === "number" && typeof vb === "number" ? va - vb : String(va).localeCompare(String(vb));
+        return sort.dir === "asc" ? cmp : -cmp;
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rows, sort.key, sort.dir, targetMap],
+  );
+
+  useEffect(() => onSortedChange?.(sorted), [sorted, onSortedChange]);
 
   const totals = rows.reduce(
     (acc, r) => {
@@ -612,54 +701,11 @@ export function SpokePLTable({ rows, dataThroughISO }: { rows: SpokeAgg[]; dataT
     { key: "marginPct", header: "Margin %", align: "right" },
     { key: "costPerCase", header: "Cost/case", align: "right" },
     { key: "completed", header: "Completed cases", align: "right" },
+    { key: "vsTarget", header: "vs target (FYTD)", align: "right" },
   ];
-
-  const exportCsv = () => {
-    if (!sorted.length) return;
-    const header = ["Spoke", "Gross", "People cost", "Infra cost", "Net", "Margin %", "Cost/case", "Completed cases"];
-    const lines = [header.join(",")];
-    for (const r of sorted) {
-      lines.push([r.spoke, r.gross.toFixed(2), r.peopleCost.toFixed(2), r.infraCost.toFixed(2), r.net.toFixed(2), (r.marginPct * 100).toFixed(2), r.costPerCase.toFixed(2), r.completed].join(","));
-    }
-    lines.push(
-      ["Total", totals.gross.toFixed(2), totals.peopleCost.toFixed(2), totals.infraCost.toFixed(2), totals.net.toFixed(2), (totalsMarginPct * 100).toFixed(2), totalsCostPerCase.toFixed(2), totals.completed].join(","),
-    );
-    const csv = lines.join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `spoke-pl-${dataThroughISO}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8, height: "100%", minHeight: 0 }}>
-      <div style={{ display: "flex", justifyContent: "flex-end" }}>
-        <button
-          type="button"
-          onClick={exportCsv}
-          disabled={!sorted.length}
-          style={{
-            fontFamily: fonts.mono,
-            fontSize: 10.5,
-            letterSpacing: "0.05em",
-            textTransform: "uppercase",
-            fontWeight: 700,
-            padding: "6px 11px",
-            borderRadius: 7,
-            cursor: sorted.length ? "pointer" : "not-allowed",
-            border: `1px solid ${t.ruleSoft}`,
-            background: "transparent",
-            color: sorted.length ? t.inkSoft : t.inkFaint,
-          }}
-        >
-          ⤓ Export CSV
-        </button>
-      </div>
       <div style={{ overflow: "auto", flex: 1, minHeight: 0, border: `1px solid ${t.ruleSoft}`, borderRadius: 9 }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: fonts.body }}>
           <thead>
@@ -737,6 +783,9 @@ export function SpokePLTable({ rows, dataThroughISO }: { rows: SpokeAgg[]; dataT
                 <td style={cellStyle(t, "right")}>{r.gross ? fmtPct(r.marginPct) : "—"}</td>
                 <td style={cellStyle(t, "right")}>{r.completed ? fmtMoney2(r.costPerCase) : "—"}</td>
                 <td style={cellStyle(t, "right")}>{fmtInt(r.completed)}</td>
+                <td style={{ ...cellStyle(t, "right"), color: vsTargetPct(r) === undefined ? t.inkSoft : vsTargetPct(r)! >= 1 ? v.good : v.bad, fontWeight: 700 }}>
+                  {vsTargetPct(r) === undefined ? "—" : fmtPct(vsTargetPct(r)!)}
+                </td>
                 <td style={cellStyle(t, "right")}>
                   {r.netTrend12w.length >= 2 ? (
                     <Sparkline data={r.netTrend12w} color={r.netTrend12w[r.netTrend12w.length - 1] >= r.netTrend12w[0] ? v.good : v.bad} />
@@ -765,6 +814,7 @@ export function SpokePLTable({ rows, dataThroughISO }: { rows: SpokeAgg[]; dataT
                 <td style={cellStyle(t, "right")}>{totals.gross ? fmtPct(totalsMarginPct) : "—"}</td>
                 <td style={cellStyle(t, "right")}>{totals.completed ? fmtMoney2(totalsCostPerCase) : "—"}</td>
                 <td style={cellStyle(t, "right")}>{fmtInt(totals.completed)}</td>
+                <td style={cellStyle(t, "right")}>—</td>
                 <td style={cellStyle(t, "right")}>—</td>
               </tr>
             </tfoot>

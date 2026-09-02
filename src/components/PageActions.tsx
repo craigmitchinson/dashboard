@@ -76,26 +76,46 @@ export function ActionButton({
   );
 }
 
+// RFC-4180-ish CSV serialisation: header from `columns` if given, else the
+// keys of the first row; a value is quoted only when it contains a comma,
+// a double quote or a newline (internal quotes doubled per the spec),
+// everything else — including numbers — passes through unquoted; null/
+// undefined become an empty field. No trailing newline, `\n` line endings,
+// no BOM — matches this app's one existing consumer (ExportCsvButton below)
+// byte-for-byte; nothing here escapes a leading `=`/`+`/`-`/`@` (Excel/Sheets
+// formula injection) — that is pre-existing behaviour, not something this
+// extraction changed, flagged here for a later hardening pass.
+export function buildCsv(rows: Record<string, unknown>[], columns?: string[]): string {
+  const headers = columns ?? Object.keys(rows[0] ?? {});
+  if (!headers.length) return "";
+  const escape = (v: unknown) => {
+    const s = v == null ? "" : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [headers.join(","), ...rows.map((row) => headers.map((h) => escape(row[h])).join(","))];
+  return lines.join("\n");
+}
+
+// `dateIso` is any ISO-8601 string (full timestamp or already a bare date);
+// only the leading YYYY-MM-DD is used, matching how ExportCsvButton below has
+// always derived its filename date suffix from DATE_MAX's ISO string.
+export function csvFilename(base: string, dateIso: string): string {
+  return `${base}-${dateIso.slice(0, 10)}.csv`;
+}
+
 export function ExportCsvButton({ filename, rows }: { filename: string; rows: () => Record<string, unknown>[] }) {
   const handleClick = () => {
     const data = rows();
     if (!data.length) return; // nothing to export — don't hand back a blank file
-    const headers = Object.keys(data[0] ?? {});
-    const escape = (v: unknown) => {
-      const s = v == null ? "" : String(v);
-      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-    };
-    const lines = [headers.join(","), ...data.map((row) => headers.map((h) => escape(row[h])).join(","))];
-    const csv = lines.join("\n");
-    // DATE_MAX is a UTC-midnight timestamp (see rpaData.ts's `tsOf`), so
-    // slicing its ISO string is always exactly the data-through YYYY-MM-DD —
-    // filename-safe with no further formatting needed.
-    const dateSuffix = new Date(DATE_MAX).toISOString().slice(0, 10);
+    const csv = buildCsv(data);
+    // DATE_MAX is a UTC-midnight timestamp (see rpaData.ts's `tsOf`), so its
+    // ISO string's leading YYYY-MM-DD is always exactly the data-through
+    // date — filename-safe with no further formatting needed.
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${filename}-${dateSuffix}.csv`;
+    a.download = csvFilename(filename, new Date(DATE_MAX).toISOString());
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

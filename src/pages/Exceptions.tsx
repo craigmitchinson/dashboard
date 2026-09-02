@@ -1,33 +1,14 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { fonts, type as typeScale } from "../theme";
 import { useTheme } from "../theme-context";
-import { useFilters } from "../filters-context";
+import { useFilters, DEFAULT_FILTERS } from "../filters-context";
 import { fmtDate, EX_CODE } from "../rpaData";
 import type { ExceptionAgg } from "../filters-context";
-import { KpiCard, VisualCard, DataTable, SearchBox, PageGrid, Row, useViz, fmtInt, fmtCompact, fmtPct, fmtGBP } from "../components/viz";
+import { KpiCard, VisualCard, DataTable, SearchBox, PageGrid, Row, Segmented, EmptyState, useViz, fmtInt, fmtCompact, fmtPct, fmtGBP } from "../components/viz";
 import type { Column } from "../components/viz";
+import { ExportCsvButton } from "../components/PageActions";
 import { SpokeSwatch } from "../components/SpokeSwatch";
-
-// TODO (re-touch when it lands): adopt the shared `Segmented` from
-// components/viz.tsx once the primitives worker exports it — sized to match
-// that spec already (32px/radius 8) so the swap is a drop-in.
-function Segmented<T extends string>({ value, onChange, options }: { value: T; onChange: (v: T) => void; options: { key: T; label: string }[] }) {
-  const t = useTheme();
-  return (
-    <div style={{ display: "inline-flex", height: 32, border: `1px solid ${t.ruleSoft}`, borderRadius: 8, overflow: "hidden" }}>
-      {options.map((o) => (
-        <button
-          key={o.key}
-          onClick={() => onChange(o.key)}
-          style={{ fontFamily: fonts.mono, fontSize: 10.5, letterSpacing: "0.04em", textTransform: "uppercase", padding: "0 10px", height: "100%", border: "none", cursor: "pointer", background: value === o.key ? t.ink : "transparent", color: value === o.key ? t.paper : t.inkSoft, fontWeight: 700 }}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 // Small hover/focus tooltip using the app's existing `.tip`/`.tip__bubble`
 // CSS pattern (styles.css) instead of the native `title` attribute — same
@@ -66,6 +47,7 @@ export function Exceptions() {
   const t = useTheme();
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<"all" | "system" | "business">("all");
+  const [sortedRows, setSortedRows] = useState<ExceptionAgg[]>([]);
 
   const { processes, types, cell, max } = m.matrix;
 
@@ -80,9 +62,16 @@ export function Exceptions() {
     return `${base}${Math.round(alpha * 255).toString(16).padStart(2, "0")}`;
   };
 
-  const tableRows = m.byException
-    .filter((e) => (cat === "all" ? true : e.category === cat))
-    .filter((e) => e.name.toLowerCase().includes(q.toLowerCase()));
+  // Memoized (not recomputed as a fresh array every render): DataTable's
+  // onSortedChange feeds this page's own sortedRows state, so an unmemoized
+  // `.filter().filter()` here — a new array reference every render even
+  // when cat/q/m.byException haven't changed — would retrigger DataTable's
+  // internal sort memo, refire its onSortedChange effect, setState here,
+  // and loop forever (React's "Maximum update depth exceeded").
+  const tableRows = useMemo(
+    () => m.byException.filter((e) => (cat === "all" ? true : e.category === cat)).filter((e) => e.name.toLowerCase().includes(q.toLowerCase())),
+    [m.byException, cat, q],
+  );
 
   const columns: Column<ExceptionAgg>[] = [
     {
@@ -102,7 +91,17 @@ export function Exceptions() {
     { key: "lastSeenTs", header: "Most recent", align: "right", render: (r) => (r.lastSeenTs ? fmtDate(r.lastSeenTs) : "—") },
   ];
 
-  const colW = `minmax(150px, 1.4fr) repeat(${types.length}, minmax(30px, 1fr)) minmax(56px, 0.95fr)`;
+  // Fixed-px label and total columns (not `minmax(…, fr)`) so the header
+  // row, every process row and the totals row — three SEPARATE CSS grids,
+  // not one table — always compute the SAME track widths. With a flexible
+  // first column, each grid's track width depended on THAT grid's own
+  // content (a long process name in one row's min-content could force a
+  // wider column than a header/other row with shorter content), so columns
+  // silently drifted out of alignment row to row — the reported "icons
+  // misaligned, columns squashed" heatmap mess. Only the label/total ends
+  // are content-length-sensitive; the exception-type columns hold short,
+  // consistently-sized numbers so `minmax(30px, 1fr)` stays safe there.
+  const colW = `160px repeat(${types.length}, minmax(30px, 1fr)) 72px`;
 
   return (
     <PageGrid>
@@ -115,6 +114,9 @@ export function Exceptions() {
 
       <Row cols="1fr" style={{ flex: 1.6 }}>
         <VisualCard title="Exception heatmap" subtitle="Volume by process (rows) and exception type (columns) — darker is more">
+        {processes.length === 0 ? (
+          <EmptyState onReset={() => setFilters(DEFAULT_FILTERS)} />
+        ) : (
         <div style={{ overflow: "auto", paddingBottom: 4, height: "100%" }}>
           <div style={{ minWidth: 720, height: "100%", display: "flex", flexDirection: "column" }}>
             {/* header */}
@@ -129,7 +131,7 @@ export function Exceptions() {
             </div>
             <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "space-between", gap: 2 }}>
               {processes.map((p, ri) => (
-                <div key={p.id} style={{ flex: "1 1 21px", minHeight: 21, display: "grid", gridTemplateColumns: colW, gap: 2, opacity: activeProc && activeProc !== p.id ? 0.4 : 1 }}>
+                <div key={p.id} style={{ flex: "1 1 22px", minHeight: 22, display: "grid", gridTemplateColumns: colW, gap: 2, alignItems: "stretch", opacity: activeProc && activeProc !== p.id ? 0.4 : 1 }}>
                   <span
                     className="click-row"
                     role="button"
@@ -142,21 +144,24 @@ export function Exceptions() {
                         setFilters({ processId: activeProc === p.id ? "All" : p.id });
                       }
                     }}
-                    style={{ fontFamily: fonts.body, fontSize: 12, fontWeight: activeProc === p.id ? 700 : 400, color: t.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", padding: "0 6px 0 4px", margin: "0 0 0 -4px", borderRadius: 5, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}
+                    style={{ minWidth: 0, padding: "0 6px 0 4px", margin: "0 0 0 -4px", borderRadius: 5, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}
                     title={`Filter to ${p.name}`}
-                  ><SpokeSwatch spoke={p.spoke} decorative />{p.name}</span>
+                  >
+                    <SpokeSwatch spoke={p.spoke} decorative />
+                    <span style={{ fontFamily: fonts.body, fontSize: 12, fontWeight: activeProc === p.id ? 700 : 400, color: t.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0, flex: 1 }}>{p.name}</span>
+                  </span>
                   {types.map((ty, ci) => {
                     const val = cell[ri][ci];
                     const strong = max && val / max > 0.55;
                     return (
                       <CellTip key={ty.name} tip={`${p.name} · ${ty.name}: ${fmtInt(val)}`} style={{ height: "100%" }}>
-                        <span style={{ background: heat(val, ty.category), borderRadius: 4, height: "100%", minHeight: 21, display: "grid", placeItems: "center", fontFamily: fonts.mono, fontSize: 10.5, fontWeight: 600, color: strong ? t.paper : t.inkSoft }}>
+                        <span style={{ background: heat(val, ty.category), borderRadius: 4, height: "100%", minHeight: 22, display: "grid", placeItems: "center", fontFamily: fonts.mono, fontSize: 10.5, fontWeight: 600, color: strong ? t.paper : t.inkSoft }}>
                           {val > 0 ? fmtCompact(val) : ""}
                         </span>
                       </CellTip>
                     );
                   })}
-                  <CellTip tip={`${p.name} · total: ${fmtInt(rowTotals[ri])}`} style={{ display: "flex", alignItems: "center", gap: 6, height: "100%", minHeight: 21 }}>
+                  <CellTip tip={`${p.name} · total: ${fmtInt(rowTotals[ri])}`} style={{ display: "flex", alignItems: "center", gap: 6, height: "100%", minHeight: 22 }}>
                     <span style={{ flex: 1, height: 7, background: v.grid, borderRadius: 3, overflow: "hidden", position: "relative" }}>
                       <span style={{ position: "absolute", inset: 0, width: `${Math.max(2, (rowTotals[ri] / rowMax) * 100)}%`, background: t.series, borderRadius: 3 }} />
                     </span>
@@ -181,6 +186,7 @@ export function Exceptions() {
             </div>
           </div>
         </div>
+        )}
         </VisualCard>
       </Row>
 
@@ -193,9 +199,13 @@ export function Exceptions() {
             <Segmented
               value={cat}
               onChange={setCat}
-              options={[{ key: "all", label: "All" }, { key: "system", label: "System" }, { key: "business", label: "Business" }]}
+              options={[{ value: "all", label: "All" }, { value: "system", label: "System" }, { value: "business", label: "Business" }]}
             />
             <SearchBox value={q} onChange={setQ} placeholder="Search exception…" />
+            <ExportCsvButton
+              filename="exceptions"
+              rows={() => sortedRows.map((r) => ({ Exception: r.name, Category: r.category, Volume: r.volume, "% of total": (r.pct * 100).toFixed(2), Cost: r.costGBP.toFixed(2), "Most recent": r.lastSeenTs ? fmtDate(r.lastSeenTs) : "" }))}
+            />
           </div>
         }
       >
@@ -208,7 +218,7 @@ export function Exceptions() {
             even after the heatmap's flex share above was cut from 2.1 to 1.6.
             360px comfortably clears the ≥6-row bar (header + ~9 rows) while
             still leaving its own internal scrollbar for the rest. */}
-        <DataTable columns={columns} rows={tableRows} initialSort={{ key: "volume", dir: "desc" }} maxBodyHeight={360} />
+        <DataTable columns={columns} rows={tableRows} initialSort={{ key: "volume", dir: "desc" }} maxBodyHeight={360} onSortedChange={setSortedRows} />
       </VisualCard>
       </Row>
     </PageGrid>

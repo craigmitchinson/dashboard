@@ -30,12 +30,12 @@ import { useDisplayPrefs } from "./prefs-context";
 const FOCUSABLE_SELECTOR = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
 // Dialog chrome. Text contrast vs the active `t.paper`-based glass surface:
-//   light: ink #0B3239 on paper #FAF7F2 (~4.84:1 worst-case scrim at
-//          .liquid-glass's old .62 alpha; glass-overlay's .78 is strictly
-//          higher — see glassOverlayVars()'s comment in src/theme.ts) — was
-//          12.85:1 solid.
-//   dark:  ink #F4F1EB on paper #0C2329 (~5.05:1 worst-case scrim, same .62
-//          -> .78 note) — was 14.46:1 solid.
+//   light: ink #0B3239 on paper #FAF7F2 (paper composited through
+//          glass-overlay's .78 scrim clears AA at the theoretical
+//          worst-case backdrop — see glassOverlayVars()'s comment in
+//          src/theme.ts) — was 12.85:1 solid.
+//   dark:  ink #F4F1EB on paper #0C2329 (same worst-case method) — was
+//          14.46:1 solid.
 // (high-contrast mode is untouched by this — its `!important` rules in
 // styles.css already target `.modal-dialog` via `:root[data-theme=...]`,
 // which — unlike `.report[data-mode=...]` — matches regardless of the
@@ -51,12 +51,11 @@ function dialogStyle(t: ThemeTokens): CSSProperties {
     // this subtree; that left a ~1.2:1 (invisible) ring in dark mode.
     ["--a11y-focus-color" as string]: t.ink,
     // background/box-shadow/rim now come from `.glass-overlay` (styles.css) —
-    // unlike `.liquid-glass`, it has no `.report[data-mode="dark"]` cascade
-    // variant at all (every one of its consumers is either portalled or, like
-    // this dialog, a sibling of `.report` — see that class's comment in
-    // styles.css), so glassOverlayVars() supplying the --go-* values inline
-    // is the ONLY way any consumer gets the dark variant, not a fallback for
-    // an unreachable cascade the way liquidGlassVars() was.
+    // it has no `.report[data-mode="dark"]` cascade variant at all (every one
+    // of its consumers is either portalled or, like this dialog, a sibling of
+    // `.report` — see that class's comment in styles.css), so
+    // glassOverlayVars() supplying the --go-* values inline is the ONLY way
+    // any consumer gets the dark variant.
     ...glassOverlayVars(t),
   } as CSSProperties;
 }
@@ -194,7 +193,7 @@ export function DisplayPanel({ onClose }: { onClose: () => void }): JSX.Element 
             High contrast uses true black and white with visible borders and no reliance on colour or shadow alone.
           </p>
           <Switch
-            id="a11y-liquid-glass"
+            id="a11y-glass"
             label="Liquid glass"
             description="Translucent, light-bending surfaces on menus and dialogs. Turn off for solid panels."
             checked={prefs.liquidGlass}

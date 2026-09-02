@@ -4,37 +4,13 @@ import { useTheme } from "../theme-context";
 import { useFilters } from "../filters-context";
 import { fmtDate, monthKey } from "../rpaData";
 import { TARGETS } from "../rpaData";
-import { KpiCard, VisualCard, LineChart, Legend, PageGrid, Row, useViz, fmtInt, fmtCompact, fmtPct } from "../components/viz";
+import { KpiCard, VisualCard, LineChart, Legend, PageGrid, Row, Segmented, useViz, fmtInt, fmtCompact, fmtPct } from "../components/viz";
 
 type Grain = "daily" | "monthly";
-
-function Toggle({ value, onChange }: { value: Grain; onChange: (g: Grain) => void }) {
-  const t = useTheme();
-  return (
-    <div style={{ display: "inline-flex", border: `1px solid ${t.ruleSoft}`, borderRadius: 8, overflow: "hidden" }}>
-      {(["daily", "monthly"] as Grain[]).map((g) => (
-        <button
-          key={g}
-          onClick={() => onChange(g)}
-          style={{
-            fontFamily: fonts.mono,
-            fontSize: 11,
-            letterSpacing: "0.05em",
-            textTransform: "uppercase",
-            padding: "5px 12px",
-            border: "none",
-            cursor: "pointer",
-            background: value === g ? t.ink : "transparent",
-            color: value === g ? t.paper : t.inkSoft,
-            fontWeight: 700,
-          }}
-        >
-          {g}
-        </button>
-      ))}
-    </div>
-  );
-}
+const GRAIN_OPTIONS: { value: Grain; label: string }[] = [
+  { value: "daily", label: "Daily" },
+  { value: "monthly", label: "Monthly" },
+];
 
 export function InputOutcome() {
   const { model } = useFilters();
@@ -73,7 +49,7 @@ export function InputOutcome() {
           right={
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <Legend items={legend} />
-              <Toggle value={grain} onChange={setGrain} />
+              <Segmented ariaLabel="Grain" value={grain} onChange={setGrain} options={GRAIN_OPTIONS} />
             </div>
           }
         >
@@ -106,8 +82,8 @@ export function InputOutcome() {
           />
         </VisualCard>
 
-        <VisualCard title="Period summary" subtitle="Across the current slicers">
-          <div style={{ display: "flex", flexDirection: "column", justifyContent: "space-between", height: "100%" }}>
+        <VisualCard title="Period summary" subtitle="Across the current slicers" scroll>
+          <div style={{ display: "flex", flexDirection: "column" }}>
             {[
               { k: "Cases attempted", val: fmtInt(m.attempts) },
               { k: "Completed (straight-through)", val: fmtInt(m.completed) },
@@ -116,7 +92,7 @@ export function InputOutcome() {
               { k: "Active days in range", val: String(m.daily.length) },
               { k: "Avg cases / day", val: fmtInt(m.attempts / Math.max(1, m.daily.length)) },
             ].map((r, i) => (
-              <div key={r.k} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 2px", borderTop: i ? `1px solid ${t.ruleSoft}` : undefined }}>
+              <div key={r.k} style={{ flex: "0 0 auto", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 2px", borderTop: i ? `1px solid ${t.ruleSoft}` : undefined }}>
                 <span style={{ fontFamily: fonts.body, fontSize: 13, color: t.inkSoft }}>{r.k}</span>
                 <span style={{ fontFamily: fonts.mono, fontSize: 14, fontWeight: 700, color: t.ink }}>{r.val}</span>
               </div>

@@ -170,8 +170,13 @@ export function ProcessDetail() {
 
   return (
     <PageGrid>
-      {/* breadcrumb */}
-      <Row cols="1fr" grow={false} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+      {/* breadcrumb — left edge (16px) matches the banner's icon/title/tags
+          inset below (border 4px + padding-left 12px = 16px), so the
+          breadcrumb text, the process icon+title, and the tag chips all line
+          up on the same left edge instead of the breadcrumb sitting flush
+          against the page gutter while the banner's rail+padding pushed its
+          content 20px in. */}
+      <Row cols="1fr" grow={false} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, paddingLeft: 16 }}>
         <nav aria-label="Breadcrumb" style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: fonts.mono, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em", color: t.inkSoft, minWidth: 0 }}>
           <span>Operate</span>
           <span aria-hidden>›</span>
@@ -204,12 +209,19 @@ export function ProcessDetail() {
         </div>
       </Row>
 
-      {/* banner */}
+      {/* banner — the accent rail (border-left) is 4px and the box's own
+          padding-left is 12px, totalling the same 16px inset the breadcrumb
+          above now uses, so the icon and title sit flush on one left edge
+          instead of drifting 4px right of it (previously 16px padding on
+          top of the 4px rail). Tags stay beside the title block (not
+          stacked below it) — this is a height-locked page (PageGrid
+          fit={true}), and stacking them added a row's worth of height that
+          squeezed the cards below into overlapping their own headers. */}
       <Row cols="1fr" grow={false}>
-        <div style={{ display: "flex", alignItems: "center", gap: 14, background: `linear-gradient(168deg, ${t.paper}, ${t.themeBand})`, border: `1px solid ${t.ruleSoft}`, borderLeft: `4px solid ${spokeColorFor(proc.spoke, t.mode) ?? t.accent}`, borderRadius: 12, padding: "12px 16px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, background: `linear-gradient(168deg, ${t.paper}, ${t.themeBand})`, border: `1px solid ${t.ruleSoft}`, borderLeft: `4px solid ${spokeColorFor(proc.spoke, t.mode) ?? t.accent}`, borderRadius: 12, padding: "12px 16px 12px 12px" }}>
           <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <SpokeSwatch spoke={proc.spoke} label size="md" />
+              <SpokeSwatch spoke={proc.spoke} decorative size="md" />
               <div style={{ fontFamily: typeScale.displayL.fontFamily, fontSize: typeScale.displayL.fontSize, lineHeight: typeScale.displayL.lineHeight, fontWeight: typeScale.displayL.fontWeight, color: t.ink }}>
                 {proc.name} <span style={{ fontFamily: fonts.mono, fontSize: 11, color: t.inkSoft, fontWeight: 400 }}>{proc.acronym}</span>
               </div>
@@ -253,7 +265,7 @@ export function ProcessDetail() {
 
       <Row cols="minmax(0,1fr) minmax(0,1fr)" style={{ flex: 1.25 }}>
         <VisualCard title="Digital workers" subtitle={`${proc.spoke} machines that ran this process in the period`}>
-          <div style={{ display: "flex", flexDirection: "column", justifyContent: workers.length > 1 ? "space-between" : "center", gap: 8, height: "100%" }}>
+          <div style={{ display: "flex", flexDirection: "column", justifyContent: workers.length > 1 ? "space-between" : "center", gap: 8, height: "100%", minHeight: 0, overflow: "auto" }}>
             {workers.length === 0 && <span style={{ fontFamily: fonts.body, fontSize: 13, color: t.inkSoft }}>No runs in the selected period.</span>}
             {workers.map((w, i) => (
               <div key={w.id} style={{ display: "grid", gridTemplateColumns: "1fr 62px 90px 70px", gap: 10, alignItems: "center", padding: "7px 2px", borderTop: i ? `1px solid ${t.ruleSoft}` : undefined }}>
@@ -268,7 +280,15 @@ export function ProcessDetail() {
           </div>
         </VisualCard>
         <VisualCard title="Process profile" subtitle="Team-owned configuration (reference data)">
-          <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", gap: 10, height: "100%" }}>
+          {/* justifyContent:"center" on a flex column that's TALLER than its
+              box (4 rows + a variable-length description block, some
+              processes' descriptions run to 2-3 lines) had no minHeight:0/
+              overflow of its own, so it overflowed symmetrically up AND
+              down — bleeding into this card's own header above it. flex
+              items default to flex-start (removing the top-overflow) and
+              overflow:auto lets genuinely-too-tall content scroll instead
+              of visually escaping the card. */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, height: "100%", minHeight: 0, overflow: "auto" }}>
             {[
               { k: "SMV — manual minutes / case", val: `${proc.smvMinutes} min` },
               { k: "Automates against grade", val: `${proc.gradeName} (${proc.grade})` },

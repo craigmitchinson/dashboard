@@ -1,6 +1,6 @@
 import { fonts } from "../theme";
 import { useTheme } from "../theme-context";
-import { VisualCard } from "../components/viz";
+import { VisualCard, PageGrid } from "../components/viz";
 import { Bionic } from "../a11y/Bionic";
 import { PLAYBOOK_SECTIONS } from "./playbook-content";
 import type { PlaybookBlock } from "./playbook-content";
@@ -163,7 +163,16 @@ export function Playbook() {
   const t = useTheme();
 
   return (
-    <div className="anim-up" style={{ height: "100%", minHeight: 0, display: "flex", gap: 18 }}>
+    // Document-style page (like Value & Finance): .report__canvas is the
+    // single scroll container app-wide, so this page must not create its
+    // own internal scroll regions — PageGrid fit={false} lets it take its
+    // natural (often taller-than-viewport) height instead of being locked
+    // to the canvas's own height. The left rail's position:sticky still
+    // works against that outer scroll container (sticky only needs *a*
+    // scrolling ancestor, not a specific one), it just no longer scrolls on
+    // its own.
+    <PageGrid fit={false}>
+      <div style={{ display: "flex", gap: 18 }}>
       {/* Scoped hover/focus rule for the jump links below — this page's own
           inline <style>, not a styles.css addition (that file is owned by
           the shell worker for this pass): ink text with an accent underline
@@ -171,10 +180,9 @@ export function Playbook() {
           treatment (§7, red-means-negative). */}
       <style>{`.playbook-jumpnav a:hover, .playbook-jumpnav a:focus-visible { border-bottom-color: ${t.accent} !important; }`}</style>
 
-      {/* Sticky left rail — stays in view while the section list scrolls to
-          its right, so a long playbook never loses its own table of
-          contents (previously a single horizontal link row at the top,
-          scrolled out of view with everything else). */}
+      {/* Sticky left rail — stays in view while the section list scrolls
+          past it in .report__canvas, so a long playbook never loses its own
+          table of contents. */}
       <nav
         aria-label="Playbook sections"
         className="playbook-jumpnav"
@@ -186,8 +194,6 @@ export function Playbook() {
           display: "flex",
           flexDirection: "column",
           gap: 2,
-          maxHeight: "100%",
-          overflowY: "auto",
           paddingRight: 4,
         }}
       >
@@ -205,7 +211,7 @@ export function Playbook() {
         ))}
       </nav>
 
-      <div style={{ flex: 1, minWidth: 0, height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", gap: 12, paddingRight: 2 }}>
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 12, paddingRight: 2 }}>
         {PLAYBOOK_SECTIONS.map((s) => (
           <div key={s.id} id={anchorFor(s.id)}>
             <VisualCard title={s.title}>
@@ -218,6 +224,7 @@ export function Playbook() {
           </div>
         ))}
       </div>
-    </div>
+      </div>
+    </PageGrid>
   );
 }

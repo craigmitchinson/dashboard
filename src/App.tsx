@@ -745,8 +745,10 @@ function Report({ ambientAccent }: { ambientAccent?: string }) {
     }),
     []
   );
+  // mainRef is the .report__canvas element — the scroll container as of the
+  // scroll-model rework (see styles.css's .report__main comment) — used both
+  // for the skip-link focus target and the scroll listener below.
   const mainRef = useRef<HTMLElement>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
   const navRef = useRef<HTMLElement>(null);
   const topRef = useRef<HTMLDivElement>(null);
   const [navOrigin, setNavOrigin] = useState<string | null>(null);
@@ -818,33 +820,28 @@ function Report({ ambientAccent }: { ambientAccent?: string }) {
       const rect = entries[0]?.contentRect;
       const w = rect?.width ?? el.clientWidth;
       setHeaderCompactGreeting(w < 1400);
-      // --top-h (nav/motion P1): the sticky band's live height, published on
-      // the scroll container so data pages can size to
-      // calc(100dvh - var(--top-h) - 2*var(--canvas-pad)). Same observer as
-      // headerCompactGreeting above (not a second one) — ResizeObserver
-      // fires once synchronously-ish on observe(), same as that state's own
-      // already-correct-on-first-paint behaviour, so no separate initial
-      // measurement call is needed here either.
-      const h = rect?.height ?? el.clientHeight;
-      scrollRef.current?.style.setProperty("--top-h", `${h}px`);
     });
     ro.observe(el);
     return () => ro.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // will-change on the persistent glass surfaces only while `.report__main`
-  // is actively scrolling (cleared 150ms after the last scroll event) — see
-  // the .glass-persistent comment in styles.css.
+  // will-change on the persistent glass surfaces only while `.report__canvas`
+  // (the scroll container — see the scroll-model comment on .report__main in
+  // styles.css) is actively scrolling (cleared 150ms after the last scroll
+  // event) — see the .glass-persistent comment in styles.css. Also drives the
+  // band's shadow-on-scroll, off the canvas's own scrollTop — the band itself
+  // (`.report__top`) is a plain, never-scrolling flex child; only the canvas
+  // beneath it scrolls, so its structure/padding can never scroll away.
   useEffect(() => {
-    const el = scrollRef.current;
+    const el = mainRef.current;
     if (!el) return;
     let idleTimer: ReturnType<typeof setTimeout> | undefined;
     const onScroll = () => {
       navRef.current?.classList.add("is-scrolling");
       topRef.current?.classList.add("is-scrolling");
-      // Sticky band shadow (nav/motion P1): tracks scrollTop live, on every
-      // scroll event — unlike is-scrolling above, this is NOT idle-debounced.
+      // Band shadow (nav/motion P1): tracks scrollTop live, on every scroll
+      // event — unlike is-scrolling above, this is NOT idle-debounced.
       topRef.current?.classList.toggle("report__top--shadow", el.scrollTop > 8);
       if (idleTimer) clearTimeout(idleTimer);
       idleTimer = setTimeout(() => {
@@ -1104,11 +1101,12 @@ function Report({ ambientAccent }: { ambientAccent?: string }) {
         </aside>
 
         {/* ---- main column ---- */}
-        <div className="report__main" ref={scrollRef}>
-          {/* Sticky glass band: header + slicer bar scroll together, pinned
-              to the top of `.report__main` (the actual scroll container —
-              see styles.css) while canvas content passes beneath them. Also
-              the container-query root for the header's priority collapse. */}
+        <div className="report__main">
+          {/* Glass band: header + slicer bar, a plain (never-sticky) flex
+              child of `.report__main` — its padding/structure can never
+              scroll away. `.report__canvas` below is the actual scroll
+              container (see styles.css). `.report__main` is also the
+              container-query root for the header's priority collapse. */}
           <div ref={topRef} className="report__top glass-persistent">
           <header className="report__header" style={{ borderBottom: `1px solid ${t.ruleSoft}` }}>
             {/* Title + blurb share one baseline row (blurb truncates first) so

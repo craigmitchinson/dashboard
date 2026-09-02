@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import type { CSSProperties } from "react";
 import { fonts, type as typeScale } from "../theme";
 import { useTheme } from "../theme-context";
 import { useReference } from "../reference/reference-context";
@@ -7,6 +8,7 @@ import type { Filters } from "../filters-context";
 import { useNav } from "../nav-context";
 import { useAuth } from "../auth/auth-context";
 import { IconAlert, IconChevron, IconInfo } from "../components/icons";
+import { ExportCsvButton } from "../components/PageActions";
 import { SpokeSwatch } from "../components/SpokeSwatch";
 import { DATE_MAX, fmtDateFull, ROWS, DATA_MIN_ISO, DATA_MAX_ISO, DAY_WORKTIME_TOTALS, SPOKE_DAY_WORKTIME_TOTALS, PROCESS_BY_ID } from "../rpaData";
 import { buildRateTables } from "../reference/economics";
@@ -163,6 +165,26 @@ const SCOPE_CHIPS: { key: AlertScope; label: string }[] = [
 // this page never calls evaluateAlerts() itself.
 // ---------------------------------------------------------------------------
 
+// Shared box model for the three row action buttons (Open / Acknowledge /
+// Unacknowledge) — .bar-btn (styles.css) already sets height:32/padding:0
+// 12px/display:inline-flex, but not align-items, so a plain-text button
+// (Acknowledge) defaulted to align-items:stretch while "Open" (icon + text)
+// separately centred itself inline — the two rendered with visibly different
+// text baselines within the same 32px box. Centralising the full recipe here
+// keeps all three buttons identical rather than "Open" being a one-off.
+function rowBtnStyle(t: ReturnType<typeof useTheme>): CSSProperties {
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    height: 32,
+    padding: "0 12px",
+    lineHeight: 1,
+    border: `1px solid ${t.ruleSoft}`,
+    color: t.ink,
+    whiteSpace: "nowrap",
+  };
+}
+
 // Small, quiet inline trend: 7 days of dailySeriesFor() plotted as a thin
 // line, plus a dashed horizontal line at the alert's threshold — the same
 // path-building math as viz.tsx's Sparkline, but with a threshold reference
@@ -296,22 +318,22 @@ function AlertRow({
           className="bar-btn"
           title={PAGE_LABEL[a.pageId] ?? a.pageId}
           aria-label={`Open ${PAGE_LABEL[a.pageId] ?? a.pageId}`}
-          style={{ border: `1px solid ${t.ruleSoft}`, color: t.ink, width: 88, flex: "0 0 88px", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5 }}
+          style={{ ...rowBtnStyle(t), width: 88, flex: "0 0 88px", justifyContent: "center", gap: 5 }}
         >
           <IconChevron size={11} aria-hidden style={{ transform: "rotate(-90deg)", flex: "0 0 auto" }} />
           Open
         </button>
         {isAcked ? (
           <>
-            <span style={{ fontFamily: fonts.mono, fontSize: 10, color: t.inkSoft, fontWeight: 700, textTransform: "uppercase", whiteSpace: "nowrap" }}>
+            <span style={{ display: "inline-flex", alignItems: "center", height: 32, lineHeight: 1, fontFamily: fonts.mono, fontSize: 10, color: t.inkSoft, fontWeight: 700, textTransform: "uppercase", whiteSpace: "nowrap" }}>
               Acknowledged
             </span>
-            <button onClick={() => unackOne(a.id)} className="bar-btn" style={{ border: `1px solid ${t.ruleSoft}`, color: t.ink, whiteSpace: "nowrap" }}>
+            <button onClick={() => unackOne(a.id)} className="bar-btn" style={rowBtnStyle(t)}>
               Unacknowledge
             </button>
           </>
         ) : (
-          <button onClick={() => ackOne(a.id)} className="bar-btn" style={{ border: `1px solid ${t.ruleSoft}`, color: t.ink, whiteSpace: "nowrap" }}>
+          <button onClick={() => ackOne(a.id)} className="bar-btn" style={rowBtnStyle(t)}>
             Acknowledge
           </button>
         )}
@@ -444,9 +466,22 @@ export function AlertsPage() {
           <input type="checkbox" checked={hideAcked} onChange={(e) => setHideAcked(e.target.checked)} />
           Hide acknowledged
         </label>
-        <button onClick={ackAllFiltered} className="bar-btn" style={{ border: `1px solid ${t.ruleSoft}`, color: t.ink, whiteSpace: "nowrap" }}>
+        <button onClick={ackAllFiltered} className="bar-btn" style={rowBtnStyle(t)}>
           Acknowledge all
         </button>
+        <ExportCsvButton
+          filename="alerts"
+          rows={() =>
+            visibleRows.map((a) => ({
+              Severity: severityLabelFor(a),
+              Scope: a.scope,
+              Spoke: a.spokeFilter ?? "",
+              Headline: headlineFor(a, { omitSpoke: false }),
+              Meta: scopeContextFor(a, reference, { omitSpoke: false }) ?? "",
+              Acknowledged: acked.has(a.id) ? "Yes" : "No",
+            }))
+          }
+        />
       </div>
       {/* scope-kind filter chips — additive to the spoke/proposition/process
           slicer bar above the page (see SCOPE_CHIPS's doc comment) */}

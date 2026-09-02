@@ -1,8 +1,9 @@
-import { fonts } from "../theme";
+import { fonts, type as typeScale } from "../theme";
 import { useTheme } from "../theme-context";
 import { useFilters, RATE_AUTO } from "../filters-context";
 import { fmtDate, TARGETS } from "../rpaData";
 import { KpiCard, VisualCard, LineChart, Legend, PageGrid, Row, useViz, fmtGBP, fmtGBPc, fmtMoney2, fmtCompact } from "../components/viz";
+import { ExportCsvButton } from "../components/PageActions";
 
 const DAY = 86400000;
 
@@ -46,7 +47,7 @@ export function Commercial() {
     <PageGrid>
       <div className="kpi-row kpi-row--5">
         <KpiCard label="Cost per completed case" value={fmtMoney2(m.costPerCase)} accent={v.accent} delta={m.prev.costPerCase ? (m.costPerCase - m.prev.costPerCase) / m.prev.costPerCase : 0} deltaGood="down" sub="vs prev. period" target={{ label: `Target ≤ ${fmtMoney2(TARGETS.costPerCase)}`, met: m.costPerCase <= TARGETS.costPerCase }} />
-        <KpiCard label="Estate cost" value={fmtGBPc(m.automationCost)} accent={v.system} sub="hub pool + spoke infra, period" />
+        <KpiCard label="Estate cost" value={fmtGBPc(m.automationCost)} accent={v.system} sub="CoE pool + squad machines, period" />
         <KpiCard label="Gross benefit" value={fmtGBPc(m.grossBenefit)} accent={v.good} sub={auto ? "SMV × grade rate in force" : `SMV × £${peopleRate}/hr override`} />
         <KpiCard label="Net benefit" value={fmtGBPc(m.netBenefit)} accent={v.completed} sub="benefit − cost" />
         <KpiCard label="Return on automation" value={`${roi.toFixed(1)}×`} accent={v.business} sub="benefit per £1 spent" />
@@ -56,9 +57,9 @@ export function Commercial() {
       <Row cols="1fr" grow={false}>
       <VisualCard title="Human cost assumption (SMV valuation)" subtitle="Default values each process at the grade rate in force on the day work completed — drag to model a flat what-if rate instead">
         <div style={{ display: "flex", alignItems: "center", gap: 24, flexWrap: "wrap", paddingTop: 4 }}>
-          <div style={{ minWidth: 168 }}>
-            <div style={{ fontFamily: fonts.display, fontSize: 34, fontWeight: 700, color: t.ink, lineHeight: 1 }}>
-              £{m.peopleRate.toFixed(2)}<span style={{ fontFamily: fonts.mono, fontSize: 13, color: t.inkSoft, fontWeight: 400 }}>/hr</span>
+          <div style={{ minWidth: 148 }}>
+            <div style={{ ...typeScale.displayM, color: t.ink }}>
+              £{m.peopleRate.toFixed(2)}<span style={{ fontFamily: fonts.mono, fontSize: 12, color: t.inkSoft, fontWeight: 400 }}>/hr</span>
             </div>
             <div style={{ fontFamily: fonts.mono, fontSize: 10.5, letterSpacing: "0.06em", textTransform: "uppercase", color: auto ? v.good : v.business, marginTop: 3 }}>
               {auto ? "Grade rate card (blended)" : "Flat override"}
@@ -85,11 +86,6 @@ export function Commercial() {
               ↩ Use grade rates
             </button>
           )}
-          <div style={{ display: "flex", gap: 26 }}>
-            <Metric label="Gross benefit" value={fmtGBPc(m.grossBenefit)} color={v.good} />
-            <Metric label="FTE released" value={`${m.fte.toFixed(1)}`} color={v.business} />
-            <Metric label="Net benefit" value={fmtGBPc(m.netBenefit)} color={v.completed} />
-          </div>
         </div>
       </VisualCard>
       </Row>
@@ -106,7 +102,19 @@ export function Commercial() {
           />
         </VisualCard>
 
-        <VisualCard title="Cumulative benefit vs cost" subtitle="Value released vs estate cost, accruing — with 14-day forecast" right={<Legend items={[{ label: "Cumulative benefit", color: v.good }, { label: "Cumulative cost", color: v.system }]} />}>
+        <VisualCard
+          title="Cumulative benefit vs cost"
+          subtitle="Value released vs estate cost, accruing — with 14-day forecast"
+          right={
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <Legend items={[{ label: "Cumulative benefit", color: v.good }, { label: "Cumulative cost", color: v.system }]} />
+              <ExportCsvButton
+                filename="commercial-monthly"
+                rows={() => labels.map((label, i) => ({ Date: label, "Cost per case": cppSeries[i].toFixed(2), "Cumulative benefit": cumBenefit[i].toFixed(2), "Cumulative cost": cumCost[i].toFixed(2) }))}
+              />
+            </div>
+          }
+        >
           <LineChart
             labels={labels}
             yFormat={fmtGBPc}
@@ -122,21 +130,8 @@ export function Commercial() {
 
       <p style={{ margin: 0, fontFamily: fonts.body, fontSize: 12, color: t.inkSoft, flex: "0 0 auto" }}>
         Benefit: {fmtCompact(m.timeSavedHours)} colleague hours released this period, valued {auto ? "per process at the grade rate in force on each item's completion date (hub rate card)" : `at a flat £${peopleRate}/hr what-if override`}.
-        Estate cost is the CoE hub pool (team + shared infra) apportioned across all work by bot worktime, plus each spoke's own VDI cost apportioned within the spoke — at the rates in force at the time.
-      </p>
-      <p style={{ margin: 0, fontFamily: fonts.mono, fontSize: 10.5, letterSpacing: "0.04em", textTransform: "uppercase", color: t.inkSoft, flex: "0 0 auto" }}>
-        A fuller executive P&amp;L — waterfall, spoke-level margins, value league — lives on the new Value &amp; Finance page.
+        Estate cost is the CoE pool (CoE team + CoE machines) apportioned across all work by bot worktime, plus each squad's own machines (VDIs) cost apportioned within that squad — at the rates in force at the time.
       </p>
     </PageGrid>
-  );
-}
-
-function Metric({ label, value, color }: { label: string; value: string; color: string }) {
-  const t = useTheme();
-  return (
-    <div>
-      <div style={{ fontFamily: fonts.display, fontSize: 20, fontWeight: 700, color }}>{value}</div>
-      <div style={{ fontFamily: fonts.mono, fontSize: 10, letterSpacing: "0.05em", textTransform: "uppercase", color: t.inkSoft }}>{label}</div>
-    </div>
   );
 }

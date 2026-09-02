@@ -199,36 +199,23 @@ export const radius = { card: 12, control: 8, inner: 6, overlay: 14 } as const;
 export const controlHeight = 32;
 
 // ---------------------------------------------------------------------------
-// Liquid-glass surface tokens
+// Glass-overlay surface tokens
 // ---------------------------------------------------------------------------
-// CSS custom properties consumed by `.liquid-glass` in src/styles.css. Most
-// consumers of that class live inside `.report` and get the right variant for
-// free from the `.report[data-mode="dark"] .liquid-glass` cascade there; this
-// helper exists only for the two dialogs (src/a11y/DisplayPanel.tsx, the
-// keyboard-shortcuts sheet in src/App.tsx) that render as *siblings* of
-// `.report`, not descendants, so that cascade can't reach them — the same
-// reason dialogStyle() in DisplayPanel.tsx already computes background/shadow
-// inline from `t` instead of leaning on a `.report[data-mode=...]` selector.
-// Values must stay byte-for-byte in sync with the two blocks in styles.css
-// (the base `.liquid-glass` rule and its `.report[data-mode="dark"]`
-// override) — this is not derived at runtime from the paper/ink tokens above
-// because the scrim alpha and rim/sheen opacities were tuned by hand against
-// a computed worst-case contrast check (see the comment above the CSS rule),
-// not by a formula that could safely regenerate them from `paper` alone.
-// `.glass-overlay` (styles.css) equivalent of liquidGlassVars() above, for
-// the same structural reason: every consumer (ViewsMenu/UserMenu/
-// HeaderOverflowMenu/slicer panels via Portal, plus DisplayPanel and the
-// shortcuts dialog as siblings of `.report`) sits outside `.report`'s DOM
-// subtree, so the `.report[data-mode="dark"] .glass-overlay` cascade can
-// never reach any of them — every consumer must pass this inline instead.
+// CSS custom properties consumed by `.glass-overlay` in src/styles.css. Every
+// consumer (ViewsMenu/UserMenu/HeaderOverflowMenu/slicer panels via Portal,
+// plus DisplayPanel and the shortcuts dialog in src/App.tsx) sits outside
+// `.report`'s DOM subtree, so the `.report[data-mode="dark"] .glass-overlay`
+// cascade in styles.css can never reach any of them — every consumer must
+// pass this inline instead, the same reason dialogStyle() in
+// DisplayPanel.tsx already computes background/shadow inline from `t`
+// instead of leaning on a `.report[data-mode=...]` selector. Values must
+// stay byte-for-byte in sync with the two blocks in styles.css (the base
+// `.glass-overlay` rule and its `.report[data-mode="dark"]` override) — this
+// is not derived at runtime from the paper/ink tokens above because the
+// scrim alpha and rim/sheen opacities were tuned by hand against a computed
+// worst-case contrast check (see the comment above the CSS rule), not by a
+// formula that could safely regenerate them from `paper` alone.
 // Scrim/blur values per the P0 spec (§3): .78 alpha, blur(18px) saturate(1.5).
-// Not recomputed digit-by-digit here: .78 is a HIGHER alpha than
-// liquid-glass's already-verified .62 (light) / .68 (dark) — a higher scrim
-// alpha strictly moves the worst-case composited colour closer to the
-// scrim's own hue (paper) and further from the extreme opposite-luminance
-// backdrop that produced liquid-glass's 4.84:1 / 5.05:1 worst cases (see
-// styles.css's comment above `.liquid-glass`), so contrast here is
-// strictly higher than that already-passing bound in both modes.
 export function glassOverlayVars(t: ThemeTokens): CSSProperties {
   return (
     t.mode === "dark"
@@ -245,28 +232,6 @@ export function glassOverlayVars(t: ThemeTokens): CSSProperties {
           "--go-shadow": "0 4px 10px rgba(11,50,57,0.16), 0 28px 64px rgba(11,50,57,0.2)",
           "--go-rim": "inset 0 1px 0 rgba(255,255,255,0.55), inset 0 0 0 1px rgba(255,255,255,0.55)",
           "--go-solid": "#FAF7F2",
-        }
-  ) as CSSProperties;
-}
-
-export function liquidGlassVars(t: ThemeTokens): CSSProperties {
-  return (
-    t.mode === "dark"
-      ? {
-          "--lg-bg": "linear-gradient(135deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0) 35%), rgba(12,35,41,0.68)",
-          "--lg-backdrop": "blur(2px) saturate(1.6) brightness(0.9)",
-          "--lg-shadow": "0 2px 6px rgba(0,0,0,0.4), 0 24px 60px rgba(0,0,0,0.5)",
-          "--lg-rim":
-            "inset 0 1px 0 rgba(255,255,255,0.55), inset 0 0 0 1px rgba(255,255,255,0.22), inset 0 0 16px 0 rgba(255,255,255,0.1)",
-          "--lg-solid": "#0C2329",
-        }
-      : {
-          "--lg-bg": "linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0) 35%), rgba(250,247,242,0.62)",
-          "--lg-backdrop": "blur(2px) saturate(1.7) brightness(1.06)",
-          "--lg-shadow": "0 2px 6px rgba(11,50,57,0.18), 0 24px 60px rgba(11,50,57,0.22)",
-          "--lg-rim":
-            "inset 0 1px 0 rgba(255,255,255,0.45), inset 0 0 0 1px rgba(255,255,255,0.5), inset 0 0 16px 0 rgba(255,255,255,0.22)",
-          "--lg-solid": "#FAF7F2",
         }
   ) as CSSProperties;
 }

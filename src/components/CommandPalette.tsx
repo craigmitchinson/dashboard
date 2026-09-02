@@ -13,6 +13,14 @@ import type { Alert } from "../alerts/engine";
 import type { PermAction } from "../auth/auth-context";
 import type { User } from "../auth/types";
 import { PLAYBOOK_SECTIONS } from "../pages/playbook-content";
+import { matchTier, rankPool, loadRecents, saveRecents, recentsKey } from "./command-ranking";
+import type { RecentEntry } from "./command-ranking";
+
+// Re-exported unchanged so the rest of the app (and this file) keep a single
+// import site — see src/components/command-ranking.ts for the actual
+// definitions and why they live there.
+export { matchTier, rankPool, loadRecents, saveRecents, recentsKey };
+export type { RecentEntry };
 
 // ---------------------------------------------------------------------------
 // components/CommandPalette.tsx — nav/motion P1
@@ -56,66 +64,12 @@ interface PaletteItem {
   run: () => void;
 }
 
-interface RecentEntry {
-  id: string;
-  label: string;
-  group: string;
-}
-
 const GROUP_ORDER = ["Pages", "Processes", "Spokes", "Saved views", "Alerts", "Actions", "Help"];
 const MAX_TOTAL = 24;
 const MAX_PER_GROUP = 6;
 
-function recentsKey(userId: string | undefined) {
-  return `bp-cmdk-recent::${userId ?? ""}`;
-}
-function loadRecents(userId: string | undefined): RecentEntry[] {
-  try {
-    const raw = localStorage.getItem(recentsKey(userId));
-    return raw ? (JSON.parse(raw) as RecentEntry[]) : [];
-  } catch {
-    return [];
-  }
-}
-function saveRecents(userId: string | undefined, list: RecentEntry[]) {
-  try {
-    localStorage.setItem(recentsKey(userId), JSON.stringify(list));
-  } catch {
-    /* ignore */
-  }
-}
-
 function coachKey(userId: string | undefined) {
   return `bp-coach-v1::${userId ?? ""}`;
-}
-
-// Ranking tiers, lowest (best) first: exact prefix on the label, any word in
-// the label starting with the query, then an in-order (not necessarily
-// contiguous) subsequence fuzzy match. Returns null for no match at all.
-function matchTier(label: string, query: string): 0 | 1 | 2 | null {
-  if (!query) return 0;
-  const l = label.toLowerCase();
-  const q = query.toLowerCase();
-  if (l.startsWith(q)) return 0;
-  const words = l.split(/[^a-z0-9]+/i).filter(Boolean);
-  if (words.some((w) => w.startsWith(q))) return 1;
-  let qi = 0;
-  for (let i = 0; i < l.length && qi < q.length; i++) {
-    if (l[i] === q[qi]) qi++;
-  }
-  return qi === q.length ? 2 : null;
-}
-
-function rankPool(pool: PaletteItem[], query: string, recentIds: string[]): PaletteItem[] {
-  const scored: { item: PaletteItem; tier: number; recency: number; idx: number }[] = [];
-  pool.forEach((item, idx) => {
-    const tier = matchTier(item.label, query);
-    if (tier === null) return;
-    const recency = recentIds.indexOf(item.id);
-    scored.push({ item, tier, recency: recency === -1 ? Infinity : recency, idx });
-  });
-  scored.sort((a, b) => a.tier - b.tier || a.recency - b.recency || a.idx - b.idx);
-  return scored.map((s) => s.item);
 }
 
 // Playbook section anchors mirror Playbook.tsx's own (unexported) anchorFor —
@@ -263,9 +217,55 @@ export function CommandPalette(props: CommandPaletteProps) {
     if (openerRef.current == null) {
       openerRef.current = document.activeElement as HTMLElement | null;
     }
-    inputRef.current?.focus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // Focus the search input once the dialog is actually IN THE DOM — a
+  // separate effect from the one above, deliberately keyed off
+  // `renderedOpen` too, not just `open`. `open` flips true one render before
+  // `renderedOpen` catches up (see the `renderedOpen`/`closing` effect
+  // above: it calls `setRenderedOpen(true)` from inside an effect, so the
+  // Portal-rendered dialog + input don't exist in the DOM until the render
+  // AFTER `open` becomes true). Folding this into the effect above — keyed
+  // only on `[open]` — called `inputRef.current?.focus()` while
+  // `inputRef.current` was still null on that first render, a no-op, and
+  // since `open` itself never changes again on the next render (only
+  // `renderedOpen` does), that effect never got a second chance to run: the
+  // net effect was the palette opening with focus left on whatever the
+  // trigger was, never landing in the search box.
+  //
+  // The `requestAnimationFrame` deferral below is load-bearing, not
+  // cosmetic: `<Portal>` is a component newly MOUNTING every time
+  // `renderedOpen` flips true (CommandPalette conditionally renders it —
+  // `{renderedOpen && <Portal>...}` — so closing unmounts it and reopening
+  // mounts a brand-new instance). In development, React 18 StrictMode
+  // double-invokes a freshly-mounted component's effects (setup -> cleanup
+  // -> setup) to surface non-idempotent effects — Portal's own effect
+  // (appendChild(host) on setup, removeChild(host) on cleanup) means the
+  // host div, and everything inside it including this input, is briefly
+  // DETACHED from the document between that extra cleanup and re-setup.
+  // Calling `.focus()` synchronously in the SAME effect-flush (as this
+  // effect used to) wins the race maybe half the time: it can fire between
+  // Portal's setup and its StrictMode cleanup, so the detach that follows
+  // silently blurs the input back to nothing (no `.focus()`/`.blur()` call
+  // of ours involved — an implicit browser blur from node removal, with
+  // `document.activeElement` left on `<body>`) with no error, no console
+  // warning, nothing visibly wrong except focus never actually landing.
+  // Portal itself does NOT re-mount (so this effect's own dep change is not
+  // subject to the same double-invoke), so it never gets a second chance to
+  // run within that flush. Deferring one animation frame runs after
+  // StrictMode's synchronous double-invoke dance has already settled (well
+  // before the browser's next paint), so the focus lands on the final,
+  // still-attached input reliably — and is a no-op-safe delay in
+  // production, where StrictMode does nothing and the host is never
+  // detached in the first place.
+  useEffect(() => {
+    if (!(open && renderedOpen)) return;
+    const raf = requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [open, renderedOpen]);
 
   // All possible items, recomputed only when their underlying data changes —
   // NOT on every keystroke (filtering/ranking below is what runs per

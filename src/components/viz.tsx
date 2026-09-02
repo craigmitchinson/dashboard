@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { fonts, type, space, radius, controlHeight, glassOverlayVars } from "../theme";
 import { useTheme } from "../theme-context";
@@ -267,14 +267,19 @@ export function KpiCard({
 }
 
 // Radial gauge with a target band.
-export function Gauge({ value, min = 0, max = 1, target, band, format, color, label }: { value: number; min?: number; max?: number; target?: number; band?: [number, number]; format: (n: number) => string; color: string; label?: string }) {
+export function Gauge({ value, min = 0, max = 1, target, band, format, color, label, size }: { value: number; min?: number; max?: number; target?: number; band?: [number, number]; format: (n: number) => string; color: string; label?: string; size?: number }) {
   const t = useTheme();
   const v = useViz();
-  const W = 168;
-  const H = 104;
+  // `size` scales the whole gauge (default 168 wide, same as before this
+  // prop existed) — every dimension below is proportional to it so a
+  // smaller gauge (e.g. a tighter Capacity-page layout) stays legible
+  // rather than just cropping a fixed-size drawing.
+  const W = size ?? 168;
+  const scale = W / 168;
+  const H = 104 * scale;
   const cx = W / 2;
-  const cy = H - 10;
-  const r = 74;
+  const cy = H - 10 * scale;
+  const r = 74 * scale;
   const a0 = Math.PI; // 180deg (left)
   const frac = Math.max(0, Math.min(1, (value - min) / (max - min || 1)));
   const pt = (f: number, rad: number) => [cx + Math.cos(a0 + f * Math.PI) * rad, cy + Math.sin(a0 + f * Math.PI) * rad] as const;
@@ -285,14 +290,15 @@ export function Gauge({ value, min = 0, max = 1, target, band, format, color, la
   };
   const tf = (n: number) => Math.max(0, Math.min(1, (n - min) / (max - min || 1)));
   const gaugeLabel = `${label ?? "Gauge"}: ${format(value)}${target !== undefined ? `, target ${format(target)}` : ""}`;
+  const strokeW = 12 * scale;
   return (
     <svg width={W} height={H} style={{ display: "block" }} role="img" aria-label={gaugeLabel}>
-      <path d={arc(0, 1, r)} fill="none" stroke={v.grid} strokeWidth={12} strokeLinecap="round" />
-      {band && <path d={arc(tf(band[0]), tf(band[1]), r)} fill="none" stroke={`${v.good}55`} strokeWidth={12} />}
-      <path d={arc(0, frac, r)} fill="none" stroke={color} strokeWidth={12} strokeLinecap="round" />
-      {target !== undefined && (() => { const [tx, ty] = pt(tf(target), r + 9); const [ix, iy] = pt(tf(target), r - 9); return <line x1={ix} y1={iy} x2={tx} y2={ty} stroke={t.ink} strokeWidth={2} />; })()}
-      <text x={cx} y={cy - 14} textAnchor="middle" fontFamily={fonts.display} fontSize={26} fontWeight={700} fill={t.ink}>{format(value)}</text>
-      {label && <text x={cx} y={cy + 6} textAnchor="middle" fontFamily={fonts.mono} fontSize={9.5} letterSpacing="0.06em" fill={t.inkSoft}>{label.toUpperCase()}</text>}
+      <path d={arc(0, 1, r)} fill="none" stroke={v.grid} strokeWidth={strokeW} strokeLinecap="round" />
+      {band && <path d={arc(tf(band[0]), tf(band[1]), r)} fill="none" stroke={`${v.good}55`} strokeWidth={strokeW} />}
+      <path d={arc(0, frac, r)} fill="none" stroke={color} strokeWidth={strokeW} strokeLinecap="round" />
+      {target !== undefined && (() => { const [tx, ty] = pt(tf(target), r + 9 * scale); const [ix, iy] = pt(tf(target), r - 9 * scale); return <line x1={ix} y1={iy} x2={tx} y2={ty} stroke={t.ink} strokeWidth={2} />; })()}
+      <text x={cx} y={cy - 14 * scale} textAnchor="middle" fontFamily={fonts.display} fontSize={26 * scale} fontWeight={700} fill={t.ink}>{format(value)}</text>
+      {label && <text x={cx} y={cy + 6 * scale} textAnchor="middle" fontFamily={fonts.mono} fontSize={Math.max(9.5, 9.5 * scale)} letterSpacing="0.06em" fill={t.inkSoft}>{label.toUpperCase()}</text>}
     </svg>
   );
 }
@@ -508,7 +514,7 @@ export function LineChart({
   const step = Math.ceil(total / Math.max(2, Math.floor(iw / 64)));
 
   return (
-    <div ref={ref} style={{ width: "100%", height: height ?? "100%", minHeight: 0, position: "relative" }}>
+    <div ref={ref} className="viz-enter" style={{ width: "100%", height: height ?? "100%", minHeight: 0, position: "relative" }}>
       {w > 0 && H > 0 && (
         <svg width={w} height={H} style={{ display: "block", fontFamily: fonts.mono }} aria-hidden="true" focusable="false">
           {/* weekend banding — behind the gridlines */}
@@ -712,7 +718,7 @@ export function StackedShareTrend({
   const gap = 1.5;
   const barW = Math.max(1, w / n - gap);
   return (
-    <div ref={ref} style={{ width: "100%", height: height ?? "100%", minHeight: 0 }}>
+    <div ref={ref} className="viz-enter" style={{ width: "100%", height: height ?? "100%", minHeight: 0 }}>
       {w > 0 && H > 0 && (
         <svg width={w} height={H} aria-hidden="true" focusable="false" style={{ display: "block" }}>
           {labels.map((label, i) => {
@@ -830,23 +836,45 @@ export function DataTable<T extends { [k: string]: any }>({
   initialSort,
   maxBodyHeight,
   empty,
+  onSortedChange,
 }: {
   columns: Column<T>[];
   rows: T[];
   initialSort?: { key: string; dir: "asc" | "desc" };
   maxBodyHeight?: number;
   empty?: { title?: string; hint?: string; onReset?: () => void };
+  // Fires with the table's current sorted row order whenever it changes —
+  // lets a page track "what's actually on screen right now" (e.g. for a CSV
+  // export that must match the visible sort) without lifting sort state out
+  // of this component. Optional and purely additive: nothing subscribes,
+  // nothing changes for existing callers.
+  onSortedChange?: (rows: T[]) => void;
 }) {
   const t = useTheme();
   const [sort, setSort] = useState<{ key: string; dir: "asc" | "desc" }>(initialSort ?? { key: columns[0].key, dir: "asc" });
 
   const col = columns.find((c) => c.key === sort.key) ?? columns[0];
-  const sorted = [...rows].sort((a, b) => {
-    const va = col.sortValue ? col.sortValue(a) : a[col.key];
-    const vb = col.sortValue ? col.sortValue(b) : b[col.key];
-    const cmp = typeof va === "number" && typeof vb === "number" ? va - vb : String(va).localeCompare(String(vb));
-    return sort.dir === "asc" ? cmp : -cmp;
-  });
+  // Deliberately NOT keyed on `col`/`columns`: callers pass a fresh columns
+  // array literal every render (a new object identity every time even when
+  // its shape never changes), so keying this memo on it recomputed `sorted`
+  // every render — which, combined with the onSortedChange effect below,
+  // was an infinite render loop (each recompute produced a new `sorted`
+  // array => effect fires => setState in the caller => re-render => new
+  // columns array => recompute again). `sort.key` (a primitive) is what
+  // actually selects `col`, so it's the correct — and stable — dependency.
+  const sorted = useMemo(
+    () =>
+      [...rows].sort((a, b) => {
+        const va = col.sortValue ? col.sortValue(a) : a[col.key];
+        const vb = col.sortValue ? col.sortValue(b) : b[col.key];
+        const cmp = typeof va === "number" && typeof vb === "number" ? va - vb : String(va).localeCompare(String(vb));
+        return sort.dir === "asc" ? cmp : -cmp;
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rows, sort.key, sort.dir],
+  );
+
+  useEffect(() => onSortedChange?.(sorted), [sorted, onSortedChange]);
 
   const toggle = (key: string) => setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "desc" }));
 

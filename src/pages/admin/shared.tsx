@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import { fonts } from "../../theme";
+import { fonts, type as typeScale, glassOverlayVars } from "../../theme";
 import { useTheme } from "../../theme-context";
 import { IconClose, IconLock } from "../../components/icons";
 import type { ReferenceJson } from "../../reference/reference-store";
@@ -203,7 +203,7 @@ export function SectionTitle({ title, helper }: { title: string; helper: string 
   const t = useTheme();
   return (
     <div style={{ marginBottom: 4 }}>
-      <h2 style={{ margin: 0, fontFamily: fonts.display, fontSize: 18, fontWeight: 700, color: t.ink }}>{title}</h2>
+      <h2 style={{ margin: 0, ...typeScale.displayM, color: t.ink }}>{title}</h2>
       <HelperText>{helper}</HelperText>
     </div>
   );
@@ -433,7 +433,7 @@ export function ConfirmDialog({
 
   return (
     <div className="modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}>
-      <div ref={dialogRef} role="alertdialog" aria-modal="true" aria-labelledby="admin-confirm-title" className="modal-dialog liquid-glass" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
+      <div ref={dialogRef} role="alertdialog" aria-modal="true" aria-labelledby="admin-confirm-title" className="modal-dialog glass-overlay" style={{ maxWidth: 420, ...glassOverlayVars(t) }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
           <h2 id="admin-confirm-title" style={{ margin: 0, fontFamily: fonts.display, fontSize: 17, fontWeight: 700, color: t.ink }}>{title}</h2>
           <button aria-label="Cancel" onClick={onCancel} className="a11y-seg-btn">
