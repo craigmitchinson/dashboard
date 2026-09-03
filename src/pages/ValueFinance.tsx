@@ -22,7 +22,7 @@ export function ValueFinance() {
   const m = model;
   const v = useViz();
   const t = useTheme();
-  const colors = fyFinanceColors(t.mode);
+  const colors = fyFinanceColors(t);
   const hasRows = m.rows.length > 0;
   // Tracks the Spoke P&L table's current sort order (see SpokePLTable's
   // onSortedChange) so its CSV export matches exactly what's on screen.
@@ -41,28 +41,24 @@ export function ValueFinance() {
   const gross = m.grossBenefit;
   const comp = m.costComposition;
   const waterfallSteps: WaterfallStep[] = [
-    { key: "gross", label: "Gross", value: gross, isTotal: true, color: v.accent },
-    { key: "hubPeople", label: "CoE team", value: -comp.hubPeople, color: colors.hubPeople, pctOfBase: gross ? comp.hubPeople / gross : 0 },
-    { key: "hubInfra", label: "CoE machines (VDIs)", value: -comp.hubInfra, color: colors.hubInfra, pctOfBase: gross ? comp.hubInfra / gross : 0 },
-    { key: "spokePeople", label: "Squad teams", value: -comp.spokePeople, color: colors.spokePeople, pctOfBase: gross ? comp.spokePeople / gross : 0 },
-    { key: "spokeInfra", label: "Squad machines (VDIs)", value: -comp.spokeInfra, color: colors.spokeInfra, pctOfBase: gross ? comp.spokeInfra / gross : 0 },
-    { key: "net", label: "Net", value: gross - m.automationCost, isTotal: true, color: v.accent },
+    { key: "gross", label: "Gross", value: gross, isTotal: true, color: gross >= 0 ? t.status.positive : v.accent },
+    { key: "teams", label: "Teams", value: -comp.teams, color: colors.teams, pctOfBase: gross ? comp.teams / gross : 0 },
+    { key: "machines", label: "Machines (VDIs)", value: -comp.machines, color: v.business, pctOfBase: gross ? comp.machines / gross : 0 },
+    { key: "net", label: "Net", value: gross - m.automationCost, isTotal: true, color: gross - m.automationCost >= 0 ? t.status.positive : v.accent },
     { key: "unattributed", label: "Unattributed idle (memo)", value: -m.unattributedCostGBP, color: colors.unattributed, memo: true },
   ];
   const waterfallSummary = hasRows
-    ? `Gross benefit ${fmtGBPc(gross)}, less CoE team ${fmtGBPc(comp.hubPeople)} (${fmtPct(gross ? comp.hubPeople / gross : 0)}), CoE machines (VDIs) ${fmtGBPc(comp.hubInfra)} (${fmtPct(gross ? comp.hubInfra / gross : 0)}), squad teams ${fmtGBPc(comp.spokePeople)} (${fmtPct(gross ? comp.spokePeople / gross : 0)}), squad machines (VDIs) ${fmtGBPc(comp.spokeInfra)} (${fmtPct(gross ? comp.spokeInfra / gross : 0)}), leaves net benefit of ${fmtGBPc(m.netBenefit)}. Unattributed idle pool cost of ${fmtGBPc(m.unattributedCostGBP)} is shown as a memo and is not subtracted from net.`
+    ? `Gross benefit ${fmtGBPc(gross)}, less Teams ${fmtGBPc(comp.teams)} (${fmtPct(gross ? comp.teams / gross : 0)}), Machines (VDIs) ${fmtGBPc(comp.machines)} (${fmtPct(gross ? comp.machines / gross : 0)}), leaves net benefit of ${fmtGBPc(m.netBenefit)}. Unattributed idle pool cost of ${fmtGBPc(m.unattributedCostGBP)} is shown as a memo and is not subtracted from net.`
     : "No data for the current filters.";
 
   // --- Row 2: monthly value trend (derived proportional split) ----------
   const monthLabels = m.monthly.map((mo) => mo.key);
   const ratio = m.automationCost
-    ? { hubPeople: comp.hubPeople / m.automationCost, hubInfra: comp.hubInfra / m.automationCost, spokePeople: comp.spokePeople / m.automationCost, spokeInfra: comp.spokeInfra / m.automationCost }
-    : { hubPeople: 0, hubInfra: 0, spokePeople: 0, spokeInfra: 0 };
+    ? { teams: comp.teams / m.automationCost, machines: comp.machines / m.automationCost }
+    : { teams: 0, machines: 0 };
   const monthlyStacks = [
-    { key: "hubPeople", label: "CoE team", color: colors.hubPeople, values: m.monthly.map((mo) => mo.cost * ratio.hubPeople) },
-    { key: "hubInfra", label: "CoE machines (VDIs)", color: colors.hubInfra, values: m.monthly.map((mo) => mo.cost * ratio.hubInfra) },
-    { key: "spokePeople", label: "Squad teams", color: colors.spokePeople, values: m.monthly.map((mo) => mo.cost * ratio.spokePeople) },
-    { key: "spokeInfra", label: "Squad machines (VDIs)", color: colors.spokeInfra, values: m.monthly.map((mo) => mo.cost * ratio.spokeInfra) },
+    { key: "teams", label: "Teams", color: colors.teams, values: m.monthly.map((mo) => mo.cost * ratio.teams) },
+    { key: "machines", label: "Machines (VDIs)", color: v.business, values: m.monthly.map((mo) => mo.cost * ratio.machines) },
   ];
   const monthlyNet = m.monthly.map((mo) => mo.benefit - mo.cost);
 
@@ -210,14 +206,14 @@ export function ValueFinance() {
       </Row>
 
       <Row cols="minmax(0,1fr) minmax(0,1fr)" style={{ minHeight: 380 }}>
-        <VisualCard title="Benefit waterfall" subtitle="Gross benefit less the 4-way apportioned estate cost, reconciling to net benefit" summary={waterfallSummary}>
+        <VisualCard title="Benefit waterfall" subtitle="Gross benefit less the apportioned estate cost (Teams, Machines), reconciling to net benefit" summary={waterfallSummary}>
           {hasRows ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 6, height: "100%", minHeight: 0 }}>
               <div style={{ flex: 1, minHeight: 260 }}>
                 <WaterfallChart steps={waterfallSteps} />
               </div>
               <p style={{ margin: 0, flex: "0 0 auto", fontFamily: fonts.body, fontSize: 11.5, color: t.inkSoft, lineHeight: 1.4 }}>
-                CoE costs are spread across all work by bot time; squad costs across that squad's own work.
+                The CoE's shared costs are spread across all work by bot time; each spoke's own costs are spread across just that spoke's work.
               </p>
             </div>
           ) : (

@@ -127,8 +127,9 @@ process, or running an action — see [PLAYBOOK.md](PLAYBOOK.md) section 5.
   date (date-effective rate card, hub-maintained). The Commercial page slider
   is a flat what-if override on top.
 - **Spoke-true costs**: VDI class rates are universal (hub-set); each spoke
-  pays for its own VDIs; the IA CoE team pool is shared by worktime. All money
-  in the app is summed, never recomputed — rates were resolved in the pipeline.
+  pays for its own team and VDIs, apportioned across that spoke's own work by
+  worktime; the CoE's shared pool is apportioned across all work. All money in
+  the app is summed, never recomputed — rates were resolved in the pipeline.
 - **Value & Finance**: net-benefit KPIs, a gross-to-net cost waterfall, a
   per-spoke P&L, and a value-league/review-candidates ranking, all exportable
   to CSV — see [PLAYBOOK.md](PLAYBOOK.md) section 6.

@@ -93,12 +93,15 @@ export interface ProcessAgg {
 }
 
 // D6 (pool composition, Value & Finance page) — window totals of the day's
-// hub/spoke pool cost split into people vs infra. See RateTables.poolCompositionOn.
+// automation cost split into Teams (people) vs Machines/VDIs (infra). The
+// CoE is just one owner alongside the spokes — it appears as an entry in the
+// same owner dropdowns, not a separate hub-vs-squad tier — so the hub and
+// spoke shares of each are summed together here rather than kept apart. See
+// RateTables.poolCompositionOn for the underlying hub/spoke internals this
+// collapses.
 export interface CostComposition {
-  hubPeople: number;
-  hubInfra: number;
-  spokePeople: number;
-  spokeInfra: number;
+  teams: number; // hubPeople + spokePeople
+  machines: number; // hubInfra + spokeInfra
 }
 
 export interface SpokeAgg {
@@ -195,7 +198,7 @@ export interface Model {
   matrix: { processes: ProcessAgg[]; types: { name: string; category: "system" | "business" }[]; cell: number[][]; max: number };
   vdis: VdiAgg[];
   // D6 (Value & Finance page)
-  costComposition: CostComposition; // window totals; hubPeople+hubInfra+spokePeople+spokeInfra === automationCost, to the penny, by construction
+  costComposition: CostComposition; // window totals; teams+machines === automationCost, to the penny, by construction
   bySpoke: SpokeAgg[];
   fyToDateNet: number; // net benefit from the current fiscal year's start (see fiscalYearBounds) through the window's `hi`, same entity filters as `model`, INDEPENDENT of the range preset (so it reflects true fiscal YTD even when range=7/30/90)
   fyToDatePriorNet: number; // net benefit over the equivalent day-offset span in the PRIOR fiscal year
@@ -291,12 +294,11 @@ function aggregate(
     grossBenefit = 0,
     estateCost = 0;
 
-  // D6 (pool composition, Value & Finance page) — 4-way cost split totals and
-  // per-spoke P&L accumulators, built in the SAME main loop below.
-  let hubPeopleTotal = 0,
-    hubInfraTotal = 0,
-    spokePeopleTotal = 0,
-    spokeInfraTotal = 0;
+  // D6 (pool composition, Value & Finance page) — two-way cost split totals
+  // (teams = people, machines = VDI infra) and per-spoke P&L accumulators,
+  // built in the SAME main loop below.
+  let teamsTotal = 0,
+    machinesTotal = 0;
   const spokeMap = new Map<string, { gross: number; peopleCost: number; infraCost: number; completed: number }>();
 
   const procMap = new Map<string, ProcessAgg & { completedWt: number }>();
@@ -338,7 +340,9 @@ function aggregate(
 
     // D6: apportion this row's cost into hub-people / hub-infra / spoke-people
     // / spoke-infra using the SAME worktime-share denominators costForRow
-    // itself uses, so the 4 components sum to `cost` exactly.
+    // itself uses (so the 4 internal components sum to `cost` exactly), then
+    // fold hub+spoke together into the two public buckets (teams, machines)
+    // — CoE (hub) is just one owner alongside the spokes, not a separate tier.
     const totalWt = tables.dayTotalWorktimeSec.get(r.date) ?? 0;
     const spokeWt = tables.daySpokeWorktimeSec.get(`${p.spoke}|${r.date}`) ?? 0;
     const comp = tables.poolCompositionOn(r.date, p.spoke);
@@ -346,10 +350,8 @@ function aggregate(
     const rowHubInfra = totalWt ? r.worktimeSec * (comp.hubInfra / totalWt) : 0;
     const rowSpokePeople = spokeWt ? r.worktimeSec * (comp.spokePeople / spokeWt) : 0;
     const rowSpokeInfra = spokeWt ? r.worktimeSec * (comp.spokeInfra / spokeWt) : 0;
-    hubPeopleTotal += rowHubPeople;
-    hubInfraTotal += rowHubInfra;
-    spokePeopleTotal += rowSpokePeople;
-    spokeInfraTotal += rowSpokeInfra;
+    teamsTotal += rowHubPeople + rowSpokePeople;
+    machinesTotal += rowHubInfra + rowSpokeInfra;
 
     let sa = spokeMap.get(p.spoke);
     if (!sa) spokeMap.set(p.spoke, (sa = { gross: 0, peopleCost: 0, infraCost: 0, completed: 0 }));
@@ -522,10 +524,8 @@ function aggregate(
   }
 
   const costComposition: CostComposition = {
-    hubPeople: hubPeopleTotal,
-    hubInfra: hubInfraTotal,
-    spokePeople: spokePeopleTotal,
-    spokeInfra: spokeInfraTotal,
+    teams: teamsTotal,
+    machines: machinesTotal,
   };
 
   const bySpoke: SpokeAgg[] = [...spokeMap.entries()].map(([spoke, s]) => {

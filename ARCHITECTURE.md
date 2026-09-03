@@ -87,7 +87,7 @@ per-spoke configuration; the dashboard's rate slider is a *what-if flat
 override* on top (default: the rate card).
 
 **Cost** = worktime × (hub £/bot-second + spoke pool £/bot-second).
-- Hub pool/day = IA CoE team run-rate (`RefPeopleCostHistory`, `OwnerId='HUB'`
+- Hub pool/day = the CoE's people run-rate (`RefPeopleCostHistory`, `OwnerId='HUB'`
   — the sole source of hub people cost in both SQL and the JS/Node pipeline;
   `RefEstateCostHistory.TeamAnnualCostGBP` is retained for schema parity only
   and is not read for cost) + hub-owned VDIs, ÷ 365.25, apportioned by

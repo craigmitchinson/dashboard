@@ -61,7 +61,7 @@ export function DataModel() {
     `Source this build: ${META.source} — ${META.sourceRows.toLocaleString()} queue items, built ${META.generatedAt.slice(0, 10)}. Swap the CSV (or point VITE_DATA_URL at the API) and every visual follows.`,
     "Money is resolved in the pipeline, never in visuals: benefit = SMV × grade rate in force on the outcome date; cost = worktime × (hub £/bot-sec + spoke infra £/bot-sec) of that day.",
     "BI-tool parity: connect to the report.vw_* views (or /data/views/*.json) — same shapes, same numbers. Set MonthLabel 'Sort by' = MonthSortKey once.",
-    "Hub & spoke: VDI class rates are hub-set; each spoke's infra pool is its own VDIs; the CoE team pool is shared across all work by worktime.",
+    "Owners: VDI class rates are set centrally; the CoE's shared people and VDI pool is apportioned across all work by worktime, each spoke's own pool across just that spoke's work.",
   ];
 
   return (

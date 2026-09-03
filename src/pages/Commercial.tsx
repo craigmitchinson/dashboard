@@ -47,7 +47,7 @@ export function Commercial() {
     <PageGrid>
       <div className="kpi-row kpi-row--5">
         <KpiCard label="Cost per completed case" value={fmtMoney2(m.costPerCase)} accent={v.accent} delta={m.prev.costPerCase ? (m.costPerCase - m.prev.costPerCase) / m.prev.costPerCase : 0} deltaGood="down" sub="vs prev. period" target={{ label: `Target ≤ ${fmtMoney2(TARGETS.costPerCase)}`, met: m.costPerCase <= TARGETS.costPerCase }} />
-        <KpiCard label="Estate cost" value={fmtGBPc(m.automationCost)} accent={v.system} sub="CoE pool + squad machines, period" />
+        <KpiCard label="Estate cost" value={fmtGBPc(m.automationCost)} accent={v.system} sub="Teams + Machines, period" />
         <KpiCard label="Gross benefit" value={fmtGBPc(m.grossBenefit)} accent={v.good} sub={auto ? "SMV × grade rate in force" : `SMV × £${peopleRate}/hr override`} />
         <KpiCard label="Net benefit" value={fmtGBPc(m.netBenefit)} accent={v.completed} sub="benefit − cost" />
         <KpiCard label="Return on automation" value={`${roi.toFixed(1)}×`} accent={v.business} sub="benefit per £1 spent" />
@@ -130,7 +130,7 @@ export function Commercial() {
 
       <p style={{ margin: 0, fontFamily: fonts.body, fontSize: 12, color: t.inkSoft, flex: "0 0 auto" }}>
         Benefit: {fmtCompact(m.timeSavedHours)} colleague hours released this period, valued {auto ? "per process at the grade rate in force on each item's completion date (hub rate card)" : `at a flat £${peopleRate}/hr what-if override`}.
-        Estate cost is the CoE pool (CoE team + CoE machines) apportioned across all work by bot worktime, plus each squad's own machines (VDIs) cost apportioned within that squad — at the rates in force at the time.
+        Estate cost is people (Teams) and VDI (Machines) cost at the rates in force at the time: the CoE's shared costs are spread across all work by bot worktime, each spoke's own costs across just that spoke's work.
       </p>
     </PageGrid>
   );

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties, MouseEvent } from "react";
 import { fonts } from "../theme";
+import type { ThemeTokens } from "../theme";
 import { useTheme } from "../theme-context";
 import { useSize, useViz, Legend, Sparkline, SortGlyph, measureTextWidth, niceMax, fmtGBPc, fmtMoney2, fmtPct, fmtInt } from "./viz";
 import type { SpokeAgg } from "../filters-context";
@@ -15,32 +16,37 @@ import type { SpokeAgg } from "../filters-context";
 // Tooltip only (not exported from there).
 // ---------------------------------------------------------------------------
 
-// --- categorical color set (validated against #FAF7F2 light / #0C2329 dark)
-export function fyFinanceColors(mode: "light" | "dark") {
-  return mode === "dark"
+
+// --- categorical colour set
+// Two composition colours only — Teams (the muted ink tone, distinct from the
+// positive total-bar token in every theme; the series ink and the positive
+// token are the same teal in dark mode) and Machines
+// (VDIs) (the "not committed" status hue, a second neutral already used for
+// business exceptions) — two distinct full-opacity hues so they stay apart in
+// every theme, high-contrast included. The CoE is one owner alongside the
+// spokes, not a separate tier, so the only split left is people vs machines.
+// Red (t.accent) stays reserved for negative values, never a series colour.
+export function fyFinanceColors(t: ThemeTokens) {
+  return t.mode === "dark"
     ? {
-        hubPeople: "#3987e5",
-        hubInfra: "#d95926",
-        spokePeople: "#199e70",
-        spokeInfra: "#c98500",
+        teams: t.inkSoft,
+        machines: t.status["not-committed"].dot,
         unattributed: "#d55181",
         netLine: "#9085e9",
       }
     : {
-        hubPeople: "#2a78d6",
-        hubInfra: "#eb6834",
-        spokePeople: "#1baf7a",
-        spokeInfra: "#eda100",
+        teams: t.inkSoft,
+        machines: t.status["not-committed"].dot,
         unattributed: "#e87ba4",
         netLine: "#4a3aa7",
       };
 }
 
 // Word-wraps the waterfall's per-bar x-axis labels onto up to two lines
-// (using viz.tsx's shared `measureTextWidth`): several of the
-// cost-composition labels ("CoE machines (VDIs)", "Squad machines (VDIs)",
-// "Unattributed idle (memo)") are long enough that, packed one per (of up to
-// 7) narrow bar columns, single-line text overlapped its neighbours.
+// (using viz.tsx's shared `measureTextWidth`): some of the
+// cost-composition labels ("Machines (VDIs)", "Unattributed idle (memo)")
+// are long enough that, packed one per (of up to 5) narrow bar columns,
+// single-line text overlapped its neighbours.
 //
 // Greedily wraps `label` onto at most `maxLines` lines that each fit within
 // `maxWidth` at the given font — a plain word-wrap (never mid-word), with
@@ -170,10 +176,10 @@ export function WaterfallChart({ steps, valueFormat = fmtGBPc, height }: { steps
   const padL = 46,
     padR = 14,
     padT = 40,
-    // 46 (was 34): room for the axis label to wrap onto 2 lines — several
-    // of the cost-composition labels ("CoE machines (VDIs)", "Squad
-    // machines (VDIs)", "Unattributed idle (memo)") no longer fit one line
-    // per bar without overlapping their neighbours at typical card widths.
+    // 46 (was 34): room for the axis label to wrap onto 2 lines — some of
+    // the cost-composition labels ("Machines (VDIs)", "Unattributed idle
+    // (memo)") no longer fit one line per bar without overlapping their
+    // neighbours at typical card widths.
     padB = 46;
   const iw = Math.max(10, w - padL - padR);
   const ih = Math.max(10, H - padT - padB);
@@ -477,7 +483,7 @@ export function StackedCostTrend({
 }) {
   const v = useViz();
   const t = useTheme();
-  const colors = fyFinanceColors(t.mode);
+  const colors = fyFinanceColors(t);
   const [ref, size] = useSize();
   const w = size.w;
   const H = height ?? (size.h || 240);

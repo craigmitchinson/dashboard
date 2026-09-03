@@ -1,12 +1,15 @@
 // ---------------------------------------------------------------------------
 // tests/finance-composition-reconciliation.test.ts
 // ---------------------------------------------------------------------------
-// Reconciliation identities for the D6 pool-composition breakdown (see
+// Reconciliation identity for the D6 pool-composition breakdown (see
 // src/filters-context.tsx's `costComposition`/`bySpoke` and the doc comment
 // on RateTables.poolCompositionOn in src/reference/economics.ts), exercised
 // against the REAL BUILT public/data/model.json rather than a synthetic
 // fixture — a regression trip-wire on the actual mock estate, not just the
-// pure formula.
+// pure formula. costComposition is the two-way (Teams, Machines) PUBLIC
+// split — CoE is one owner alongside the spokes, not a separate tier — while
+// poolCompositionOn itself stays a 4-way (hub/spoke × people/infra) internal
+// helper that this identity's teams/machines are summed from.
 //
 // aggregate() (filters-context.tsx) is not exported — only the
 // FiltersProvider component / useFilters hook are — so this loads the model
@@ -27,12 +30,12 @@ const modelPath = join(root, "public", "data", "model.json");
 const PENNY = 0.01;
 
 describe("cost-composition reconciliation (real mock model)", () => {
-  it.skipIf(!existsSync(modelPath))("DEFAULT_FILTERS: the 4-way split reconciles to automationCost/netBenefit, and per-spoke sums reconcile to the estate", () => {
+  it.skipIf(!existsSync(modelPath))("DEFAULT_FILTERS: teams + machines reconciles to automationCost/netBenefit, and per-spoke sums reconcile to the estate", () => {
     const model: ModelJson = JSON.parse(readFileSync(modelPath, "utf8"));
     const m = renderModel(model);
 
     const comp = m.costComposition;
-    const compTotal = comp.hubPeople + comp.hubInfra + comp.spokePeople + comp.spokeInfra;
+    const compTotal = comp.teams + comp.machines;
     expect(compTotal).toBeGreaterThan(0); // sanity: the mock estate has real spend
     expect(Math.abs(compTotal - m.automationCost)).toBeLessThan(PENNY);
 
@@ -55,7 +58,7 @@ describe("cost-composition reconciliation (real mock model)", () => {
     const m = renderModel(model, { spoke: spokeName });
 
     const comp = m.costComposition;
-    const compTotal = comp.hubPeople + comp.hubInfra + comp.spokePeople + comp.spokeInfra;
+    const compTotal = comp.teams + comp.machines;
     expect(Math.abs(compTotal - m.automationCost)).toBeLessThan(PENNY);
 
     // filtering to one spoke collapses bySpoke to (at most) that one spoke
