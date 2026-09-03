@@ -79,17 +79,35 @@ export function ActionButton({
 // RFC-4180-ish CSV serialisation: header from `columns` if given, else the
 // keys of the first row; a value is quoted only when it contains a comma,
 // a double quote or a newline (internal quotes doubled per the spec),
-// everything else — including numbers — passes through unquoted; null/
-// undefined become an empty field. No trailing newline, `\n` line endings,
-// no BOM — matches this app's one existing consumer (ExportCsvButton below)
-// byte-for-byte; nothing here escapes a leading `=`/`+`/`-`/`@` (Excel/Sheets
-// formula injection) — that is pre-existing behaviour, not something this
-// extraction changed, flagged here for a later hardening pass.
+// everything else passes through unquoted; null/undefined become an empty
+// field. No trailing newline, `\n` line endings, no BOM — matches this app's
+// one existing consumer (ExportCsvButton below) byte-for-byte.
+//
+// Formula-injection hardening: a spreadsheet app (Excel/Sheets) that opens
+// this file treats a cell starting with `=`, `+`, `-`, `@`, a tab or a
+// carriage return as a formula to evaluate, not literal text — dangerous
+// when a value came from user-editable reference data or an exception
+// reason string. Any STRING value starting with one of those characters
+// gets a leading `'` (the spreadsheet convention for "force text"), added
+// before the comma/quote/newline quoting decision above so the apostrophe
+// itself never triggers unnecessary quoting. Trade-off, deliberately
+// accepted: a number is emitted raw and is never prefixed (`-3` as a numeric
+// cell renders as `-3`, exactly as before) because a real number can't be a
+// formula; but a numeric-LOOKING string (e.g. the JS string `"-5"`, as
+// opposed to the number `-5`) IS a string as far as this function can tell,
+// so it gets the apostrophe like any other leading-`-` string and renders as
+// `'-5` — visibly different from a plain numeric column. Callers that need
+// a leading-`-`/`+` string to render unprefixed should pass it as a number
+// instead.
+const FORMULA_LEAD = /^[=+\-@\t\r]/;
+
 export function buildCsv(rows: Record<string, unknown>[], columns?: string[]): string {
   const headers = columns ?? Object.keys(rows[0] ?? {});
   if (!headers.length) return "";
   const escape = (v: unknown) => {
-    const s = v == null ? "" : String(v);
+    if (v == null) return "";
+    let s = String(v);
+    if (typeof v === "string" && FORMULA_LEAD.test(s)) s = "'" + s;
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const lines = [headers.join(","), ...rows.map((row) => headers.map((h) => escape(row[h])).join(","))];

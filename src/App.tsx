@@ -205,11 +205,14 @@ function ThemedReport() {
   const spokeColor = filters.spoke !== "All" ? SPOKE_INFO[filters.spoke]?.[mode === "dark" ? "dark" : "light"] : undefined;
   const base = themes[mode];
   const theme = spokeColor ? { ...base, spoke: spokeColor } : base;
-  // Ambient accent: the active spoke colour at a very low alpha, consumed by
-  // `.report`'s radial-gradient background-image (styles.css) — undefined
-  // (no spoke) resolves to that rule's own `transparent` fallback, so the
-  // hub view still gets the two neutral ambient layers with no accent tint.
-  const ambientAccent = spokeColor ? `color-mix(in srgb, ${spokeColor} ${mode === "dark" ? "10%" : "8%"}, transparent)` : undefined;
+  // Ambient accent: the active spoke colour, consumed by `.report`'s first
+  // radial-gradient layer (styles.css) — undefined (no spoke) resolves to
+  // that rule's own `transparent` fallback, so the hub view still gets the
+  // brand-teal + warm ambient layers with no spoke tint. Alpha is high
+  // enough (20% light / 24% dark) and that layer's radius large enough to
+  // read as tinting the whole room once a spoke is selected, not just a
+  // corner glow — liquid glass needs a real, present backdrop to refract.
+  const ambientAccent = spokeColor ? `color-mix(in srgb, ${spokeColor} ${mode === "dark" ? "24%" : "20%"}, transparent)` : undefined;
 
   useEffect(() => {
     document.body.style.background = theme.page;
@@ -367,7 +370,7 @@ function ViewsMenu({ pageId, setPageId }: { pageId: string; setPageId: (id: stri
                 title={`${v.filters.spoke !== "All" ? v.filters.spoke + " · " : ""}saved ${new Date(v.savedAt).toLocaleDateString("en-GB")}`}
               >
                 {v.name}
-                <span style={{ display: "block", fontFamily: fonts.mono, fontSize: 9.5, color: t.inkSoft, fontWeight: 400 }}>
+                <span style={{ display: "block", fontFamily: fonts.mono, fontSize: 10, color: t.inkSoft, fontWeight: 400 }}>
                   {v.filters.spoke === "All" ? "Hub-wide" : v.filters.spoke}
                   {v.filters.processId !== "All" ? " · 1 process" : ""}
                 </span>
@@ -483,7 +486,7 @@ function UserMenu({ user, signOut, extra }: { user: User; signOut: () => void; e
         {/* Full name+role >=1040px container width; avatar-only below that —
             see the .hdr-user-* container queries in styles.css. */}
         <span className="hdr-user-name" style={{ fontFamily: fonts.body, fontWeight: 600 }}>{user.name}</span>
-        <span className="hdr-user-role" style={{ fontFamily: fonts.mono, fontSize: 9, letterSpacing: "0.05em", textTransform: "uppercase", color: t.inkSoft }}>{highestRoleLabel(user.roles)}</span>
+        <span className="hdr-user-role" style={{ fontFamily: fonts.mono, fontSize: 10, letterSpacing: "0.05em", textTransform: "uppercase", color: t.inkSoft }}>{highestRoleLabel(user.roles)}</span>
       </button>
       {open && anchorStyle && (
         <Portal>
@@ -998,7 +1001,7 @@ function Report({ ambientAccent }: { ambientAccent?: string }) {
   // refreshSession(), makes visiblePages empty on an already-mounted Report).
   if (!page) {
     return (
-      <div className="report" data-mode={mode} style={{ background: t.page, color: t.ink, display: "grid", placeItems: "center" }}>
+      <div className="report" data-mode={mode} style={{ backgroundColor: t.page, color: t.ink, display: "grid", placeItems: "center" }}>
         <div style={{ textAlign: "center", padding: 24, maxWidth: 360 }}>
           <p style={{ fontFamily: fonts.display, fontSize: 18, color: t.ink, marginBottom: 6 }}>No pages available</p>
           <p style={{ fontFamily: fonts.body, fontSize: 13, color: t.inkSoft, margin: 0 }}>
@@ -1021,7 +1024,14 @@ function Report({ ambientAccent }: { ambientAccent?: string }) {
       >
         Skip to content
       </a>
-      <div className="report" data-mode={mode} style={{ background: t.page, color: t.ink, ["--ink" as string]: t.ink, ...(ambientAccent ? { ["--ambient-accent" as string]: ambientAccent } : {}) }}>
+      {/* backgroundColor, NOT the `background` shorthand — the shorthand
+          resets every other background-* longhand (including
+          background-image) to its initial value, and an inline style always
+          wins over `.report`'s own CSS background-image rule (styles.css)
+          regardless of specificity. Setting the shorthand here was silently
+          killing the whole ambient-gradient effect: it computed to `none` no
+          matter what the CSS said. */}
+      <div className="report" data-mode={mode} style={{ backgroundColor: t.page, color: t.ink, ["--ink" as string]: t.ink, ...(ambientAccent ? { ["--ambient-accent" as string]: ambientAccent } : {}) }}>
         <div aria-live="polite" className="sr-only">
           {page.label} page loaded. {activeFilters} filter{activeFilters === 1 ? "" : "s"} active.
         </div>
@@ -1042,7 +1052,7 @@ function Report({ ambientAccent }: { ambientAccent?: string }) {
               <span style={{ minWidth: 0 }}>
                 <span style={{ display: "block", fontFamily: fonts.display, fontSize: 13, fontWeight: 700, lineHeight: 1.15, color: t.ink }}>Intelligent Automation</span>
                 {/* brand sub-label carries the active spoke identity + its colour */}
-                <span style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: fonts.mono, fontSize: 9.5, letterSpacing: "0.08em", textTransform: "uppercase", color: filters.spoke !== "All" ? t.spoke ?? t.accent : t.inkSoft, whiteSpace: "nowrap", overflow: "hidden" }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: fonts.mono, fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: filters.spoke !== "All" ? t.spoke ?? t.accent : t.inkSoft, whiteSpace: "nowrap", overflow: "hidden" }}>
                   {filters.spoke !== "All" && <span style={{ width: 6, height: 6, borderRadius: "50%", background: t.spoke ?? t.accent, flex: "0 0 auto" }} />}
                   <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{filters.spoke !== "All" ? SPOKE_INFO[filters.spoke]?.short ?? filters.spoke : "IA CoE · Hub view"}</span>
                 </span>
@@ -1059,7 +1069,7 @@ function Report({ ambientAccent }: { ambientAccent?: string }) {
             {groups.map((g, gi) => (
               <div key={g} style={{ marginBottom: 10 }}>
                 {collapsed && gi > 0 && <div style={{ borderTop: `1px solid ${t.ruleSoft}`, margin: "6px 8px 8px" }} />}
-                {!collapsed && <div style={{ fontFamily: fonts.mono, fontSize: 9, letterSpacing: "0.12em", textTransform: "uppercase", color: t.inkSoft, padding: "6px 10px 4px", opacity: 0.8 }}>{g}</div>}
+                {!collapsed && <div style={{ fontFamily: fonts.mono, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: t.inkSoft, padding: "6px 10px 4px", opacity: 0.8 }}>{g}</div>}
                 {visiblePages.filter((p) => p.group === g).map((p) => {
                   const on = p.id === pageId;
                   const isAlerts = p.id === "alerts";
@@ -1173,7 +1183,7 @@ function Report({ ambientAccent }: { ambientAccent?: string }) {
               <span
                 title="Unsynced edit — saved locally and will sync automatically"
                 aria-label="Unsynced edit — saved locally and will sync automatically"
-                style={{ display: "inline-flex", alignItems: "center", gap: 5, fontFamily: fonts.mono, fontSize: 9.5, letterSpacing: "0.05em", textTransform: "uppercase", color: t.inkSoft, whiteSpace: "nowrap" }}
+                style={{ display: "inline-flex", alignItems: "center", gap: 5, fontFamily: fonts.mono, fontSize: 10, letterSpacing: "0.05em", textTransform: "uppercase", color: t.inkSoft, whiteSpace: "nowrap" }}
               >
                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: warnDot, flex: "0 0 auto" }} className="pulse-soft" />
                 Unsynced

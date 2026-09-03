@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { fonts, glassOverlayVars } from "../theme";
+import { fonts, glassOverlayVars, type } from "../theme";
 import { useTheme } from "../theme-context";
 import { IconBell, IconAlert } from "../components/icons";
 import { Portal } from "../components/Portal";
@@ -148,14 +148,12 @@ export function NotificationBell({ setPageId }: { setPageId: (id: string) => voi
               borderRadius: "50%",
               background: t.accentFill,
               color: "#fff",
-              fontFamily: fonts.mono,
-              fontSize: 9,
+              ...type.micro,
               fontWeight: 700,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               padding: "0 2px",
-              lineHeight: 1,
             }}
           >
             {badgeText}
@@ -221,8 +219,7 @@ export function NotificationBell({ setPageId }: { setPageId: (id: string) => voi
                     <span
                       style={{
                         flex: "0 0 auto",
-                        fontFamily: fonts.mono,
-                        fontSize: 9,
+                        ...type.micro,
                         fontWeight: 700,
                         textTransform: "uppercase",
                         letterSpacing: "0.03em",

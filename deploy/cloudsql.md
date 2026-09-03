@@ -74,7 +74,7 @@ Cloud Run JOB: bp-ingest-pull  (bp-sql-layer/ingest/Dockerfile)
                                     (VITE_API_URL="/" -> nginx proxies /api/ to
                                      bp-api, same-origin — see deploy/gcp.md §5)
 
-                                    Power BI (external, direct on report.vw_*,
+                                    Any BI tool (external, direct on report.vw_*,
                                     via the on-prem gateway or a temporary
                                     public IP + authorized network)
 ```

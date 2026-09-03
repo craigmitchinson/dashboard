@@ -37,59 +37,88 @@ export function useViz() {
 }
 
 // --- formatters ------------------------------------------------------------
-export const fmtInt = (n: number) => Math.round(n).toLocaleString("en-GB");
+// Shared rule across every formatter below: NaN/+Infinity/-Infinity all
+// render as "—" (a plain guard, not a per-formatter special case) — a
+// dashboard number that failed to compute should read as "we don't have
+// this", never as a leaked "£NaN"/"£∞". Every money formatter additionally
+// keeps a negative sign BEFORE the currency symbol (`-£382.7k`, `-£53,320`,
+// `-£10.24`), never `£-...`. Compact money/number forms keep one forced
+// decimal at k/M magnitude (£382.7k, £1.0M — the .0 is never dropped) and no
+// forced decimal below 1k (£950); full (non-compact) forms are
+// thousands-grouped with no decimals (£53,320) unless |n| < 100, in which
+// case pence are shown (£10.24) — fmtNum follows the exact same full/compact
+// split as fmtMoney, just without the £ symbol.
+const NON_FINITE = "—";
+
+export const fmtInt = (n: number) => (Number.isFinite(n) ? Math.round(n).toLocaleString("en-GB") : NON_FINITE);
 export const fmtCompact = (n: number) => {
+  if (!Number.isFinite(n)) return NON_FINITE;
   const a = Math.abs(n);
   if (a >= 1e6) return (n / 1e6).toFixed(a >= 1e7 ? 0 : 1) + "M";
   if (a >= 1e3) return (n / 1e3).toFixed(a >= 1e4 ? 0 : 1) + "k";
   return String(Math.round(n));
 };
-export const fmtPct = (x: number, dp = 1) => (x * 100).toFixed(dp) + "%";
-export const fmtGBP = (n: number) =>
-  "£" + Math.round(n).toLocaleString("en-GB");
-export const fmtGBPc = (n: number) => {
-  const a = Math.abs(n);
-  if (a >= 1e6) return "£" + (n / 1e6).toFixed(2) + "M";
-  if (a >= 1e3) return "£" + (n / 1e3).toFixed(1) + "k";
-  return "£" + n.toFixed(2);
+export const fmtPct = (x: number, dp = 1) => (Number.isFinite(x) ? (x * 100).toFixed(dp) + "%" : NON_FINITE);
+export const fmtGBP = (n: number) => {
+  if (!Number.isFinite(n)) return NON_FINITE;
+  return (n < 0 ? "-" : "") + "£" + Math.round(Math.abs(n)).toLocaleString("en-GB");
 };
-export const fmtMoney2 = (n: number) =>
-  "£" + n.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-export const fmtHours = (n: number) => fmtCompact(n) + " h";
+export const fmtGBPc = (n: number) => {
+  if (!Number.isFinite(n)) return NON_FINITE;
+  const sign = n < 0 ? "-" : "";
+  const a = Math.abs(n);
+  if (a >= 1e6) return sign + "£" + (a / 1e6).toFixed(2) + "M";
+  if (a >= 1e3) return sign + "£" + (a / 1e3).toFixed(1) + "k";
+  return sign + "£" + a.toFixed(2);
+};
+export const fmtMoney2 = (n: number) => {
+  if (!Number.isFinite(n)) return NON_FINITE;
+  return (n < 0 ? "-" : "") + "£" + Math.abs(n).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+export const fmtHours = (n: number) => (Number.isFinite(n) ? fmtCompact(n) + " h" : NON_FINITE);
 
-// Compact mode: one decimal at k/M magnitude (£382.7k, £1.0M), no forced
-// decimal below 1k (£950). Full mode: thousands-grouped, no decimals
-// (£53,320) unless |n| < 100, in which case show pence (£53.32).
 export function fmtMoney(n: number, opts?: { compact?: boolean }): string {
+  if (!Number.isFinite(n)) return NON_FINITE;
+  const sign = n < 0 ? "-" : "";
   const a = Math.abs(n);
   if (opts?.compact) {
-    if (a >= 1e6) return "£" + (n / 1e6).toFixed(1) + "M";
-    if (a >= 1e3) return "£" + (n / 1e3).toFixed(1) + "k";
-    return "£" + Math.round(n).toLocaleString("en-GB");
+    if (a >= 1e6) return sign + "£" + (a / 1e6).toFixed(1) + "M";
+    if (a >= 1e3) return sign + "£" + (a / 1e3).toFixed(1) + "k";
+    return sign + "£" + Math.round(a).toLocaleString("en-GB");
   }
-  if (a < 100) return "£" + n.toFixed(2);
-  return "£" + Math.round(n).toLocaleString("en-GB");
+  if (a < 100) return sign + "£" + a.toFixed(2);
+  return sign + "£" + Math.round(a).toLocaleString("en-GB");
 }
 
-// Same compact/full rule as fmtMoney, but no currency symbol.
+// Mirrors fmtMoney's full/compact rule exactly, minus the £ symbol (see the
+// section doc comment above) — including the full-mode <100 decimal branch.
 export function fmtNum(n: number, opts?: { compact?: boolean }): string {
+  if (!Number.isFinite(n)) return NON_FINITE;
+  const sign = n < 0 ? "-" : "";
   const a = Math.abs(n);
   if (opts?.compact) {
-    if (a >= 1e6) return (n / 1e6).toFixed(1) + "M";
-    if (a >= 1e3) return (n / 1e3).toFixed(1) + "k";
-    return Math.round(n).toLocaleString("en-GB");
+    if (a >= 1e6) return sign + (a / 1e6).toFixed(1) + "M";
+    if (a >= 1e3) return sign + (a / 1e3).toFixed(1) + "k";
+    return sign + Math.round(a).toLocaleString("en-GB");
   }
-  return Math.round(n).toLocaleString("en-GB");
+  if (a < 100) return sign + a.toFixed(2);
+  return sign + Math.round(a).toLocaleString("en-GB");
 }
 
+// <60s: bare seconds (`45s`, `0s` at zero) — no minutes component at all.
+// <1h: `10m 21s` (seconds zero-padded, minutes not). >=1h: `1h 04m` (minutes
+// zero-padded, seconds dropped entirely). Negative input clamps to 0;
+// non-integer seconds round first; non-finite input is the shared "—" guard.
 export function fmtDuration(sec: number): string {
+  if (!Number.isFinite(sec)) return NON_FINITE;
   const s = Math.max(0, Math.round(sec));
+  if (s < 60) return `${s}s`;
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
   if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m`;
   return `${m}m ${String(ss).padStart(2, "0")}s`;
 }
 
-function niceMax(v: number) {
+export function niceMax(v: number) {
   if (v <= 0) return 1;
   const mag = Math.pow(10, Math.floor(Math.log10(v)));
   const f = v / mag;
@@ -220,6 +249,12 @@ export function KpiCard({
 }) {
   const t = useTheme();
   const v = useViz();
+  // Callers pass e.g. `Target ≥ 95%` / `Target ≤ £9.00` (see Overview.tsx,
+  // Capacity.tsx, Commercial.tsx, ValueFinance.tsx) — stripped of its
+  // leading "Target " here so the on/off-target line below can read "Off
+  // target (≥ 95%)" instead of the doubled-up, wraps-to-two-lines "Target ≥
+  // 95% · Off target".
+  const targetThreshold = target ? target.label.replace(/^Target\s+/i, "") : "";
   return (
     <div
       className="tile-lift kpi-card"
@@ -252,15 +287,37 @@ export function KpiCard({
         )}
       </span>
       {!empty && target && (
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 5, marginTop: 1, fontFamily: fonts.mono, fontSize: 10, fontWeight: 700, letterSpacing: "0.03em", color: target.met ? v.good : v.bad }}>
+        // Single line at card width (nav/motion polish): "Target ≥ 95% · Off
+        // target" wrapped to two lines at 1440×900 on Overview — nowrap +
+        // ellipsis + minWidth:0 (flex items default to min-width:auto, which
+        // would otherwise block the shrink that makes the ellipsis kick in)
+        // keep it to one, and the shorter "Off target (≥ 95%)" phrasing
+        // gives the ellipsis more room before it's ever needed.
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 5,
+            marginTop: 1,
+            fontFamily: fonts.mono,
+            fontSize: 10,
+            fontWeight: 700,
+            letterSpacing: "0.03em",
+            color: target.met ? v.good : v.bad,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            minWidth: 0,
+          }}
+        >
           <span style={{ width: 6, height: 6, borderRadius: "50%", background: target.met ? v.good : v.bad, flex: "0 0 auto" }} />
-          {target.label} · {target.met ? "On target" : "Off target"}
+          {target.met ? "On" : "Off"} target ({targetThreshold})
         </span>
       )}
       <span className="sr-only">
         {label}: {empty ? "no data in range" : value}
         {!empty && delta !== undefined ? `, ${delta >= 0 ? "up" : "down"} ${fmtPct(Math.abs(delta), 1)} vs previous period` : ""}
-        {!empty && target ? `, ${target.met ? "on target" : "off target"} (${target.label})` : ""}
+        {!empty && target ? `, ${target.met ? "on target" : "off target"} (${targetThreshold})` : ""}
       </span>
     </div>
   );
@@ -375,7 +432,7 @@ export interface RefLine {
 // Cached canvas-measurement helper (module scope) for dynamic left-padding
 // and ref-line label halos — avoids allocating a new canvas per render.
 let measureCanvas: HTMLCanvasElement | null = null;
-function measureTextWidth(text: string, font: string): number {
+export function measureTextWidth(text: string, font: string): number {
   if (!measureCanvas) measureCanvas = document.createElement("canvas");
   const ctx = measureCanvas.getContext("2d");
   if (!ctx) return text.length * 6; // crude fallback if canvas 2d is unavailable
@@ -830,6 +887,21 @@ export interface Column<T> {
 // for ascending via the wrapping span's transform).
 const CHEVRON_D = "M3 5L0 1h6z";
 
+// Shared sort-direction indicator for a sortable-column header button — the
+// same SVG chevron treatment for every table that sorts (DataTable below and
+// viz-finance.tsx's SpokePLTable), replacing a bare "▲"/"▼"/"▾" glyph.
+// Decorative only (aria-hidden) — the header button's own aria-sort carries
+// the meaning for assistive tech.
+export function SortGlyph({ active, dir }: { active: boolean; dir: "asc" | "desc" }) {
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", opacity: active ? 1 : 0.25, marginLeft: 5 }}>
+      <span style={{ display: "inline-flex", transform: active && dir === "asc" ? "rotate(180deg)" : undefined }}>
+        <svg width={6} height={6} viewBox="0 0 6 6" aria-hidden focusable="false"><path d={CHEVRON_D} fill="currentColor" /></svg>
+      </span>
+    </span>
+  );
+}
+
 export function DataTable<T extends { [k: string]: any }>({
   columns,
   rows,
@@ -919,11 +991,7 @@ export function DataTable<T extends { [k: string]: any }>({
                   }}
                 >
                   {c.header}
-                  <span style={{ display: "inline-flex", alignItems: "center", opacity: sort.key === c.key ? 1 : 0.25, marginLeft: 5 }}>
-                    <span style={{ display: "inline-flex", transform: sort.key === c.key && sort.dir === "asc" ? "rotate(180deg)" : undefined }}>
-                      <svg width={6} height={6} viewBox="0 0 6 6" aria-hidden focusable="false"><path d={CHEVRON_D} fill="currentColor" /></svg>
-                    </span>
-                  </span>
+                  <SortGlyph active={sort.key === c.key} dir={sort.dir} />
                 </button>
               </th>
             ))}

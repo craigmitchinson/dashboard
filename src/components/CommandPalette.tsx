@@ -506,7 +506,31 @@ export function CommandPalette(props: CommandPaletteProps) {
     if (!showCoach) return;
     const onAnyKey = () => dismissCoach();
     document.addEventListener("keydown", onAnyKey);
-    return () => document.removeEventListener("keydown", onAnyKey);
+    // A click ANYWHERE else (e.g. a nav-rail link) does NOT burn the
+    // one-time tip — same "stray interaction can't burn it" contract as the
+    // mutual-exclusion transient hide above (setCoachHidden alone, not
+    // dismissCoach) — but it DOES hide it for the rest of this session.
+    // Without this, this fixed bottom-right toast rides along across a nav
+    // click (nothing here previously reacted to a plain click at all,
+    // unlike the keydown case above) and can land on top of live content on
+    // whatever page the click navigates to — verified against Exceptions'
+    // detail table at 1440×900, where the toast's footprint overlaps the
+    // table header row and first data row with no gap available to
+    // reposition into (the page is content-dense from the toolbar row
+    // straight through to the table, and the table's own right edge sits
+    // only ~18px inside the toast's, so neither a vertical nor horizontal
+    // nudge clears it without landing on some other control instead) — so
+    // dismissing before the click's own navigation effect ever paints is
+    // the only fix that actually avoids the overlap rather than
+    // relocating it. Reappears next sign-in since only the transient
+    // `coachHidden` flag is set here, not the persisted `coachDismissed`
+    // one (see dismissCoach above).
+    const onAnyClick = () => setCoachHidden(true);
+    document.addEventListener("click", onAnyClick);
+    return () => {
+      document.removeEventListener("keydown", onAnyKey);
+      document.removeEventListener("click", onAnyClick);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showCoach]);
 
@@ -611,18 +635,30 @@ export function CommandPalette(props: CommandPaletteProps) {
 
       {showCoach && coachStyle && (
         <Portal>
+          {/* Fixed bottom-right toast, NOT anchored under the search
+              trigger — coachStyle's own top/left is intentionally unused
+              below; anchoring under the header search trigger put this
+              directly over the slicer bar's Date range control (the header
+              search button sits right above the slicer row, not open
+              canvas), which is exactly the "covers a control" bug reported
+              against the previous placement. coachStyle is still consulted
+              as the open/gating signal (it also drives
+              useAnchoredPopover's mutual-exclusion with other header
+              popovers). */}
           <div
             role="status"
             className="glass-overlay"
             style={{
-              ...coachStyle,
+              position: "fixed",
+              right: 24,
+              bottom: 24,
               zIndex: "var(--z-popover)" as unknown as number,
               border: `1px solid ${t.ruleSoft}`,
               padding: "9px 10px 9px 12px",
               display: "flex",
               alignItems: "center",
               gap: 8,
-              maxWidth: 224,
+              maxWidth: 240,
               ...glassOverlayVars(t),
             }}
           >

@@ -61,13 +61,37 @@ describe("buildCsv", () => {
     expect(csv.split("\n")).toEqual(["a", "1", "2"]);
   });
 
-  it("Excel/Sheets formula-injection case: a leading '=' is NOT escaped (documented current behaviour, not hardened here)", () => {
-    // A cell opened in Excel/Sheets that starts with =, +, -, or @ can be
-    // interpreted as a formula. buildCsv does not defend against this today —
-    // this test pins that (arguably unsafe) status quo rather than changing
-    // it, per the task's "document, don't fix" instruction.
+  it("Excel/Sheets formula-injection hardening: a leading '=' string gets a leading apostrophe", () => {
+    // A cell opened in Excel/Sheets that starts with =, +, -, @, a tab or a
+    // carriage return can be interpreted as a formula. buildCsv now defends
+    // against this by prefixing such STRING values with a leading `'`
+    // (the spreadsheet "force text" convention).
     const csv = buildCsv([{ formula: "=SUM(A1:A9)" }]);
-    expect(csv).toBe("formula\n=SUM(A1:A9)");
+    expect(csv).toBe("formula\n'=SUM(A1:A9)");
+  });
+
+  it("also neutralises leading +, -, @, tab and carriage return", () => {
+    const csv = buildCsv([{ a: "+1", b: "-cmd", c: "@SUM(1)", d: "\tx", e: "\ry" }], ["a", "b", "c", "d", "e"]);
+    expect(csv).toBe("a,b,c,d,e\n'+1,'-cmd,'@SUM(1),'\tx,'\ry");
+  });
+
+  it("a numeric-looking STRING with a leading '-' is still a string, so it also gets the apostrophe (documented trade-off)", () => {
+    const csv = buildCsv([{ value: "-5" }]);
+    expect(csv).toBe("value\n'-5");
+  });
+
+  it("a real NUMBER is emitted raw and unaffected, even one that starts with '-' once stringified", () => {
+    const csv = buildCsv([{ value: -5 }]);
+    expect(csv).toBe("value\n-5");
+  });
+
+  it("a formula-leading string that also contains a comma is quoted AFTER the apostrophe is added", () => {
+    const csv = buildCsv([{ label: "=A1, B1" }]);
+    expect(csv).toBe('label\n"\'=A1, B1"');
+  });
+
+  it("a formula-leading value that is null/undefined is untouched (still an empty field)", () => {
+    expect(buildCsv([{ a: null, b: undefined }], ["a", "b"])).toBe("a,b\n,");
   });
 });
 

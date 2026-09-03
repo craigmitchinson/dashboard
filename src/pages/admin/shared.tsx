@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { fonts, type as typeScale, glassOverlayVars } from "../../theme";
 import { useTheme } from "../../theme-context";
-import { IconClose, IconLock } from "../../components/icons";
+import { IconClose, IconLock, IconAlert } from "../../components/icons";
 import type { ReferenceJson } from "../../reference/reference-store";
 import type { PermAction } from "../../auth/auth-context";
+import { cycleStart, coverageWindow } from "../../reference/economics";
 
 // Matches useReference()'s update() signature exactly (reference-context.tsx).
 export type UpdateFn = (mutator: (draft: ReferenceJson) => ReferenceJson | void, opts?: { section?: string; actor?: string }) => void;
@@ -65,13 +66,13 @@ export function mostRecent<T extends { effectiveFrom: string }>(rows: T[]): T | 
 }
 
 // --- VDI coverage window (display only) --------------------------------------
-// economics.ts's cycleStart/coverageWindow internals are not exported (only
-// vdiDailyCost/vdiAvailableOn/availableDaysInWindow are) — this mirrors that
-// same tiling algorithm (365-day cycles anchored on renewalDate, capped by
-// licenseExpiryDate / retired activeTo) purely so the VDI estate table can
-// show "current coverage window" to an editor. All actual cost/capacity
-// numbers shown elsewhere in the dashboard still come exclusively from
-// src/reference/economics.ts — this function is never used for a money figure.
+// Thin wrapper over src/reference/economics.ts's exported cycleStart/
+// coverageWindow — the SAME 365-day-cycle algorithm (anchored on
+// renewalDate, capped by licenseExpiryDate / retired activeTo) that produces
+// every actual cost/capacity figure elsewhere in the dashboard, just
+// reshaped into ISO date strings + a "covered as of this date" flag for the
+// VDI estate table's editor-facing display. This function is never itself
+// used for a money figure — economics.ts is still the only source of those.
 const DAY_MS = 86400000;
 const parseISO = (d: string) => Date.parse(d + "T00:00:00Z");
 const dateOnly = (ts: number) => new Date(ts).toISOString().slice(0, 10);
@@ -85,14 +86,9 @@ export interface CoverageInput {
 }
 
 export function currentCoverageWindow(vdi: CoverageInput, asOfISO: string): { startISO: string; endISO: string; covered: boolean } {
-  const renewalTs = parseISO(vdi.renewalDate);
   const asOfTs = parseISO(asOfISO);
-  const cycleIndex = Math.floor((asOfTs - renewalTs) / (365 * DAY_MS));
-  const cycleStartTs = renewalTs + cycleIndex * 365 * DAY_MS;
-  let end = cycleStartTs + 365 * DAY_MS;
-  if (vdi.licenseExpiryDate) end = Math.min(end, parseISO(vdi.licenseExpiryDate) + DAY_MS);
-  if (vdi.status === "retired" && vdi.activeTo) end = Math.min(end, parseISO(vdi.activeTo) + DAY_MS);
-  const start = Math.max(cycleStartTs, parseISO(vdi.activeFrom));
+  const cs = cycleStart(vdi.renewalDate, asOfISO);
+  const { start, end } = coverageWindow(vdi, cs);
   return { startISO: dateOnly(start), endISO: dateOnly(end - DAY_MS), covered: asOfTs >= start && asOfTs < end };
 }
 
@@ -316,7 +312,12 @@ export function ErrorBanner({ children }: { children: ReactNode }) {
   const t = useTheme();
   return (
     <div role="alert" className="adm-banner adm-banner--error" style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 14px", borderRadius: 10, border: `1px solid ${t.accent}`, background: `${t.accent}14`, color: t.ink, fontFamily: fonts.body, fontSize: 13 }}>
-      <strong style={{ color: t.accent, flex: "0 0 auto" }}>⚠</strong>
+      {/* IconAlert (a warning triangle, house SVG style) rather than a new
+          IconWarning — it's already this exact glyph, reused elsewhere for
+          the same "something needs attention" meaning (Exceptions nav,
+          AlertsPage, NotificationBell); decorative only, the "alert" role +
+          text carry the meaning for assistive tech. */}
+      <IconAlert size={16} style={{ color: t.accent, flex: "0 0 auto" }} />
       <span>{children}</span>
     </div>
   );

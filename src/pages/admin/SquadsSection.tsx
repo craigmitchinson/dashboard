@@ -107,13 +107,13 @@ export function SquadsSection({ reference, update, actor, isAdmin }: SectionProp
             <div style={{ display: "flex", gap: 18, flexWrap: "wrap", alignItems: "flex-end" }}>
               <Field id="sq-add-light" label="Light-mode colour" width={160}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <input id="sq-add-light" type="color" value={addDraft.colorLight} onChange={(e) => setAddDraft({ ...addDraft, colorLight: e.target.value })} style={{ width: 34, height: 30, padding: 0, border: `1px solid ${t.ruleSoft}`, borderRadius: 6, background: "none" }} />
+                  <input id="sq-add-light" type="color" value={addDraft.colorLight} onChange={(e) => setAddDraft({ ...addDraft, colorLight: e.target.value })} style={{ width: 34, height: "var(--control-h)", padding: 0, border: `1px solid ${t.ruleSoft}`, borderRadius: 6, background: "none" }} />
                   <ContrastHint fg={addDraft.colorLight} bg="#FAF7F2" label="light" />
                 </div>
               </Field>
               <Field id="sq-add-dark" label="Dark-mode colour" width={160}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <input id="sq-add-dark" type="color" value={addDraft.colorDark} onChange={(e) => setAddDraft({ ...addDraft, colorDark: e.target.value })} style={{ width: 34, height: 30, padding: 0, border: `1px solid ${t.ruleSoft}`, borderRadius: 6, background: "none" }} />
+                  <input id="sq-add-dark" type="color" value={addDraft.colorDark} onChange={(e) => setAddDraft({ ...addDraft, colorDark: e.target.value })} style={{ width: 34, height: "var(--control-h)", padding: 0, border: `1px solid ${t.ruleSoft}`, borderRadius: 6, background: "none" }} />
                   <ContrastHint fg={addDraft.colorDark} bg="#0C2329" label="dark" />
                 </div>
               </Field>

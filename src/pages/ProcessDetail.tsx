@@ -211,22 +211,30 @@ export function ProcessDetail() {
 
       {/* banner — the accent rail (border-left) is 4px and the box's own
           padding-left is 12px, totalling the same 16px inset the breadcrumb
-          above now uses, so the icon and title sit flush on one left edge
+          above uses, so the content column sits flush on one left edge
           instead of drifting 4px right of it (previously 16px padding on
           top of the 4px rail). Tags stay beside the title block (not
           stacked below it) — this is a height-locked page (PageGrid
           fit={true}), and stacking them added a row's worth of height that
-          squeezed the cards below into overlapping their own headers. */}
+          squeezed the cards below into overlapping their own headers.
+          The spoke swatch is NOT inline before the title — an icon there
+          pushes the title text itself icon-width-plus-gap right of the
+          breadcrumb/card left edge, which is the "icon and text shifted
+          right" complaint: the BANNER BOX was flush, but the title glyph
+          inside it never was. The swatch instead sits on the metadata line
+          below (mirroring the chooser tiles' own `SpokeSwatch` + spoke-name
+          pairing above), so the title — the banner's most prominent line —
+          leads at the same x as the breadcrumb and every card title below,
+          and the swatch itself, now the first element of ITS row, lands on
+          that same x too. */}
       <Row cols="1fr" grow={false}>
         <div style={{ display: "flex", alignItems: "center", gap: 14, background: `linear-gradient(168deg, ${t.paper}, ${t.themeBand})`, border: `1px solid ${t.ruleSoft}`, borderLeft: `4px solid ${spokeColorFor(proc.spoke, t.mode) ?? t.accent}`, borderRadius: 12, padding: "12px 16px 12px 12px" }}>
           <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <SpokeSwatch spoke={proc.spoke} decorative size="md" />
-              <div style={{ fontFamily: typeScale.displayL.fontFamily, fontSize: typeScale.displayL.fontSize, lineHeight: typeScale.displayL.lineHeight, fontWeight: typeScale.displayL.fontWeight, color: t.ink }}>
-                {proc.name} <span style={{ fontFamily: fonts.mono, fontSize: 11, color: t.inkSoft, fontWeight: 400 }}>{proc.acronym}</span>
-              </div>
+            <div style={{ fontFamily: typeScale.displayL.fontFamily, fontSize: typeScale.displayL.fontSize, lineHeight: typeScale.displayL.lineHeight, fontWeight: typeScale.displayL.fontWeight, color: t.ink }}>
+              {proc.name} <span style={{ fontFamily: fonts.mono, fontSize: 11, color: t.inkSoft, fontWeight: 400 }}>{proc.acronym}</span>
             </div>
-            <div style={{ fontFamily: fonts.mono, fontSize: 11, color: t.inkSoft, marginTop: 2 }} title={proc.description}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: fonts.mono, fontSize: 11, color: t.inkSoft, marginTop: 3 }} title={proc.description}>
+              <SpokeSwatch spoke={proc.spoke} decorative />
               {proc.spoke} · {proc.proposition} · {proc.queues.map((q2) => (q2.stage ? `${q2.queue} (${q2.stage})` : q2.queue)).join(" → ")}
             </div>
           </div>

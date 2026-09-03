@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties, MouseEvent } from "react";
 import { fonts } from "../theme";
 import { useTheme } from "../theme-context";
-import { useSize, useViz, Legend, Sparkline, fmtGBPc, fmtMoney2, fmtPct, fmtInt } from "./viz";
+import { useSize, useViz, Legend, Sparkline, SortGlyph, measureTextWidth, niceMax, fmtGBPc, fmtMoney2, fmtPct, fmtInt } from "./viz";
 import type { SpokeAgg } from "../filters-context";
 
 // ---------------------------------------------------------------------------
@@ -10,8 +10,9 @@ import type { SpokeAgg } from "../filters-context";
 // ---------------------------------------------------------------------------
 // Value & Finance page chart forms — waterfall, Pareto, stacked cost trend +
 // a spoke P&L table. Same visual language as components/viz.tsx (mono axis
-// text, hairline solid grid, useTheme()/useViz() tokens): a local re-
-// implementation of that file's Tooltip (not exported) and niceMax helper.
+// text, hairline solid grid, useTheme()/useViz() tokens, shared niceMax/
+// measureTextWidth/SortGlyph): a local re-implementation of that file's
+// Tooltip only (not exported from there).
 // ---------------------------------------------------------------------------
 
 // --- categorical color set (validated against #FAF7F2 light / #0C2329 dark)
@@ -35,23 +36,12 @@ export function fyFinanceColors(mode: "light" | "dark") {
       };
 }
 
-// Cached canvas-measurement helper (module scope), same technique as
-// viz.tsx's own private `measureTextWidth` (not exported from there, hence
-// this small duplicate — see this file's header comment on that convention).
-// Used to word-wrap the waterfall's per-bar x-axis labels onto up to two
-// lines: several of the cost-composition labels ("CoE machines (VDIs)",
-// "Squad machines (VDIs)", "Unattributed idle (memo)") are long enough that,
-// packed one per (of up to 7) narrow bar columns, single-line text
-// overlapped its neighbours.
-let measureCanvas: HTMLCanvasElement | null = null;
-function measureTextWidth(text: string, font: string): number {
-  if (!measureCanvas) measureCanvas = document.createElement("canvas");
-  const ctx = measureCanvas.getContext("2d");
-  if (!ctx) return text.length * 5.5;
-  ctx.font = font;
-  return ctx.measureText(text).width;
-}
-
+// Word-wraps the waterfall's per-bar x-axis labels onto up to two lines
+// (using viz.tsx's shared `measureTextWidth`): several of the
+// cost-composition labels ("CoE machines (VDIs)", "Squad machines (VDIs)",
+// "Unattributed idle (memo)") are long enough that, packed one per (of up to
+// 7) narrow bar columns, single-line text overlapped its neighbours.
+//
 // Greedily wraps `label` onto at most `maxLines` lines that each fit within
 // `maxWidth` at the given font — a plain word-wrap (never mid-word), with
 // the last permitted line ellipsised if words remain.
@@ -80,14 +70,6 @@ function wrapLabel(label: string, maxWidth: number, font: string, maxLines = 2):
     lines[lines.length - 1] = last + "…";
   }
   return lines;
-}
-
-function niceMax(v: number) {
-  if (v <= 0) return 1;
-  const mag = Math.pow(10, Math.floor(Math.log10(v)));
-  const f = v / mag;
-  const nf = f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10;
-  return nf * mag;
 }
 
 // --- shared tooltip (same visual style as viz.tsx's local Tooltip) ---------
@@ -747,7 +729,7 @@ export function SpokePLTable({
                     }}
                   >
                     {c.header}
-                    <span style={{ opacity: sort.key === c.key ? 1 : 0.25, marginLeft: 5 }}>{sort.key === c.key ? (sort.dir === "asc" ? "▲" : "▼") : "▾"}</span>
+                    <SortGlyph active={sort.key === c.key} dir={sort.dir} />
                   </button>
                 </th>
               ))}

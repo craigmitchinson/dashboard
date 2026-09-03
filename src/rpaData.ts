@@ -41,12 +41,6 @@ import type { ReferenceJson } from "./reference/reference-store";
 
 export type OutcomeKey = "completed" | "business" | "system";
 
-export const OUTCOMES: { key: OutcomeKey; label: string }[] = [
-  { key: "completed", label: "Completed" },
-  { key: "business", label: "Business exception" },
-  { key: "system", label: "System exception" },
-];
-
 // --- shape of /data/model.json (the pipeline output) ------------------------
 export interface ModelJson {
   meta: { generatedAt: string; source: string; sourceRows: number; dateMin: string; dateMax: string; unmappedQueues: string[] };
@@ -171,13 +165,10 @@ export let SPOKES: string[] = [];
 export let SPOKE_INFO: Record<string, { short: string; light: string; dark: string }> = {};
 export let PROCESSES: ProcessDim[] = [];
 export let PROCESS_BY_ID = new Map<string, ProcessDim>();
-export let PROPOSITIONS: string[] = [];
 export let QUEUES: string[] = [];
 export let TAGS: string[] = [];
 export let VDIS: VdiDim[] = [];
 export let VDI_OPERATING_HOURS = 20;
-export let SYSTEM_EXCEPTIONS: string[] = [];
-export let BUSINESS_EXCEPTIONS: string[] = [];
 export let EXCEPTION_TYPES: ExceptionTypeDim[] = [];
 export let EX_CODE: Record<string, string> = {};
 export let ROWS: DayRow[] = [];
@@ -242,7 +233,6 @@ export function initData(m: ModelJson) {
     };
   });
   PROCESS_BY_ID = new Map(PROCESSES.map((p) => [p.id, p]));
-  PROPOSITIONS = m.propositions.map((p) => p.name);
   QUEUES = PROCESSES.flatMap((p) => p.queues.map((q) => q.queue));
   TAGS = Array.from(new Set(PROCESSES.flatMap((p) => p.tags))).sort();
 
@@ -263,8 +253,6 @@ export function initData(m: ModelJson) {
     status: r.status,
   }));
 
-  SYSTEM_EXCEPTIONS = m.exceptionReasons.filter((e) => e.type === "System").map((e) => e.reason);
-  BUSINESS_EXCEPTIONS = m.exceptionReasons.filter((e) => e.type === "Business").map((e) => e.reason);
   EXCEPTION_TYPES = m.exceptionReasons.map((e) => ({ name: e.reason, category: e.type === "System" ? ("system" as const) : ("business" as const) }));
   EX_CODE = Object.fromEntries(m.exceptionReasons.map((e) => [e.reason, e.code]));
 

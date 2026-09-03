@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { useTheme } from "../theme-context";
-import { fonts } from "../theme";
+import { fonts, glassOverlayVars } from "../theme";
 import { useAuth, lastEntraError } from "../auth/auth-context";
 import { listUsers } from "../auth/dev-provider";
 import { isEntraConfigured } from "../auth/entra-provider";
@@ -76,8 +76,12 @@ export function Login() {
   };
 
   return (
-    <div className="login" style={{ background: t.page, color: t.ink }}>
-      <div className="login__card" style={{ background: t.paper, border: `1px solid ${t.ruleSoft}`, boxShadow: t.shadow }}>
+    // `backgroundColor`, not the `background` shorthand — `.login` in
+    // styles.css sets `background-image` (the same ambient gradient as
+    // `.report`, picked via prefers-color-scheme since there's no signed-in
+    // theme preference yet); the shorthand would reset that layer to none.
+    <div className="login" style={{ backgroundColor: t.page, color: t.ink }}>
+      <div className="login__card glass-overlay" style={glassOverlayVars(t)}>
         <div className="login__brand">
           <span className="login__badge" style={{ background: t.accentFill, fontFamily: fonts.display }}>IA</span>
           <div>

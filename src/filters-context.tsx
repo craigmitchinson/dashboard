@@ -39,7 +39,7 @@ export interface Filters {
   to?: string; // ISO, used when range === "custom"
 }
 
-export const DEFAULT_FILTERS: Filters = { spoke: "All", proposition: "All", processId: "All", queue: "All", tags: [], range: 90 };
+export const DEFAULT_FILTERS: Filters = Object.freeze({ spoke: "All", proposition: "All", processId: "All", queue: "All", tags: [], range: 90 });
 
 export { DATA_MIN_ISO, DATA_MAX_ISO } from "./rpaData";
 // 0 = "value benefit at each process's own grade rate" (the honest default);
@@ -575,6 +575,54 @@ function aggregate(
   };
 }
 
+// Pure entry point for "build me a Model for these filters/rate/reference/
+// tables" — exactly the body of FiltersProviderInner's `model` useMemo below,
+// extracted so it can be called directly (no react-dom/server render, no
+// FiltersProvider tree) from a test harness or any other non-React caller.
+// The provider's useMemo is a thin `useMemo(() => computeModel(...), deps)`
+// wrapper over this.
+export function computeModel(filters: Filters, rateOverride: number, reference: ReferenceJson, tables: RateTables): Model {
+  const { lo, hi } = windowOf(filters);
+  const rangeDays = Math.round((hi - lo) / DAY) + 1;
+  const agg = aggregate(filters, lo, hi, rangeDays, rateOverride, reference, tables);
+
+  // previous equal-length window for deltas (entity filters held constant)
+  const prevHi = lo - DAY;
+  const prevLo = prevHi - (rangeDays - 1) * DAY;
+  const prevAgg = aggregate(filters, prevLo, prevHi, rangeDays, rateOverride, reference, tables);
+
+  // D6: fiscal-year-to-date net benefit, current FY vs the equivalent
+  // day-offset span in the prior FY — independent of the range preset.
+  const fyStartMonth = reference.targets.fiscalYearStartMonth ?? FISCAL_YEAR_START_MONTH_DEFAULT;
+  const { start: fyStart } = fiscalYearBounds(hi, fyStartMonth);
+  const priorStart = fiscalYearBounds(fyStart - DAY, fyStartMonth).start;
+  const priorHi = priorStart + (hi - fyStart);
+  const fyAgg = aggregate(filters, fyStart, hi, Math.round((hi - fyStart) / DAY) + 1, rateOverride, reference, tables);
+  const fyPriorAgg = aggregate(filters, priorStart, priorHi, Math.round((priorHi - priorStart) / DAY) + 1, rateOverride, reference, tables);
+  const fyNetBySpoke = new Map(fyAgg.bySpoke.map((s) => [s.spoke, s.net]));
+
+  return {
+    rangeDays,
+    cutoffTs: lo,
+    ...agg,
+    bySpoke: agg.bySpoke.map((s) => ({ ...s, fyToDateNet: fyNetBySpoke.get(s.spoke) ?? 0 })),
+    fyToDateNet: fyAgg.netBenefit,
+    fyToDatePriorNet: fyPriorAgg.netBenefit,
+    fyStartTs: fyStart,
+    prev: {
+      completed: prevAgg.completed,
+      exceptions: prevAgg.exceptions,
+      costPerCase: prevAgg.costPerCase,
+      completionPct: prevAgg.completionPct,
+      timeSavedHours: prevAgg.timeSavedHours,
+      netBenefit: prevAgg.netBenefit,
+      grossBenefit: prevAgg.grossBenefit,
+      automationCost: prevAgg.automationCost,
+      fte: prevAgg.fte,
+    },
+  };
+}
+
 export function FiltersProvider({ children }: { children: ReactNode }) {
   return (
     <ReferenceProvider>
@@ -617,47 +665,7 @@ function FiltersProviderInner({ children }: { children: ReactNode }) {
     [reference],
   );
 
-  const model = useMemo<Model>(() => {
-    const { lo, hi } = windowOf(filters);
-    const rangeDays = Math.round((hi - lo) / DAY) + 1;
-    const agg = aggregate(filters, lo, hi, rangeDays, peopleRate, reference, tables);
-
-    // previous equal-length window for deltas (entity filters held constant)
-    const prevHi = lo - DAY;
-    const prevLo = prevHi - (rangeDays - 1) * DAY;
-    const prevAgg = aggregate(filters, prevLo, prevHi, rangeDays, peopleRate, reference, tables);
-
-    // D6: fiscal-year-to-date net benefit, current FY vs the equivalent
-    // day-offset span in the prior FY — independent of the range preset.
-    const fyStartMonth = reference.targets.fiscalYearStartMonth ?? FISCAL_YEAR_START_MONTH_DEFAULT;
-    const { start: fyStart } = fiscalYearBounds(hi, fyStartMonth);
-    const priorStart = fiscalYearBounds(fyStart - DAY, fyStartMonth).start;
-    const priorHi = priorStart + (hi - fyStart);
-    const fyAgg = aggregate(filters, fyStart, hi, Math.round((hi - fyStart) / DAY) + 1, peopleRate, reference, tables);
-    const fyPriorAgg = aggregate(filters, priorStart, priorHi, Math.round((priorHi - priorStart) / DAY) + 1, peopleRate, reference, tables);
-    const fyNetBySpoke = new Map(fyAgg.bySpoke.map((s) => [s.spoke, s.net]));
-
-    return {
-      rangeDays,
-      cutoffTs: lo,
-      ...agg,
-      bySpoke: agg.bySpoke.map((s) => ({ ...s, fyToDateNet: fyNetBySpoke.get(s.spoke) ?? 0 })),
-      fyToDateNet: fyAgg.netBenefit,
-      fyToDatePriorNet: fyPriorAgg.netBenefit,
-      fyStartTs: fyStart,
-      prev: {
-        completed: prevAgg.completed,
-        exceptions: prevAgg.exceptions,
-        costPerCase: prevAgg.costPerCase,
-        completionPct: prevAgg.completionPct,
-        timeSavedHours: prevAgg.timeSavedHours,
-        netBenefit: prevAgg.netBenefit,
-        grossBenefit: prevAgg.grossBenefit,
-        automationCost: prevAgg.automationCost,
-        fte: prevAgg.fte,
-      },
-    };
-  }, [filters, peopleRate, reference, tables]);
+  const model = useMemo<Model>(() => computeModel(filters, peopleRate, reference, tables), [filters, peopleRate, reference, tables]);
 
   return (
     <FiltersContext.Provider value={{ filters, setFilters, reset, peopleRate, setPeopleRate, applyView, processOptions, propositionOptions, model }}>

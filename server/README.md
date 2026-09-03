@@ -97,12 +97,11 @@ Set via `AUTH_MODE`:
 
 - `entra` — validates a `Bearer` JWT against the Entra ID tenant's JWKS
   (issuer/audience/exp/signature, via `jose`), then maps its `groups` claim
-  to a role + spokeIds using `shared/auth-mappings.mjs` — **the server's own
-  copy** of `src/auth/entra-provider.ts`'s `GROUP_ROLE_MAPPINGS` (this task
-  doesn't own `src/**`, so it can't import that file directly; **the SPA
-  should be updated to import `shared/auth-mappings.mjs` too**, so the
-  mapping lives in exactly one place going forward). Requires
-  `ENTRA_TENANT_ID` and `ENTRA_AUDIENCE`.
+  to a role + spokeIds using `shared/auth-mappings.mjs` — the single copy of
+  `GROUP_ROLE_MAPPINGS`/`mapClaimsToUser` that both this server and the SPA
+  (`src/auth/entra-provider.ts`) import directly, so a mapping change lands
+  in one place and both sides see it at once. Requires `ENTRA_TENANT_ID` and
+  `ENTRA_AUDIENCE`.
 - `dev` — trusts an `X-Dev-User` header verbatim: a JSON object
   `{id,name,email,roles,spokeIds}`. **Local dev / fixture-mode CI only** —
   the server refuses to even start with `AUTH_MODE=dev` (or `none`) when
@@ -117,9 +116,12 @@ SPA). Enforcement on `PUT /api/reference`:
 - `hub_lead` — only if **every** touched row's spoke is in the caller's own
   `spokeIds`, **and** the diff touches nothing GLOBAL (the `spokes[]`
   dimension itself, `grades`, `exceptionPatterns`, `estateCostHistory`,
-  `targets`, `exceptionDisplayCodes`, `vdiOperatingHoursPerDay`, or any
-  universal/hub-scoped rate row). See `data/reference-diff.ts` for exactly
-  how a changed row is attributed to a spoke (or `GLOBAL`).
+  `targets` — including `fiscalYearStartMonth` — `exceptionDisplayCodes`,
+  `vdiOperatingHoursPerDay`, the estate-wide `financeTargets` row
+  (`spokeId: "ESTATE"`), or any universal/hub-scoped rate row; a per-spoke
+  `financeTargets` row is attributed to that spoke like any other spoke-owned
+  row. See `data/reference-diff.ts` for exactly how a changed row is
+  attributed to a spoke (or `GLOBAL`).
 - anyone else — `403`.
 
 `GET /api/model` and `GET /api/reference` only require *any* authenticated
@@ -182,6 +184,10 @@ npm test
   `enforceReferenceWrite`'s caller path yields the documented conflict
   shape.
 - **Health** (`test/health.test.ts`): response shape.
+- **Reference schema** (`test/reference-schema.test.ts`): `validateReference()`
+  rejects NaN/Infinity in a numeric field (a bare `typeof` check would wrongly
+  admit both) and rejects a duplicate `spokeId` within `financeTargets[]`
+  with a named error rather than silently overwriting one row with another.
 
 ## Integration notes for other workers
 
@@ -191,7 +197,7 @@ npm test
   `DATA_SOURCE=sql`, `SQL_SERVER`, `SQL_DATABASE`, `SQL_USER`,
   `SQL_PASSWORD`, `AUTH_MODE=entra`, `ENTRA_TENANT_ID`, `ENTRA_AUDIENCE`,
   `CORS_ORIGIN` (the SPA's origin), `NODE_ENV=production`.
-- **`shared/auth-mappings.mjs`**: the SPA (`src/auth/entra-provider.ts`)
-  should import this file instead of keeping its own copy of
-  `GROUP_ROLE_MAPPINGS`/`mapClaimsToUser` — right now the two are hand-kept
-  in step, which is a drift risk.
+- **`shared/auth-mappings.mjs`**: already the single source of truth — the
+  SPA (`src/auth/entra-provider.ts`) imports this file directly rather than
+  keeping its own copy of `GROUP_ROLE_MAPPINGS`/`mapClaimsToUser`, so there
+  is no longer a hand-kept duplicate on either side to drift.

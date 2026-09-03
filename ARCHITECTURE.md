@@ -6,7 +6,7 @@ data whose lineage is:
 ```
 Blue Prism work queue activity ──▶ adapter ──▶ CSV in the BPAWorkQueueItem schema ──▶ SQL warehouse ──▶ consumers
    (queue items, via Elastic)     preferred: elastic_to_csv.py   THE UNIVERSAL SWAP POINT   raw → staging      ├─ web dashboard (GCP)
-                                   alternative: bp_api_to_csv.py                           → core → report    └─ Power BI (external, direct on report.vw_*)
+                                   alternative: bp_api_to_csv.py                           → core → report    └─ any BI tool (external, direct on report.vw_*)
 ```
 
 The preferred ingestion path is a pull from Elastic/Kibana
@@ -36,8 +36,8 @@ downstream changes:
 | Source | `tools/generate-mock-data.mjs` (deterministic mock) | Elastic (preferred), Blue Prism work queue API (documented alternative) | drop-in CSV, same 16 columns |
 | Extract | committed mock CSV | `bp-sql-layer/ingest/elastic_to_csv.py` (preferred: env-var config — URL, index, API key, date range; no impact on the BP production database) or `ingest/bp_api_to_csv.py` (alternative: OAuth client-credentials, `lastUpdated` watermark + overlap window) | writes the same CSV |
 | Transform | `tools/build-dashboard-data.mjs` (Node port of the SQL) | On self-managed SQL Server: `10_bulk_load_csv.sql` → `core.usp_RunPull`. On Cloud SQL for SQL Server (where `BULK INSERT` from a local path isn't viable): `bp-sql-layer/ingest/run_pipeline.py` → `load_to_sql.py` → `core.usp_RunPull`, with a durable watermark/run ledger in `core.IngestWatermark`/`core.PipelineRun` | identical rules, verified shapes |
-| Serve | static `/data/*.json` baked at build | `server/`'s data API, reading `report.vw_Model*`/`report.vw_Dim*`/`report.vw_EstateRateByDate` live from Cloud SQL | Both paths go through the ONE `shared/model-assembler.mjs` (so they can't drift — see below). `src/data/client.ts` (built, `VITE_API_URL`-aware `fetchModel()`/`DATA_MODE`) is the intended swap mechanism, but **`src/main.tsx`'s boot sequence has not been wired to call it yet** — see the note below the table |
-| Reference | localStorage overlay on `data/reference/reference.json`, exported by hand as JSON/SQL | `PUT /api/reference` on `server/`'s data API writes SQL directly — versioned (`core.RefVersion`) and audited (`core.RefChangeLog`); JSON/SQL export remains for local mode and for audits | Same caveat as Serve: `src/data/client.ts` has a ready `putReferenceApi()`, but nothing in `src/pages/Admin.tsx`/`src/reference/*` calls it yet |
+| Serve | static `/data/*.json` baked at build | `server/`'s data API, reading `report.vw_Model*`/`report.vw_Dim*`/`report.vw_EstateRateByDate` live from Cloud SQL | Both paths go through the ONE `shared/model-assembler.mjs` (so they can't drift — see below). `src/data/client.ts`'s `VITE_API_URL`-aware `fetchModel()`/`DATA_MODE` is what `src/main.tsx`'s boot sequence actually calls: `DATA_MODE` is `"api"` whenever `VITE_API_URL` is set (a static build's `dev`/`build` with no `VITE_API_URL` stays `"local"`, reading the baked JSON) |
+| Reference | localStorage overlay on `data/reference/reference.json`, exported by hand as JSON/SQL | `PUT /api/reference` on `server/`'s data API writes SQL directly — versioned (`core.RefVersion`), conflict-checked (`If-Match`, a 409 opens the Admin panel's Conflict dialog) and audited (`core.RefChangeLog`); JSON/SQL export remains for local mode and for audits | `src/reference/backend.ts`'s `ApiBackend` (api mode) vs. the localStorage-backed overlay (local mode) — both sit behind the same `reference-context.tsx` interface, so the rest of the app doesn't care which one is live |
 
 `shared/model-assembler.mjs` is the one function that turns "rowsets" (plain
 arrays shaped like SQL view output, or their JSON-fixture twins) into the
@@ -47,19 +47,6 @@ fixed in both places at once, and a CI test
 (`server/test/assembler.test.ts`) proves the two paths stay identical by
 replaying the static build's own view-fixture files through that same
 assembler and asserting a byte-for-byte match against `public/data/model.json`.
-
-**Known gap, verified against the code, not yet fixed:** `server/` (the data
-API) is real and tested; `src/data/client.ts` (the frontend module meant to
-call it — `fetchModel()`, `DATA_MODE`, `putReferenceApi()`, retry/backoff,
-typed errors) is also built. But nothing in the app calls it yet —
-`src/main.tsx`'s boot sequence still does a bare `fetch` against
-`VITE_DATA_URL` only (client.ts's own code comment says so explicitly: "mode
-behaviour must not change when main.tsx is wired to call fetchModel()"), and
-no `src/reference/*`/`Admin.tsx` code calls `putReferenceApi()` either
-(`src/reference/backend.ts`, referenced in client.ts's comments as the
-future caller, does not exist yet). Building the SPA with `VITE_API_URL` set
-today therefore does not yet make it call the API — that wiring is
-SPA-side work still landing; see `PLAYBOOK.md` sections 4 and 10.
 
 ## The 16-column contract (raw.WorkQueueItem)
 
@@ -143,14 +130,17 @@ All of it lives in `data/reference/reference.json` (JSON twin of
   mirrors the SQL `report.vw_*` views exactly — `tools/verify-economics.mjs`
   (`npm run data:verify`) checks the client engine reproduces the
   pipeline-baked totals to within 0.5%.
-- **Reference data overlay** (`src/pages/Admin.tsx` + `src/pages/admin/*`,
-  `src/reference/reference-store.ts`, `src/reference/reference-context.tsx`):
-  the Administration panel lets the team edit spokes, rate cards, processes,
-  queues and VDIs in-browser, persisted per-user as a localStorage overlay on
-  top of the committed base `data/reference/reference.json`. `model.json`
-  embeds that base reference data so the overlay always has something to sit
-  on top of. Edits export back out as a replacement `reference.json` or a SQL
-  script matching `bp-sql-layer/scripts/07_seed_reference.sql`.
+- **Reference data** (`src/pages/Admin.tsx` + `src/pages/admin/*`,
+  `src/reference/reference-store.ts`, `src/reference/reference-context.tsx`,
+  `src/reference/backend.ts`): the Administration panel lets the team edit
+  spokes, rate cards, processes, queues and VDIs in-browser. In local mode
+  that's a localStorage overlay — shared by whoever uses that browser, not
+  per-user — on top of the committed base `data/reference/reference.json`
+  (`model.json` embeds that base data so the overlay always has something to
+  sit on top of), exportable as a replacement `reference.json` or a SQL
+  script matching `bp-sql-layer/scripts/07_seed_reference.sql`. In api mode
+  every edit is a `PUT /api/reference` call straight to SQL (see the Reference
+  row above).
 - `public/data/views/vw_*.json` are 1:1 ports of the SQL report views —
   they define the API response shapes for the production data service, and
   `manifest.json` records source + row counts for auditability.
@@ -158,11 +148,11 @@ All of it lives in `data/reference/reference.json` (JSON twin of
   evaluates `reference.targets`/`thresholdOverrides` against the trailing
   7-day window at estate/spoke/process/vdi scope and surfaces breach/warn
   alerts in a header bell; in-app only today, no email/Teams push — see
-  `PLAYBOOK.md` section 14.
+  `PLAYBOOK.md` section 16.
 
-Power BI is not embedded in this app — there is no render-mode toggle. It is a
-valid *external* consumer that connects directly to the same `report.vw_*` SQL
-views (see `deploy/gcp.md`).
+No BI tool is embedded in this app — there is no render-mode toggle. Any BI
+tool is a valid *external* consumer that connects directly to the same
+`report.vw_*` SQL views (see `deploy/gcp.md`).
 
 For the operational runbook — Blue Prism / Elastic ingest setup, the SQL
 script tour, the data API's own contract, deploying to GCP, the reference
@@ -173,7 +163,7 @@ tests & CI, accessibility and troubleshooting — see
 ## GCP deployment
 
 See `deploy/gcp.md` (the entry point) and `deploy/cloudsql.md` (the Cloud
-SQL-specific reference); PLAYBOOK.md section 5 is the operational summary.
+SQL-specific reference); PLAYBOOK.md section 7 is the operational summary.
 Short version: static demo = this repo's Dockerfile (nginx on Cloud Run),
 self-contained. Production is five services around one Cloud SQL for SQL
 Server instance: a Cloud Scheduler-triggered Cloud Run Job (`bp-ingest-pull`)
@@ -197,10 +187,13 @@ src/                            the dashboard app
 shared/                         model-assembler.mjs (rowsets -> ModelJson, used by BOTH
                                  tools/build-dashboard-data.mjs and server/) + auth-mappings.mjs
 server/                         the production data API (GET/PUT /api/model, /api/reference,
-                                 /api/health) — see server/README.md
+                                 /api/health) — see server/README.md; server/test/ is its suite
+tests/                          the dashboard's own vitest suite (economics, alerts, reference
+                                 overlay, value rules, viz formatters, command palette, CSV, ...)
 bp-sql-layer/                   the SQL warehouse (schemas, procs, views, runbook); scripts
                                  11-13 add the pipeline-ops tables, scale hardening, and the
                                  API-model views + RefAppSettings/RefVersion/RefChangeLog
+                                 (13's migration also gives RefProcess real Icon/Tags columns)
 bp-sql-layer/ingest/            elastic_to_csv.py (preferred: Elastic -> CSV, no BP DB load)
                                  bp_api_to_csv.py (documented alternative: BP work queue API -> CSV)
                                  run_pipeline.py / load_to_sql.py (Cloud SQL production loader)

@@ -112,14 +112,41 @@ export interface VdiCoverageInput {
   spokeId?: number | null;
 }
 
-function cycleStart(renewalDateISO: string, dateISO: string): number {
+/**
+ * Anchors a 365-day renewal cycle containing `dateISO`, given the VDI's
+ * `renewalDateISO` anchor — cycles tile every 365 days both forward and
+ * backward from that anchor (a VDI renewing annually since 2023 is still
+ * covered by cycles computed from a single "most recent renewal" anchor
+ * date; the anchor just fixes the cycle's phase). Exported so display-only
+ * callers (e.g. admin/shared.tsx's currentCoverageWindow) can derive the
+ * SAME coverage window shown elsewhere without re-implementing this
+ * algorithm — this must stay byte-for-byte identical to
+ * tools/build-dashboard-data.mjs and tools/verify-economics.mjs.
+ */
+export function cycleStart(renewalDateISO: string, dateISO: string): number {
   const renewalTs = parseISO(renewalDateISO);
   const dateTs = parseISO(dateISO);
   const cycleIndex = Math.floor((dateTs - renewalTs) / (365 * DAY_MS));
   return renewalTs + cycleIndex * 365 * DAY_MS;
 }
 
-function coverageWindow(vdi: VdiCoverageInput, cycleStartTs: number): { start: number; end: number } {
+/** The subset of VdiCoverageInput coverageWindow actually reads — narrow on
+ * purpose so a display-only caller with a smaller local shape (no costClass/
+ * annualCostGBP/renewalDate/spokeId) is still structurally assignable
+ * without re-declaring those unused fields. VdiCoverageInput satisfies this
+ * automatically (it's a superset). */
+export interface CoverageWindowInput {
+  activeFrom: string;
+  activeTo: string | null;
+  licenseExpiryDate: string | null;
+  status: "active" | "retired";
+}
+
+/** [start, end) ms coverage window for one already-anchored renewal cycle
+ * (`cycleStartTs`, from cycleStart above) — capped by licenseExpiryDate /
+ * a retired VDI's activeTo, and never starting before activeFrom. Exported
+ * for the same display-only reuse reason as cycleStart above. */
+export function coverageWindow(vdi: CoverageWindowInput, cycleStartTs: number): { start: number; end: number } {
   // half-open [start, end) in ms
   let end = cycleStartTs + 365 * DAY_MS;
   if (vdi.licenseExpiryDate) end = Math.min(end, parseISO(vdi.licenseExpiryDate) + DAY_MS); // expiry date is the last covered day

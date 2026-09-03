@@ -5,16 +5,81 @@
 // under plain node works fine (probed directly): its module-level exports
 // have no DOM dependency at import time -- the React-hook/DOM-touching parts
 // (useViz, chart components) are simply never invoked here, only the
-// formatter functions declared above them in the file. Every assertion below
-// is against the ACTUAL current source behaviour (verified by reading
-// viz.tsx and, for NaN/Infinity, by checking Node's own Number.prototype
-// toFixed/toLocaleString semantics) -- not the informally-phrased rule in the
-// task brief, which in a couple of spots (fmtDuration's "45s"/"0s" short
-// forms, fmtMoney's "£1M" without a forced decimal) does not match what the
-// code actually does. A test here fails the moment the real rule changes.
-// ---------------------------------------------------------------------------
+// formatter functions declared above them in the file.
+//
+// Corrected rules pinned here (this hardening pass changed the source):
+//   - one shared non-finite guard: NaN/+Infinity/-Infinity all render as "—"
+//     across every formatter in this file.
+//   - every money formatter keeps a negative sign BEFORE the £ symbol
+//     (-£382.7k, -£53,320, -£10.24), never £-...
+//   - fmtNum's full (non-compact) mode now mirrors fmtMoney's rule exactly,
+//     minus the £ symbol: thousands-grouped, no decimals, EXCEPT |n| < 100
+//     shows two decimals -- it no longer always collapses to a bare integer.
+//   - fmtDuration gained a <60s bare-seconds short form (45s, 0s at zero).
+// ===========================================================================
 import { describe, it, expect } from "vitest";
-import { fmtMoney, fmtNum, fmtDuration, fmtHours, fmtPct } from "../src/components/viz";
+import { fmtInt, fmtCompact, fmtPct, fmtGBP, fmtGBPc, fmtMoney2, fmtMoney, fmtNum, fmtHours, fmtDuration } from "../src/components/viz";
+
+// ===========================================================================
+// Shared non-finite guard -- every formatter in this file returns "—" for
+// NaN/+Infinity/-Infinity, never a leaked "£NaN"/"£∞"/garbled string.
+// ===========================================================================
+describe("shared non-finite guard: every formatter returns — for NaN/±Infinity", () => {
+  const formatters: [string, (n: number) => string][] = [
+    ["fmtInt", fmtInt],
+    ["fmtCompact", fmtCompact],
+    ["fmtPct", (n) => fmtPct(n)],
+    ["fmtGBP", fmtGBP],
+    ["fmtGBPc", fmtGBPc],
+    ["fmtMoney2", fmtMoney2],
+    ["fmtMoney", (n) => fmtMoney(n)],
+    ["fmtMoney (compact)", (n) => fmtMoney(n, { compact: true })],
+    ["fmtNum", (n) => fmtNum(n)],
+    ["fmtNum (compact)", (n) => fmtNum(n, { compact: true })],
+    ["fmtHours", fmtHours],
+    ["fmtDuration", fmtDuration],
+  ];
+  for (const [name, fn] of formatters) {
+    it(`${name}(NaN) -> "—"`, () => expect(fn(NaN)).toBe("—"));
+    it(`${name}(Infinity) -> "—"`, () => expect(fn(Infinity)).toBe("—"));
+    it(`${name}(-Infinity) -> "—"`, () => expect(fn(-Infinity)).toBe("—"));
+  }
+});
+
+// ===========================================================================
+// fmtGBP(n) -- "£" + rounded, thousands-grouped integer; negative sign
+// BEFORE the £.
+// ===========================================================================
+describe("fmtGBP: rounded, thousands-grouped, sign before the £", () => {
+  it("positive", () => expect(fmtGBP(53320)).toBe("£53,320"));
+  it("rounds", () => expect(fmtGBP(53320.6)).toBe("£53,321"));
+  it("negative keeps the sign before the £, not after", () => expect(fmtGBP(-53320)).toBe("-£53,320"));
+  it("zero", () => expect(fmtGBP(0)).toBe("£0"));
+});
+
+// ===========================================================================
+// fmtGBPc(n) -- compact: M keeps 2dp, k keeps 1dp, below 1k keeps 2dp; sign
+// before the £.
+// ===========================================================================
+describe("fmtGBPc: compact money, sign before the £", () => {
+  it("M-magnitude keeps 2 decimals", () => expect(fmtGBPc(1234567)).toBe("£1.23M"));
+  it("k-magnitude keeps 1 decimal", () => expect(fmtGBPc(382700)).toBe("£382.7k"));
+  it("below 1k keeps 2 decimals (pence)", () => expect(fmtGBPc(950.4)).toBe("£950.40"));
+  it("negative M-magnitude", () => expect(fmtGBPc(-1234567)).toBe("-£1.23M"));
+  it("negative k-magnitude", () => expect(fmtGBPc(-382700)).toBe("-£382.7k"));
+  it("negative below 1k", () => expect(fmtGBPc(-10.24)).toBe("-£10.24"));
+});
+
+// ===========================================================================
+// fmtMoney2(n) -- "£" + thousands-grouped with exactly 2 decimals always;
+// sign before the £.
+// ===========================================================================
+describe("fmtMoney2: always 2 decimals, thousands-grouped, sign before the £", () => {
+  it("large value", () => expect(fmtMoney2(53320)).toBe("£53,320.00"));
+  it("small value", () => expect(fmtMoney2(10.2)).toBe("£10.20"));
+  it("negative", () => expect(fmtMoney2(-10.24)).toBe("-£10.24"));
+  it("zero", () => expect(fmtMoney2(0)).toBe("£0.00"));
+});
 
 // ===========================================================================
 // fmtMoney(n, { compact })
@@ -36,8 +101,12 @@ describe("fmtMoney: compact mode", () => {
     expect(fmtMoney(950.6, { compact: true })).toBe("£951");
   });
 
-  it("negative k-magnitude keeps the sign inside, before the digits (£-382.7k, not -£382.7k)", () => {
-    expect(fmtMoney(-382700, { compact: true })).toBe("£-382.7k");
+  it("negative k-magnitude keeps the sign before the £ (-£382.7k, not £-382.7k)", () => {
+    expect(fmtMoney(-382700, { compact: true })).toBe("-£382.7k");
+  });
+
+  it("negative M-magnitude keeps the sign before the £", () => {
+    expect(fmtMoney(-1000000, { compact: true })).toBe("-£1.0M");
   });
 });
 
@@ -58,33 +127,20 @@ describe("fmtMoney: full (non-compact) mode", () => {
     expect(fmtMoney(0)).toBe("£0.00");
   });
 
-  it("negative, |n| < 100: pence branch keeps the sign inside (£-10.24)", () => {
-    expect(fmtMoney(-10.24)).toBe("£-10.24");
+  it("negative, |n| < 100: pence branch keeps the sign before the £ (-£10.24)", () => {
+    expect(fmtMoney(-10.24)).toBe("-£10.24");
   });
 
-  it("negative, |n| >= 100: grouped-integer branch keeps the sign inside (£-53,320)", () => {
-    expect(fmtMoney(-53320)).toBe("£-53,320");
-  });
-
-  it("NaN: no guard in the source -- renders through as £NaN", () => {
-    expect(fmtMoney(NaN)).toBe("£NaN");
-  });
-
-  it("+Infinity: no guard in the source -- Number.toLocaleString renders the ∞ glyph", () => {
-    expect(fmtMoney(Infinity)).toBe("£∞");
-  });
-
-  it("-Infinity: sign is kept inside, before the glyph", () => {
-    expect(fmtMoney(-Infinity)).toBe("£-∞");
+  it("negative, |n| >= 100: grouped-integer branch keeps the sign before the £ (-£53,320)", () => {
+    expect(fmtMoney(-53320)).toBe("-£53,320");
   });
 });
 
 // ===========================================================================
 // fmtNum(n, { compact }) -- same magnitude cutoffs as fmtMoney, no currency
-// symbol. NOTE: unlike fmtMoney, fmtNum's FULL mode has no <100 decimal
-// branch at all -- it always rounds to a plain grouped integer regardless of
-// magnitude, despite the doc comment above it in viz.tsx claiming "same
-// compact/full rule as fmtMoney".
+// symbol. Full mode now mirrors fmtMoney's rule exactly (decimals only for
+// |n| < 100) -- this pass fixed the doc/behaviour mismatch that used to leave
+// fmtNum always rounding to a bare integer in full mode.
 // ===========================================================================
 describe("fmtNum: compact mode mirrors fmtMoney's magnitude cutoffs, no currency symbol", () => {
   it("k-magnitude", () => {
@@ -96,19 +152,28 @@ describe("fmtNum: compact mode mirrors fmtMoney's magnitude cutoffs, no currency
   it("below 1k: rounded grouped integer", () => {
     expect(fmtNum(950, { compact: true })).toBe("950");
   });
+  it("negative k-magnitude keeps the sign before the digits", () => {
+    expect(fmtNum(-382700, { compact: true })).toBe("-382.7k");
+  });
 });
 
-describe("fmtNum: full mode always rounds to a grouped integer (no pence branch, unlike fmtMoney)", () => {
-  it("large number: thousands-grouped", () => {
+describe("fmtNum: full mode mirrors fmtMoney minus the symbol -- decimals only for |n| < 100", () => {
+  it("|n| >= 100: thousands-grouped, no decimals", () => {
     expect(fmtNum(53320)).toBe("53,320");
   });
-  it("small fractional number: rounds away the decimal instead of showing it", () => {
-    expect(fmtNum(10.24)).toBe("10");
+  it("|n| < 100: shows two decimals, matching fmtMoney's pence branch", () => {
+    expect(fmtNum(10.24)).toBe("10.24");
   });
-  it("0", () => {
-    expect(fmtNum(0)).toBe("0");
+  it("exactly 100 takes the grouped-integer branch", () => {
+    expect(fmtNum(100)).toBe("100");
   });
-  it("negative", () => {
+  it("0 takes the decimal branch", () => {
+    expect(fmtNum(0)).toBe("0.00");
+  });
+  it("negative, |n| < 100 keeps the sign before the digits", () => {
+    expect(fmtNum(-10.24)).toBe("-10.24");
+  });
+  it("negative, |n| >= 100", () => {
     expect(fmtNum(-53320)).toBe("-53,320");
   });
 });
@@ -116,21 +181,30 @@ describe("fmtNum: full mode always rounds to a grouped integer (no pence branch,
 // ===========================================================================
 // fmtDuration(sec)
 // ===========================================================================
-describe("fmtDuration: no-hours form is always `${m}m ${ss}s` (seconds zero-padded, minutes not)", () => {
+describe("fmtDuration: <60s is a bare-seconds short form", () => {
+  it("45 seconds -> 45s", () => {
+    expect(fmtDuration(45)).toBe("45s");
+  });
+  it("0 seconds -> 0s", () => {
+    expect(fmtDuration(0)).toBe("0s");
+  });
+  it("59 seconds -> 59s (just under the 1-minute boundary)", () => {
+    expect(fmtDuration(59)).toBe("59s");
+  });
+  it("negative input is clamped to 0 -> 0s", () => {
+    expect(fmtDuration(-30)).toBe("0s");
+  });
+  it("non-integer seconds are rounded first", () => {
+    expect(fmtDuration(45.6)).toBe("46s");
+  });
+});
+
+describe("fmtDuration: no-hours form (>=60s, <1h) is `${m}m ${ss}s` (seconds zero-padded, minutes not)", () => {
   it("10m 21s", () => {
     expect(fmtDuration(10 * 60 + 21)).toBe("10m 21s");
   });
-  it("0 seconds -> 0m 00s (there is no bare-seconds short form in the source)", () => {
-    expect(fmtDuration(0)).toBe("0m 00s");
-  });
-  it("45 seconds -> 0m 45s (there is no bare-seconds short form in the source)", () => {
-    expect(fmtDuration(45)).toBe("0m 45s");
-  });
-  it("negative input is clamped to 0 -> 0m 00s", () => {
-    expect(fmtDuration(-30)).toBe("0m 00s");
-  });
-  it("non-integer seconds are rounded first", () => {
-    expect(fmtDuration(45.6)).toBe("0m 46s");
+  it("exactly 60 seconds -> 1m 00s (the 1-minute boundary itself leaves the bare-seconds form)", () => {
+    expect(fmtDuration(60)).toBe("1m 00s");
   });
 });
 
@@ -143,15 +217,6 @@ describe("fmtDuration: hours form is `${h}h ${mm}m` and drops seconds entirely",
   });
   it("minutes are zero-padded to two digits in the hours form", () => {
     expect(fmtDuration(2 * 3600 + 5 * 60)).toBe("2h 05m");
-  });
-});
-
-describe("fmtDuration: non-finite input has no guard -- it renders through, it does not become em dash", () => {
-  it("NaN", () => {
-    expect(fmtDuration(NaN)).toBe("NaNm NaNs");
-  });
-  it("+Infinity", () => {
-    expect(fmtDuration(Infinity)).toBe("Infinityh NaNm");
   });
 });
 
@@ -195,4 +260,21 @@ describe("fmtPct: (x*100).toFixed(dp) + '%', default dp = 1", () => {
   it("negative fraction keeps the sign", () => {
     expect(fmtPct(-0.05)).toBe("-5.0%");
   });
+});
+
+// ===========================================================================
+// fmtInt(n) / fmtCompact(n) -- no currency symbol, so the sign was already
+// "before" the digits pre-hardening; only the non-finite guard is new here
+// (covered above).
+// ===========================================================================
+describe("fmtInt: rounded, thousands-grouped, no symbol", () => {
+  it("positive", () => expect(fmtInt(53320.4)).toBe("53,320"));
+  it("negative", () => expect(fmtInt(-53320)).toBe("-53,320"));
+});
+
+describe("fmtCompact: magnitude-scaled, no symbol", () => {
+  it("k-magnitude under 10k keeps one decimal", () => expect(fmtCompact(1500)).toBe("1.5k"));
+  it("k-magnitude at/above 10k drops the decimal", () => expect(fmtCompact(15000)).toBe("15k"));
+  it("M-magnitude under 10M keeps one decimal", () => expect(fmtCompact(1500000)).toBe("1.5M"));
+  it("negative keeps the sign before the digits", () => expect(fmtCompact(-1500)).toBe("-1.5k"));
 });

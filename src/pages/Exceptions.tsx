@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { fonts, type as typeScale } from "../theme";
 import { useTheme } from "../theme-context";
@@ -91,17 +91,52 @@ export function Exceptions() {
     { key: "lastSeenTs", header: "Most recent", align: "right", render: (r) => (r.lastSeenTs ? fmtDate(r.lastSeenTs) : "—") },
   ];
 
-  // Fixed-px label and total columns (not `minmax(…, fr)`) so the header
-  // row, every process row and the totals row — three SEPARATE CSS grids,
-  // not one table — always compute the SAME track widths. With a flexible
-  // first column, each grid's track width depended on THAT grid's own
-  // content (a long process name in one row's min-content could force a
-  // wider column than a header/other row with shorter content), so columns
-  // silently drifted out of alignment row to row — the reported "icons
-  // misaligned, columns squashed" heatmap mess. Only the label/total ends
-  // are content-length-sensitive; the exception-type columns hold short,
-  // consistently-sized numbers so `minmax(30px, 1fr)` stays safe there.
-  const colW = `160px repeat(${types.length}, minmax(30px, 1fr)) 72px`;
+  // ONE CSS grid for the whole heatmap — header row, every process row and
+  // the totals row are all direct children of a single grid container
+  // (React fragments per row, so they contribute cells without an
+  // intervening DOM element), not three separate grids. Three separate
+  // grids (the previous approach) each recomputed their own track widths
+  // off their own content, which is exactly what drifted them out of
+  // alignment; one grid has exactly one set of tracks, so every row is
+  // structurally guaranteed to share them. The label and totals columns are
+  // fixed px (170/72); every exception-type column is `minmax(0, 1fr)` —
+  // NOT `minmax(30px, 1fr)` — so the coloured cell inside actually stretches
+  // edge-to-edge to fill its track at any width instead of leaving slack.
+  const colW = `170px repeat(${types.length}, minmax(0, 1fr)) 72px`;
+  // Uniform row height for the heatmap body (24px — the bottom of the
+  // 22–28px "still reads as a heatmap" range) so a full process list fits
+  // without its own scroll at 1440×900: at 27px, 14 processes (today's hub
+  // view) needed ~453px of content against ~300px actually available,
+  // silently dropping the last couple of rows with no scroll cue — the
+  // "13 processes before, 11 after, no visible scroll" bug. Header/totals
+  // stay `auto` so their own padding/border controls their height.
+  const ROW_H = 24;
+  const gridTemplateRows = `auto repeat(${processes.length}, ${ROW_H}px) auto`;
+  const headerCellStyle: CSSProperties = { paddingBottom: 5, borderBottom: `1px solid ${t.ruleSoft}` };
+  const totalCellStyle: CSSProperties = { paddingTop: 5, borderTop: `1px solid ${t.ruleSoft}` };
+
+  // The heatmap card is now SIZED TO ITS CONTENT (Row grow={false} below),
+  // not stretched to a fixed flex share of the page — every process row is
+  // guaranteed to be on screen at once by construction, instead of being at
+  // the mercy of a fixed height that content taller than it silently clips.
+  // heatScrollRef + heatOverflowing exist only for the pathological case (a
+  // hub with far more processes than today's ~14): heatMaxH caps growth so
+  // one enormous heatmap can't push the whole page absurdly tall, and if
+  // that cap is ever actually hit, `.heat-scroll--fade` (styles.css) adds
+  // the bottom fade + the app's normal styled scrollbar so the cut-off reads
+  // as "more below, scroll" rather than silently missing rows again.
+  const heatMaxH = 640;
+  const heatScrollRef = useRef<HTMLDivElement>(null);
+  const [heatOverflowing, setHeatOverflowing] = useState(false);
+  useEffect(() => {
+    const el = heatScrollRef.current;
+    if (!el) return;
+    const check = () => setHeatOverflowing(el.scrollHeight > el.clientHeight + 1);
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [processes.length, types.length]);
 
   return (
     <PageGrid>
@@ -112,26 +147,32 @@ export function Exceptions() {
         <KpiCard label="Exception cost (period)" value={fmtGBP(m.exceptionCostGBP)} accent={v.bad} sub={`${fmtGBP(m.exceptionCostBusinessGBP)} business · ${fmtGBP(m.exceptionCostSystemGBP)} system`} />
       </div>
 
-      <Row cols="1fr" style={{ flex: 1.6 }}>
-        <VisualCard title="Exception heatmap" subtitle="Volume by process (rows) and exception type (columns) — darker is more">
+      {/* grow={false}: sized to its OWN content (every process row at its
+          24px height, see ROW_H above) rather than a fixed flex share of
+          the page — the fix for "a heatmap must show every process at
+          once". The detail Row below still grows to fill whatever's left,
+          floored at minHeight so it always keeps its own ≥5 rows. */}
+      <Row cols="1fr" grow={false}>
+        <VisualCard title="Exception heatmap" subtitle="Volume by process (rows) and exception type (columns) — stronger colour = more">
         {processes.length === 0 ? (
           <EmptyState onReset={() => setFilters(DEFAULT_FILTERS)} />
         ) : (
-        <div style={{ overflow: "auto", paddingBottom: 4, height: "100%" }}>
-          <div style={{ minWidth: 720, height: "100%", display: "flex", flexDirection: "column" }}>
-            {/* header */}
-            <div style={{ flex: "0 0 auto", display: "grid", gridTemplateColumns: colW, gap: 2, alignItems: "end", marginBottom: 3 }}>
-              <span />
+        <div ref={heatScrollRef} className={heatOverflowing ? "heat-scroll--fade" : undefined} style={{ overflow: "auto", paddingBottom: 4, maxHeight: heatMaxH }}>
+          <div style={{ minWidth: 720 }}>
+            <div style={{ display: "grid", gridTemplateColumns: colW, gridTemplateRows, columnGap: 1, rowGap: 1 }}>
+              {/* header row */}
+              <span style={headerCellStyle} />
               {types.map((ty) => (
-                <CellTip key={ty.name} tip={ty.name} below style={{ justifyContent: "center" }}>
+                <CellTip key={ty.name} tip={ty.name} below style={{ justifyContent: "center", alignItems: "end", ...headerCellStyle }}>
                   <span style={{ fontFamily: typeScale.micro.fontFamily, fontSize: typeScale.micro.fontSize, fontWeight: 700, color: ty.category === "system" ? v.system : v.business, textAlign: "center", letterSpacing: "0.02em" }}>{EX_CODE[ty.name] ?? abbr(ty.name)}</span>
                 </CellTip>
               ))}
-              <span style={{ fontFamily: typeScale.micro.fontFamily, fontSize: typeScale.micro.fontSize, fontWeight: 700, color: t.inkSoft, textAlign: "center", letterSpacing: "0.02em" }}>TOTAL</span>
-            </div>
-            <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "space-between", gap: 2 }}>
+              <span style={{ fontFamily: typeScale.micro.fontFamily, fontSize: typeScale.micro.fontSize, fontWeight: 700, color: t.inkSoft, textAlign: "center", letterSpacing: "0.02em", display: "flex", alignItems: "end", justifyContent: "center", ...headerCellStyle }}>TOTAL</span>
+
+              {/* one process row per iteration — a Fragment contributes its
+                  children straight to the single grid, no wrapping element */}
               {processes.map((p, ri) => (
-                <div key={p.id} style={{ flex: "1 1 22px", minHeight: 22, display: "grid", gridTemplateColumns: colW, gap: 2, alignItems: "stretch", opacity: activeProc && activeProc !== p.id ? 0.4 : 1 }}>
+                <Fragment key={p.id}>
                   <span
                     className="click-row"
                     role="button"
@@ -144,7 +185,7 @@ export function Exceptions() {
                         setFilters({ processId: activeProc === p.id ? "All" : p.id });
                       }
                     }}
-                    style={{ minWidth: 0, padding: "0 6px 0 4px", margin: "0 0 0 -4px", borderRadius: 5, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}
+                    style={{ minWidth: 0, padding: "0 6px 0 4px", margin: "0 0 0 -4px", borderRadius: 5, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, opacity: activeProc && activeProc !== p.id ? 0.4 : 1 }}
                     title={`Filter to ${p.name}`}
                   >
                     <SpokeSwatch spoke={p.spoke} decorative />
@@ -154,32 +195,40 @@ export function Exceptions() {
                     const val = cell[ri][ci];
                     const strong = max && val / max > 0.55;
                     return (
-                      <CellTip key={ty.name} tip={`${p.name} · ${ty.name}: ${fmtInt(val)}`} style={{ height: "100%" }}>
-                        <span style={{ background: heat(val, ty.category), borderRadius: 4, height: "100%", minHeight: 22, display: "grid", placeItems: "center", fontFamily: fonts.mono, fontSize: 10.5, fontWeight: 600, color: strong ? t.paper : t.inkSoft }}>
+                      <CellTip key={ty.name} tip={`${p.name} · ${ty.name}: ${fmtInt(val)}`} style={{ height: "100%", opacity: activeProc && activeProc !== p.id ? 0.4 : 1 }}>
+                        {/* explicit width:100% — the `.tip` wrapper (display:
+                            inline-flex) stretches to fill the grid column,
+                            but a flex CHILD with no width/flex-grow of its
+                            own still shrinks to its number's content width
+                            and centres inside that stretched wrapper — a
+                            small coloured square floating in a wide column
+                            instead of a block that fills it. Width 100% is
+                            what actually makes the tint fill the cell. */}
+                        <span style={{ background: heat(val, ty.category), borderRadius: 3, height: "100%", width: "100%", display: "grid", placeItems: "center", fontFamily: fonts.mono, fontSize: 10.5, fontWeight: 600, color: strong ? t.paper : t.inkSoft }}>
                           {val > 0 ? fmtCompact(val) : ""}
                         </span>
                       </CellTip>
                     );
                   })}
-                  <CellTip tip={`${p.name} · total: ${fmtInt(rowTotals[ri])}`} style={{ display: "flex", alignItems: "center", gap: 6, height: "100%", minHeight: 22 }}>
+                  <CellTip tip={`${p.name} · total: ${fmtInt(rowTotals[ri])}`} style={{ display: "flex", alignItems: "center", gap: 6, height: "100%", opacity: activeProc && activeProc !== p.id ? 0.4 : 1 }}>
                     <span style={{ flex: 1, height: 7, background: v.grid, borderRadius: 3, overflow: "hidden", position: "relative" }}>
                       <span style={{ position: "absolute", inset: 0, width: `${Math.max(2, (rowTotals[ri] / rowMax) * 100)}%`, background: t.series, borderRadius: 3 }} />
                     </span>
                     <span style={{ fontFamily: fonts.mono, fontSize: 10.5, fontWeight: 700, color: t.ink, textAlign: "right", minWidth: 20 }}>{fmtCompact(rowTotals[ri])}</span>
                   </CellTip>
-                </div>
+                </Fragment>
               ))}
-            </div>
-            <div style={{ flex: "0 0 auto", display: "grid", gridTemplateColumns: colW, gap: 2, marginTop: 4, paddingTop: 4, borderTop: `1px solid ${t.ruleSoft}` }}>
-              <span style={{ fontFamily: fonts.body, fontSize: 12, fontWeight: 700, color: t.inkSoft, display: "flex", alignItems: "center", padding: "0 6px 0 4px" }}>Total</span>
+
+              {/* totals row */}
+              <span style={{ fontFamily: fonts.body, fontSize: 12, fontWeight: 700, color: t.inkSoft, display: "flex", alignItems: "center", padding: "0 6px 0 4px", ...totalCellStyle }}>Total</span>
               {types.map((ty, ci) => (
-                <CellTip key={ty.name} tip={`${ty.name} total: ${fmtInt(colTotals[ci])}`} style={{ display: "grid", placeItems: "center" }}>
+                <CellTip key={ty.name} tip={`${ty.name} total: ${fmtInt(colTotals[ci])}`} style={{ display: "grid", placeItems: "center", ...totalCellStyle }}>
                   <span style={{ fontFamily: fonts.mono, fontSize: 10.5, fontWeight: 700, color: t.ink }}>{fmtCompact(colTotals[ci])}</span>
                 </CellTip>
               ))}
-              <span style={{ display: "grid", placeItems: "center", fontFamily: fonts.mono, fontSize: 10.5, fontWeight: 700, color: t.ink }}>{fmtCompact(rowTotals.reduce((s, val) => s + val, 0))}</span>
+              <span style={{ display: "grid", placeItems: "center", fontFamily: fonts.mono, fontSize: 10.5, fontWeight: 700, color: t.ink, ...totalCellStyle }}>{fmtCompact(rowTotals.reduce((s, val) => s + val, 0))}</span>
             </div>
-            <div style={{ flex: "0 0 auto", display: "flex", gap: 16, marginTop: 8, fontFamily: fonts.mono, fontSize: 10, color: t.inkSoft }}>
+            <div style={{ display: "flex", gap: 16, marginTop: 8, fontFamily: fonts.mono, fontSize: 10, color: t.inkSoft }}>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: v.system }} /> System types</span>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: v.business }} /> Business types</span>
               <span>Column codes are initials — hover a cell or header for the full name.</span>
@@ -190,7 +239,13 @@ export function Exceptions() {
         </VisualCard>
       </Row>
 
-      <Row cols="1fr">
+      {/* minHeight 296 = DataTable's own header (~29.5px) + 5 data rows
+          (~36.3px each) + the card's own header/padding overhead (~64px) —
+          the floor that keeps "≥5 visible rows with its own scroll" true
+          regardless of how tall the now content-sized heatmap Row above
+          gets; still grows past that floor to fill any extra leftover
+          space via `grow`'s default flex:1. */}
+      <Row cols="1fr" style={{ minHeight: 296 }}>
       <VisualCard
         title="Exception detail"
         subtitle="Every exception type across the current filters"
@@ -213,11 +268,12 @@ export function Exceptions() {
             of letting it grow to fit every row unconstrained — without this,
             DataTable (viz.tsx) happily renders all rows at full height, which
             (via how `.report__canvas`'s flex column sizes itself off its
-            content when unconstrained by the viewport) was the real reason
-            the detail table needed scrolling well below the fold at 1440×900
-            even after the heatmap's flex share above was cut from 2.1 to 1.6.
-            360px comfortably clears the ≥6-row bar (header + ~9 rows) while
-            still leaving its own internal scrollbar for the rest. */}
+            content when unconstrained by the viewport) would make the detail
+            table needlessly tall instead of using its own internal scroll.
+            360px comfortably clears the ≥5-row floor (header + ~9 rows) —
+            the Row above carries a matching `minHeight` (296) so this card
+            never renders shorter than that floor even when the heatmap Row
+            (now sized to its own content, not a fixed flex share) is tall. */}
         <DataTable columns={columns} rows={tableRows} initialSort={{ key: "volume", dir: "desc" }} maxBodyHeight={360} onSortedChange={setSortedRows} />
       </VisualCard>
       </Row>

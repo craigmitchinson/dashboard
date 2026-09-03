@@ -9,7 +9,8 @@ the SQL warehouse in [bp-sql-layer/](bp-sql-layer/).
 **Read [ARCHITECTURE.md](ARCHITECTURE.md) first** — it explains the end-to-end
 lineage (Blue Prism work queue activity, preferred via Elastic or, as a
 documented alternative, direct from the Blue Prism API → CSV → SQL →
-dashboard/Power BI) and the swap points. The one-line version:
+dashboard, with any BI tool able to read the same SQL report views) and the
+swap points. The one-line version:
 everything downstream is driven by a CSV in the exact `BPAWorkQueueItem`
 export schema; replace the mock CSV with a real extract and every visual
 follows.
@@ -25,10 +26,14 @@ content backs the in-app **Playbook** page) — regenerate it after edits with
 ## Run it
 
 ```bash
-npm install
+npm ci
 npm run data:all   # generate the mock CSV and bake /public/data from it
 npm run dev        # open the printed localhost URL
 ```
+
+This is the static "local" mode: the SPA loads the baked `public/data/model.json`
+directly and reference-data edits live in a browser-only overlay. No server,
+database or GCP project needed.
 
 - `npm run data:mock` — writes `data/mock/BPAWorkQueueItem.csv` (deterministic,
   ~230k queue items over 18 months, 4 spokes — Insurance, Pensions & Investments;
@@ -41,23 +46,29 @@ npm run dev        # open the printed localhost URL
   same schema.
 - `npm run build` — type-check + production build into `dist/`.
 
-### Local end-to-end (fixture-mode API)
+### Local end-to-end, against the real data API
 
-Runs the real production data API ([`server/`](server/)) with zero
-infrastructure — no database, no GCP project, no Entra tenant needed:
+The SPA can also run in "api" mode, talking to the real production data API
+([`server/`](server/)) instead of the baked JSON — with zero infrastructure of
+its own (no database, no GCP project, no Entra tenant needed) via fixture mode:
 
 ```bash
+# terminal 1 — the API, serving the same JSON files npm run data:build already wrote
 cd server && npm ci
 DATA_SOURCE=fixtures FIXTURES_DIR=../public/data/views AUTH_MODE=dev PORT=8080 npm run dev
+
+# terminal 2 — the SPA, pointed at it
+VITE_API_URL=http://localhost:8080 npm run dev
 ```
 
-**Known gap** (verified in the code, not yet fixed): the SPA itself doesn't
-call this API yet — `src/main.tsx` hasn't been wired to `src/data/client.ts`,
-the module built to do so. Test the API on its own with `curl`/Postman
-against `http://localhost:8080/api/health` and `/api/model` for now. See
+Setting `VITE_API_URL` switches the SPA's `DATA_MODE` to `"api"`: it calls
+`GET /api/model` on boot and `PUT /api/reference` for every Administration-panel
+save, instead of the static file and localStorage overlay. In a real deployment
+`VITE_API_URL` is normally set to `"/"` (same-origin) so the dashboard's own
+nginx proxies `/api/*` straight through to the API service — see
+[deploy/gcp.md](deploy/gcp.md) §5 for the two topology options. See
 [server/README.md](server/README.md) for the API's full contract and
-[PLAYBOOK.md](PLAYBOOK.md) section 4 for the detailed walkthrough and this
-gap's exact citation.
+[PLAYBOOK.md](PLAYBOOK.md) section 4 for the detailed walkthrough.
 
 ### Run the tests
 
@@ -66,42 +77,47 @@ npm test              # dashboard rules + data-pipeline parity (repo root)
 cd server && npm test # data API: assembler parity, reference write order, auth
 ```
 
-[PLAYBOOK.md](PLAYBOOK.md) section 12 lists what each test proves and the
+[PLAYBOOK.md](PLAYBOOK.md) section 14 lists what each test proves and the
 full CI gate order.
 
-`VITE_API_URL` is the build-time setting designed to point the SPA at a live
-production data API instead of baked JSON (see [deploy/gcp.md](deploy/gcp.md)
-for the full build/deploy flow) — but per the gap noted above, the app
-doesn't act on it yet. Deployment (Cloud Run + Cloud SQL):
-[deploy/gcp.md](deploy/gcp.md).
+Deployment (Cloud Run + Cloud SQL): [deploy/gcp.md](deploy/gcp.md).
 
 Sign-in uses a fixed demo directory today: any of the seeded demo users with
-the shared passphrase **"demo"**. Users and roles (`admin`, `hub_lead`,
-`hub_member`, `business_user`) are managed from **Administration → Users &
-roles** in-app; see [PLAYBOOK.md](PLAYBOOK.md) for the full user list and the
-production Entra ID (Azure AD) setup.
+the shared passphrase **"demo"** — for example admin **Nigel Spriggs**, or
+hub leads **Callum Ferris** (Insurance, Pensions & Investments) and **Naomi
+Whitfield** (Risk). Users and roles (`admin`, `hub_lead`, `hub_member`,
+`business_user`) are managed from **Administration → Users & roles** in-app;
+see [PLAYBOOK.md](PLAYBOOK.md) section 10 for the full user list and the
+production Entra ID (Azure AD) setup (a real, working sign-in flow, not a
+placeholder).
 
 ## What's in the app
 
-Nine report pages — Overview, Input & Outcome, Process Analysis, Exceptions,
-Process detail, VDI & Capacity, Commercial Performance, Administration (gated
-behind the `view_admin` permission), Data model — plus a **Playbook** page in
-the Reference group with the operational runbook. All share one slicer bar:
-**Spoke** (each spoke selects itself; "All spokes" is the hub view),
-Proposition, Process, Queue, Tags, Date range — plus:
+Twelve report pages in six nav groups — Overview (Overview, Alerts), Operate
+(Input & Outcome, Process Analysis, Exceptions, and the Process detail
+drill-through), Optimise (VDI & Capacity), Value (Value & Finance, Commercial
+Performance), Manage (Administration, gated behind the `view_admin`
+permission), and Reference (Data model, **Playbook** — both admin-only). All
+report pages share one slicer bar: **Spoke** (each spoke selects itself; "All
+spokes" is the hub view), Proposition, Process, Queue, Tags, Date range —
+plus a command palette (Ctrl+K / ⌘K) for jumping anywhere, drilling into a
+process, or running an action — see [PLAYBOOK.md](PLAYBOOK.md) section 5.
 
 - **Saved views** (☆ in the top bar): name and reapply any combination of
   slicers, rate assumption and page. Local to the user today; the `SavedView`
   type is the contract if views move server-side.
-- **Reference data overlay**: the committed base `data/reference/reference.json`
-  can be edited in-browser from **Administration** (`src/pages/Admin.tsx`),
-  persisted per-user in localStorage on top of the base data, and exported
-  back out as a replacement `reference.json` or a SQL script for a DBA to run
-  — see [PLAYBOOK.md](PLAYBOOK.md) for the sync loop.
+- **Reference data**: in local mode, the committed base
+  `data/reference/reference.json` can be edited in-browser from
+  **Administration** (`src/pages/Admin.tsx`), persisted as a localStorage
+  overlay shared by whoever uses that browser, and exported back out as a
+  replacement `reference.json` or a SQL script for a DBA to run. In api mode,
+  every save is a versioned, audited write straight to SQL via `server/`,
+  with a Conflict dialog if two edits collide — see
+  [PLAYBOOK.md](PLAYBOOK.md) section 8 for the full lifecycle.
 - **Thresholds & alerting**: the header bell evaluates global/spoke/process
   KPI targets (`Administration → Targets & thresholds`) against the trailing
   week of data and flags breaches/warnings — in-app only today; see
-  [PLAYBOOK.md](PLAYBOOK.md) section 14.
+  [PLAYBOOK.md](PLAYBOOK.md) section 16.
 - **Spoke colour schemes**: each spoke carries its own accent (validated for
   CVD separation and contrast on both surfaces, light and dark). Selecting a
   spoke re-skins the dashboard accent to that spoke's colour; the hub view
@@ -113,6 +129,13 @@ Proposition, Process, Queue, Tags, Date range — plus:
 - **Spoke-true costs**: VDI class rates are universal (hub-set); each spoke
   pays for its own VDIs; the IA CoE team pool is shared by worktime. All money
   in the app is summed, never recomputed — rates were resolved in the pipeline.
+- **Value & Finance**: net-benefit KPIs, a gross-to-net cost waterfall, a
+  per-spoke P&L, and a value-league/review-candidates ranking, all exportable
+  to CSV — see [PLAYBOOK.md](PLAYBOOK.md) section 6.
+- **Accessibility & personalisation**: theme (light/dark/high-contrast), a
+  liquid-glass toggle, text scale, dyslexia-friendly font, bionic reading, a
+  reading ruler, a colour-vision-safe palette, reduced motion and more, all
+  in one panel (Shift+A) — see [PLAYBOOK.md](PLAYBOOK.md) section 13.
 
 ## Where things live
 

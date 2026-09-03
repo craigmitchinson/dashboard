@@ -69,7 +69,7 @@ Cloud Scheduler ──▶ Cloud Run JOB: bp-ingest-pull
                                    ▼
                           the dashboard's users (browser)
 
-        Power BI (external) → report.vw_* views directly, bypassing bp-api
+        Any BI tool (external) → report.vw_* views directly, bypassing bp-api
         (on-prem gateway, or a temporary public IP + authorized network)
 ```
 
@@ -101,7 +101,7 @@ env var matrix, and §7 for Entra ID app registration.
    scheduling it — see §4 below.
 3. **Schedule it.** `deploy/scripts/07_scheduler.sh` creates the Cloud
    Scheduler trigger (default: every 15 minutes — tune
-   `INGEST_SCHEDULE`/`env.sh` per PLAYBOOK.md section 5's guidance, and
+   `INGEST_SCHEDULE`/`env.sh` per PLAYBOOK.md section 7's guidance, and
    confirm your adapter's own overlap-window settings, e.g.
    `WATERMARK_OVERLAP_HOURS` / `ELASTIC_WATERMARK_OVERLAP_HOURS`, are wide
    enough for that cadence).
@@ -121,11 +121,11 @@ env var matrix, and §7 for Entra ID app registration.
    Either way this builds the root Dockerfile with `VITE_API_URL=/` (see §5
    for why that exact value, not a full URL or empty string) plus whichever
    `VITE_ENTRA_*` values `env.sh` carries.
-6. **Power BI** (optional, external consumer): connect to the
+6. **Any BI tool** (optional, external consumer): connect to the
    `report.vw_*` views via the on-prem gateway, or a temporary public IP +
    authorized network on the Cloud SQL instance (see `deploy/cloudsql.md`
-   §5's connectivity options) — set `MonthLabel`'s "Sort by column" once
-   (see the in-app Build guide).
+   §5's connectivity options) — set `MonthLabel`'s "Sort by" = `MonthSortKey`
+   once (see the Data model page's build notes in-app).
 
 ## 4. First real data pull — runbook
 
@@ -145,7 +145,7 @@ Run this after step 2 above, before scheduling (step 3):
 2. **Run the Cloud Run Job once manually, bounded**: set a narrow
    `FROM_DATE`/`TO_DATE` (Elastic adapter) or `BP_SINCE` (API adapter) —
    don't pull full history through either adapter on the first try (see
-   `PLAYBOOK.md` section 8 on backfill: history should come from a bulk
+   `PLAYBOOK.md` section 12 on backfill: history should come from a bulk
    export/direct DB query into `raw.WorkQueueItem`, not the REST API) —
    then `gcloud run jobs execute bp-ingest-pull --region=... --wait` and
    watch its logs for the `pipeline_success` JSON event.
@@ -156,7 +156,7 @@ Run this after step 2 above, before scheduling (step 3):
 4. **Check for unmapped queues**: `core.usp_RunPull`'s own `PRINT`/result-
    set output (captured in the Cloud Run Job's logs) flags any queue
    present in the pulled data but absent from `core.RefQueueMap` — add the
-   mapping via the Administration panel (see `PLAYBOOK.md` section 5) and
+   mapping via the Administration panel (see `PLAYBOOK.md` section 9) and
    re-sync (`07_seed_reference.sql`) before that queue's activity will
    appear anywhere downstream.
 5. **Reconcile row counts**: source CSV rows vs. `staging.WorkQueueItem`'s
@@ -228,7 +228,8 @@ without a rebuild):
 | `VITE_ENTRA_TENANT_ID` | `bp-dashboard` | `env.sh` | Same tenant as `ENTRA_TENANT_ID` below. |
 | `VITE_ENTRA_CLIENT_ID` | `bp-dashboard` | `env.sh` | The SPA's **own** app registration — distinct from the API's (see §7). |
 | `VITE_ENTRA_REDIRECT_URI` | `bp-dashboard` | left unset by 09 (falls back to `window.location.origin`); set explicitly by 10 (`https://$LB_DOMAIN/`) | Must exactly match an allowed redirect URI on the SPA's app registration. |
-| `VITE_ENTRA_SCOPES` | `bp-dashboard` | `env.sh` (default `openid profile email`) | See §7's "known gap" note — does not yet include an API-scoped permission. |
+| `VITE_ENTRA_SCOPES` | `bp-dashboard` | `env.sh` (default `openid profile email`) | The sign-in scopes only; `offline_access` is appended automatically. The API's own scope is a separate setting — see `VITE_ENTRA_API_SCOPE` and §7. |
+| `VITE_ENTRA_API_SCOPE` | `bp-dashboard` | `env.sh` (optional — defaults to `api://<client-id>/.default` once `VITE_ENTRA_CLIENT_ID` is set) | The scope the SPA requests an access token for; `src/data/client.ts` attaches that token as a `Bearer` header on every `/api/*` call. See §7. |
 
 **Runtime** (read from the environment at container start; changing these
 needs a new revision, not a rebuild):
@@ -288,21 +289,21 @@ Two app registrations, not one — the SPA (public client, PKCE) and the API
      users to them — see `src/auth/entra-provider.ts`'s
      `GROUP_ROLE_MAPPINGS` for the authoritative list.
 
-**Known gap, flagged rather than silently worked around**: as of this task,
-`src/auth/entra-provider.ts` requests only `openid profile email
-offline_access` (no API-scoped permission) and neither it nor
-`src/data/client.ts` attaches an `Authorization: Bearer` header to any
-`/api/*` fetch call. That means a real end-to-end sign-in against
-`AUTH_MODE=entra` will authenticate the user in the browser but every API
-call will still 401 until: (a) `VITE_ENTRA_SCOPES` includes the API's scope
-(`api://<api-client-id>/access_as_user openid profile email
-offline_access`), (b) the token acquisition path is extended to fetch an
-access token for that scope (today's code only decodes the **ID** token —
-see `completeEntraRedirect()`), and (c) `src/data/client.ts`'s fetch calls
-attach it. None of that is `deploy/**`/Dockerfile/cloudbuild scope — this is
-a `src/**` change for whichever worker owns the frontend auth wiring next.
-Until it lands, either keep `AUTH_MODE=dev` behind a Load Balancer + IAP for
-a real pilot, or expect `/api/*` to 401 for genuine Entra sign-ins.
+**Real, working end to end**: `src/auth/entra-provider.ts` is a genuine
+auth-code + PKCE implementation (native WebCrypto, no MSAL dependency), and
+it requests two different tokens for two different purposes — the ID token
+(who signed in, audience = the SPA's own client id) and a separate access
+token scoped to `VITE_ENTRA_API_SCOPE` (defaults to `api://<api-client-id>/
+.default` once `VITE_ENTRA_CLIENT_ID` is set; audience = `ENTRA_AUDIENCE` on
+the server). `src/data/client.ts` attaches that access token as an
+`Authorization: Bearer` header on every `/api/*` call and silently renews it
+once on a 401 before giving up, so an expiring token doesn't force a manual
+re-login mid-session. The one genuinely open item: if a signed-in user
+belongs to more Entra groups than the tenant will list directly in a token
+(the "groups overage" case), the app surfaces a clear error rather than
+guessing at their role — resolving that needs a server-side Microsoft Graph
+group lookup, which this prototype's client-side auth does not perform. See
+`PLAYBOOK.md` section 10 for the full picture, including that caveat.
 
 ## 8. Rollback
 

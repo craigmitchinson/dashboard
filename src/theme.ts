@@ -215,22 +215,29 @@ export const controlHeight = 32;
 // scrim alpha and rim/sheen opacities were tuned by hand against a computed
 // worst-case contrast check (see the comment above the CSS rule), not by a
 // formula that could safely regenerate them from `paper` alone.
-// Scrim/blur values per the P0 spec (§3): .78 alpha, blur(18px) saturate(1.5).
+// Scrim/blur values per the liquid-glass pass: ~.68 light / ~.72 dark alpha,
+// blur(24px) saturate(1.7) — stronger than .glass-persistent's (the overlay
+// sits above chart content it needs to visibly blur+tint, not just a page
+// backdrop) — with a stronger rim/specular and a deeper drop shadow so a
+// popover reads as floating above the canvas, not pasted on it. Contrast
+// (same worst-case-backdrop method as .glass-persistent's comment in
+// styles.css): LIGHT .68 over pure black vs ink #0B3239 -> ~5.78:1. DARK .72
+// over pure white vs ink #F4F1EB -> ~5.78:1. Both comfortably clear 4.5:1.
 export function glassOverlayVars(t: ThemeTokens): CSSProperties {
   return (
     t.mode === "dark"
       ? {
-          "--go-bg": "rgba(12,35,41,0.78)",
-          "--go-backdrop": "blur(18px) saturate(1.5)",
-          "--go-shadow": "0 4px 10px rgba(0,0,0,0.42), 0 28px 64px rgba(0,0,0,0.52)",
-          "--go-rim": "inset 0 1px 0 rgba(255,255,255,0.5), inset 0 0 0 1px rgba(255,255,255,0.2)",
+          "--go-bg": "rgba(12,35,41,0.72)",
+          "--go-backdrop": "blur(24px) saturate(1.7)",
+          "--go-shadow": "0 6px 14px rgba(0,0,0,0.48), 0 32px 80px rgba(0,0,0,0.58)",
+          "--go-rim": "inset 0 1px 0 rgba(255,255,255,0.55), inset 0 0 0 1px rgba(255,255,255,0.22)",
           "--go-solid": "#0C2329",
         }
       : {
-          "--go-bg": "rgba(250,247,242,0.78)",
-          "--go-backdrop": "blur(18px) saturate(1.5)",
-          "--go-shadow": "0 4px 10px rgba(11,50,57,0.16), 0 28px 64px rgba(11,50,57,0.2)",
-          "--go-rim": "inset 0 1px 0 rgba(255,255,255,0.55), inset 0 0 0 1px rgba(255,255,255,0.55)",
+          "--go-bg": "rgba(250,247,242,0.68)",
+          "--go-backdrop": "blur(24px) saturate(1.7)",
+          "--go-shadow": "0 6px 14px rgba(11,50,57,0.2), 0 32px 80px rgba(11,50,57,0.26)",
+          "--go-rim": "inset 0 1px 0 rgba(255,255,255,0.7), inset 0 0 0 1px rgba(255,255,255,0.6)",
           "--go-solid": "#FAF7F2",
         }
   ) as CSSProperties;

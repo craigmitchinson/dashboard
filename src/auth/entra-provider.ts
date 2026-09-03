@@ -3,11 +3,54 @@ import type { Session, User } from "./types";
 import { GROUP_ROLE_MAPPINGS, mapClaimsToUser as sharedMapClaimsToUser } from "../../shared/auth-mappings.mjs";
 
 // ---------------------------------------------------------------------------
-// Entra ID (Azure AD) provider — NON-FUNCTIONAL STUB.
+// Entra ID (Azure AD) provider — a real, working auth-code + PKCE
+// implementation (no `@azure/msal-browser` dependency — see below).
 //
-// This file exists so the shape of "real" SSO is visible in the codebase
-// today, and so swapping it in later (see auth-context.tsx) is a one-line
-// change. Nothing here calls out to Microsoft — every method throws.
+// beginAuthorizeRedirect() sends the browser to Microsoft's login page;
+// completeEntraRedirect() (called once at app boot — see auth-context.tsx)
+// finishes the flow when the browser lands back with `code`/`state`, storing
+// the resulting Session plus ID/refresh/access tokens; tryRenewEntraSession()
+// silently refreshes that session off the stored refresh token; and
+// getAccessToken() hands callers a live API-scoped access token, renewing
+// first if the cached one is missing or near expiry. EntraAuthProvider wires
+// these into the AuthProvider interface auth-context.tsx consumes — the same
+// shape DevAuthProvider implements, so swapping providers is a one-line
+// change there. isEntraConfigured() gates all of this on the env vars below
+// being present; signIn() throws NOT_CONFIGURED otherwise.
+//
+// ---- Config (Vite env vars, read once at module load) --------------------
+//
+//   VITE_ENTRA_TENANT_ID    required — the Entra tenant to authenticate against.
+//   VITE_ENTRA_CLIENT_ID    required — this app's registration's client id.
+//   VITE_ENTRA_REDIRECT_URI optional — defaults to window.location.origin.
+//   VITE_ENTRA_SCOPES       optional — defaults to "openid profile email";
+//                           offline_access is appended automatically so a
+//                           refresh token is issued.
+//   VITE_ENTRA_API_SCOPE    optional — defaults to `api://<client-id>/.default`
+//                           when CLIENT_ID is set; see the API-scope note below.
+//
+// ---- ID token vs access token: two different audiences --------------------
+//
+// The ID token (who signed in) always has `aud` == this app's client id —
+// checked in decodeAndValidateIdToken below. The ACCESS token (what this app
+// is allowed to call) is scoped separately via API_SCOPE and has `aud` ==
+// the API's application-id-URI (e.g. `api://<client-id>`), which is what the
+// server checks incoming `/api/*` requests against via its own
+// `ENTRA_AUDIENCE` env var. Requesting API_SCOPE requires the app
+// registration to have an "Expose an API" scope matching that value; without
+// it, Microsoft either omits the access token or scopes it to nothing the
+// server recognizes, and every `/api/*` call would 401.
+//
+// ---- Groups overage -------------------------------------------------------
+//
+// When a signed-in user belongs to too many Entra groups to list directly in
+// the ID token, Entra replaces `groups` with a `_claim_names`/
+// `_claim_sources` overage pointer (or just `hasgroups: true` with no
+// `groups` array), meaning the group list would require a separate
+// Microsoft Graph call to resolve. decodeAndValidateIdToken below detects
+// both overage shapes and throws rather than silently mapping the user to no
+// role — this client-side provider does not perform that Graph lookup (see
+// PLAYBOOK.md for the production plan).
 //
 // ---- Background, for anyone reading this who isn't an engineer -----------
 //
@@ -52,9 +95,9 @@ import { GROUP_ROLE_MAPPINGS, mapClaimsToUser as sharedMapClaimsToUser } from ".
 // per spoke-lead. GROUP_ROLE_MAPPINGS below is the translation table a real
 // integration would use to turn "this user's ID token lists these group
 // names" into "this user gets this Role (and, for spoke leads, this
-// spokeId)". mapClaimsToUser() below is a real, working function that does
-// that translation — only the network/redirect plumbing around it is
-// stubbed.
+// spokeId)". mapClaimsToUser() below does that translation, fed by the real
+// decoded ID token claims once completeEntraRedirect() or
+// tryRenewEntraSession() has run.
 // ---------------------------------------------------------------------------
 
 /**
@@ -72,10 +115,9 @@ import { GROUP_ROLE_MAPPINGS, mapClaimsToUser as sharedMapClaimsToUser } from ".
 export { GROUP_ROLE_MAPPINGS };
 
 /**
- * Pure function: Entra ID token claims → our User shape. Real and testable
- * even though the surrounding provider is a stub — once someone wires up
- * MSAL, the redirect/token plumbing calls this with the decoded ID token
- * claims and gets a ready-to-use User back.
+ * Pure function: Entra ID token claims → our User shape. Called by
+ * completeEntraRedirect() and tryRenewEntraSession() below with the decoded
+ * ID token claims once a sign-in or silent renewal has produced them.
  *
  * Expected claims of interest (standard Entra ID token claims):
  *   - claims.oid: string — the user's unique, stable object id in the tenant.

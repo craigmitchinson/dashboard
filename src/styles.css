@@ -170,6 +170,57 @@ body {
   background: color-mix(in srgb, var(--ink, currentColor) 8%, transparent);
 }
 
+/* Ambient background: four radial layers over the theme's page colour (set
+   inline via t.page on .report; .login sets its own dark page colour inline
+   too) — liquid glass needs a real, present backdrop behind it to refract,
+   so this reads as a room, not a flat colour. Layers 2 and 3 are the two
+   blobs that actually sit BEHIND the nav rail and the band (both occupy the
+   left/top of the screen — the rail is the left column, the band is the top
+   strip, so a blob anchored at the top-left corner and a second one running
+   down the left edge sit behind BOTH surfaces at once) — raised to 32–36% at
+   their peak in BOTH modes, above the brief's 22–26% (light) / 28–32% (dark)
+   callout for "strong enough to be visible THROUGH the rail and band", plus
+   a slower falloff (transparent at 78–80% of the radius, was ~60%) so the
+   tint still reads well past the corner instead of decaying before it
+   reaches most of the rail's height. Pushed past the brief's own numbers
+   because they weren't enough in practice: verified against real rendered
+   pixels (not just the CSS numbers) at each step — the brief's literal
+   22–26%/28–32% measured as a barely-there shift, and light mode in
+   particular needed a bigger push than dark to read at all against its
+   already-pale page colour, so light ended up matching dark's alpha rather
+   than sitting lower as originally planned. Contrast margin stayed enormous
+   throughout (see below), which is what made room to keep pushing instead of
+   stopping at the brief's numbers. Layer 1 reads --ambient-accent, set
+   inline by ThemedReport (src/App.tsx) to the active spoke colour —
+   transparent (the var is unset, so the fallback wins) on .report with no
+   spoke selected and on .login (there's no spoke, ever), stacking on top of
+   layer 2's corner blob to tint most of the room once a spoke IS active.
+   Layer 4 is a soft white sheen for texture, not one of the two "nav/band"
+   blobs. Still soft and static (fixed attachment, no animation) — more
+   presence, not more motion. Pulled into shared --ambient-bg-light/-dark
+   custom properties (rather than two copies of the same four gradients) so
+   `.report` and `.login` (see the login screen section below) can never
+   drift apart. `.report` picks light/dark via its `data-mode` attribute —
+   the signed-in theme preference. `.login` has no such preference to read
+   (nobody's signed in yet) so it picks via `prefers-color-scheme` directly
+   instead — the only signal available pre-sign-in — while the card itself
+   stays forced-dark regardless (see the login screen section). High-
+   contrast, no-transparency and the "off" switch all kill this below (a
+   plain `background: #000 !important` in the existing HC block already
+   implicitly resets background-image too, for both .report and .login). */
+:root {
+  --ambient-bg-light:
+    radial-gradient(1700px circle at 18% -12%, var(--ambient-accent, transparent) 0%, transparent 72%),
+    radial-gradient(1600px circle at -5% -8%, rgba(11, 50, 57, 0.36) 0%, transparent 80%),
+    radial-gradient(1400px circle at -8% 58%, rgba(224, 67, 46, 0.32) 0%, transparent 78%),
+    radial-gradient(900px circle at 62% 46%, rgba(255, 255, 255, 0.1) 0%, transparent 62%);
+  --ambient-bg-dark:
+    radial-gradient(1700px circle at 18% -12%, var(--ambient-accent, transparent) 0%, transparent 72%),
+    radial-gradient(1600px circle at -5% -8%, rgba(134, 199, 189, 0.36) 0%, transparent 80%),
+    radial-gradient(1400px circle at -8% 58%, rgba(255, 106, 77, 0.32) 0%, transparent 78%),
+    radial-gradient(900px circle at 62% 46%, rgba(255, 255, 255, 0.05) 0%, transparent 62%);
+}
+
 /* --- report shell: full-height left nav + content column ------------------
    .report__canvas is the single scroll container (see the .report__canvas
    rule below) — .report and .report__main never scroll. */
@@ -178,31 +229,19 @@ body {
   height: 100vh;
   overflow: hidden;
   background-attachment: fixed;
-  /* Ambient background: three low-alpha radial layers over the theme's page
-     colour (set inline via t.page). The first layer reads --ambient-accent,
-     set inline by ThemedReport (src/App.tsx) to the active spoke colour at
-     .08 (light) / .10 (dark) alpha via color-mix() — transparent when no
-     spoke is selected, so the other two neutral layers still give an ambient
-     read on the hub view. High-contrast, no-transparency and the "off"
-     switch all kill this below (a plain `background: #000 !important` in the
-     existing HC block already implicitly resets background-image too). */
-  background-image:
-    radial-gradient(1100px circle at 18% -12%, var(--ambient-accent, transparent) 0%, transparent 60%),
-    radial-gradient(900px circle at 108% 8%, rgba(255, 255, 255, 0.06) 0%, transparent 55%),
-    radial-gradient(1100px circle at 40% 118%, rgba(255, 255, 255, 0.05) 0%, transparent 60%);
+  background-image: var(--ambient-bg-light);
 }
 .report[data-mode="dark"] {
-  background-image:
-    radial-gradient(1100px circle at 18% -12%, var(--ambient-accent, transparent) 0%, transparent 60%),
-    radial-gradient(900px circle at 108% 8%, rgba(255, 255, 255, 0.05) 0%, transparent 55%),
-    radial-gradient(1100px circle at 40% 118%, rgba(255, 255, 255, 0.04) 0%, transparent 60%);
+  background-image: var(--ambient-bg-dark);
 }
 @media (prefers-reduced-transparency: reduce) {
-  .report {
+  .report,
+  .login {
     background-image: none;
   }
 }
-:root[data-glass="off"] .report {
+:root[data-glass="off"] .report,
+:root[data-glass="off"] .login {
   background-image: none;
 }
 
@@ -535,47 +574,62 @@ body {
      scroll away, only `.report__canvas` beneath it scrolls. */
   position: relative;
   contain: paint;
-  background: var(--gp-bg, rgba(250, 247, 242, 0.72));
-  backdrop-filter: var(--gp-backdrop, blur(14px) saturate(1.4));
-  -webkit-backdrop-filter: var(--gp-backdrop, blur(14px) saturate(1.4));
+  background: var(--gp-bg, rgba(250, 247, 242, 0.52));
+  backdrop-filter: var(--gp-backdrop, blur(24px) saturate(1.7) brightness(1.03));
+  -webkit-backdrop-filter: var(--gp-backdrop, blur(24px) saturate(1.7) brightness(1.03));
 }
 .glass-persistent::before {
   content: "";
   position: absolute;
   inset: 0;
   pointer-events: none;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+  /* Crisp 1px specular line on the top edge (the band) and the leading —
+     left — edge (the rail, and the band shares that same left edge where it
+     meets the rail) — plus a faint inner edge glow and a very subtle
+     diagonal sheen so the surface catches light instead of reading as a
+     flat tinted pane. */
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, transparent 45%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    inset 1px 0 0 rgba(255, 255, 255, 0.55),
+    inset 0 0 22px rgba(255, 255, 255, 0.05);
 }
 .report[data-mode="dark"] .glass-persistent {
-  --gp-bg: rgba(12, 35, 41, 0.72);
+  --gp-bg: rgba(12, 35, 41, 0.55);
   --gp-solid: #0c2329;
 }
 .report[data-mode="dark"] .glass-persistent::before {
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, transparent 45%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    inset 1px 0 0 rgba(255, 255, 255, 0.25),
+    inset 0 0 22px rgba(255, 255, 255, 0.04);
 }
 .glass-persistent.is-scrolling {
   will-change: backdrop-filter;
 }
-/* Worst-case scrim contrast for ink text directly on the band (standard WCAG
-   relative-luminance compositing against the extreme opposite-luminance
-   backdrop): LIGHT rgba(250,247,242,.72) over a
-   pure-black backdrop vs ink #0B3239 -> ~6.47:1 (clears the 6:1 target).
-   DARK rgba(12,35,41,.72) over a pure-WHITE backdrop vs ink #F4F1EB ->
-   ~5.77:1 — short of the 6:1 aspirational target (still well clear of the
-   4.5:1 AA floor). Kept at the spec's literal .72 alpha for both modes
-   rather than silently raising the dark alpha to force 6:1, since a pure
-   white backdrop is the theoretical worst case, not a realistic one: nothing
-   in dark mode's canvas/ambient background ever approaches white behind the
-   band, so real rendered contrast is comfortably higher than this bound.
-   Documented here as a known, deliberate shortfall against the target. */
+/* Scrim contrast for ink text directly on the band, computed against the
+   worst-case AMBIENT BACKDROP (not a theoretical pure black/white — the
+   .report background-image above, at the strongest of its two boosted
+   nav/band blobs, composited under the scrim; standard WCAG relative-
+   luminance compositing, alpha-blended per channel):
+   LIGHT — teal blob rgba(11,50,57,.36) over page #ECE8E1 -> (155,167,165);
+   scrim rgba(250,247,242,.52) over THAT -> (204,208,205) vs ink #0B3239 ->
+   ~8.84:1. DARK — teal blob rgba(134,199,189,.36) over page #071316 ->
+   (53,84,82); scrim rgba(12,35,41,.55) over THAT -> (30,57,60) vs ink
+   #F4F1EB -> ~10.93:1 (the warm blob composites to an even higher-contrast
+   result in both modes — teal is the worse/binding case here). Both clear
+   4.5:1 with a wide margin: the scrim is still the dominant term in the
+   composite even at .52/.55 alpha, so a blob strong enough to visibly tint
+   the glass doesn't come close to threatening ink legibility on top of it. */
 
 .glass-overlay {
   position: relative;
   border-radius: var(--r-overlay);
-  background: var(--go-bg, rgba(250, 247, 242, 0.78));
-  backdrop-filter: var(--go-backdrop, blur(18px) saturate(1.5));
-  -webkit-backdrop-filter: var(--go-backdrop, blur(18px) saturate(1.5));
-  box-shadow: var(--go-shadow, 0 2px 6px rgba(11, 50, 57, 0.18), 0 24px 60px rgba(11, 50, 57, 0.22));
+  background: var(--go-bg, rgba(250, 247, 242, 0.68));
+  backdrop-filter: var(--go-backdrop, blur(24px) saturate(1.7));
+  -webkit-backdrop-filter: var(--go-backdrop, blur(24px) saturate(1.7));
+  box-shadow: var(--go-shadow, 0 6px 14px rgba(11, 50, 57, 0.2), 0 32px 72px rgba(11, 50, 57, 0.26));
   /* Entrance for every floating surface built on this class — see the
      cmdkIn keyframe's comment further down (nav/motion P1). */
   animation: cmdkIn 140ms var(--ease-out) both;
@@ -586,7 +640,7 @@ body {
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
-  box-shadow: var(--go-rim, inset 0 1px 0 rgba(255, 255, 255, 0.45), inset 0 0 0 1px rgba(255, 255, 255, 0.5));
+  box-shadow: var(--go-rim, inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 0 0 1px rgba(255, 255, 255, 0.6));
 }
 
 /* KPI card rows: responsive, collapse gracefully on narrow viewports */
@@ -666,6 +720,20 @@ body {
 .report ::-webkit-scrollbar-thumb:hover {
   background: rgba(127, 127, 127, 0.55);
   background-clip: padding-box;
+}
+
+/* Bottom fade for an internally-scrolling panel that has more content below
+   than fits — pairs with the always-visible scrollbar above (never relies on
+   the scrollbar alone as the only "more below" cue). Toggled by JS only when
+   the panel is ACTUALLY overflowing (e.g. the Exceptions heatmap's own
+   overflow check, src/pages/Exceptions.tsx) — a permanent mask would clip
+   the last row's true bottom edge even when nothing is cut off. Masks the
+   element's own content (not a separate overlay div), so the fade reveals
+   whatever sits behind it — a heatmap cell's own tint included — rather than
+   a fixed colour that only matches one card background. */
+.heat-scroll--fade {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent 100%);
 }
 
 /* --- lift on hover -------------------------------------------------------- */
@@ -755,34 +823,6 @@ body {
 .viz-enter {
   animation: vizEnter 220ms var(--ease-out) both;
 }
-@keyframes deckDown {
-  from {
-    opacity: 0;
-    transform: translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-@keyframes deckPop {
-  from {
-    opacity: 0;
-    transform: scale(0.96);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-@keyframes deckFade {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
 @keyframes pulseSoft {
   0%,
   100% {
@@ -794,34 +834,13 @@ body {
     transform: scale(1.25);
   }
 }
-@keyframes blobDrift {
-  0%,
-  100% {
-    transform: translate(0, 0) scale(1);
-  }
-  50% {
-    transform: translate(-26px, 22px) scale(1.08);
-  }
-}
 
 .anim-up {
   animation: deckUp 220ms var(--ease-out) both;
 }
-.anim-down {
-  animation: deckDown 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
-}
-.anim-pop {
-  animation: deckPop 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
-}
-.anim-fade {
-  animation: deckFade 0.6s ease both;
-}
 .pulse-soft {
   display: inline-block;
   animation: pulseSoft 2.6s ease-in-out infinite;
-}
-.blob-drift {
-  animation: blobDrift 16s ease-in-out infinite;
 }
 
 /* --- hover tooltips (progressive disclosure) ------------------------------ */
@@ -829,11 +848,6 @@ body {
   position: relative;
   display: inline-flex;
   align-items: center;
-}
-.tip--term {
-  cursor: help;
-  border-bottom: 1px dotted currentColor;
-  line-height: 1.2;
 }
 .tip__bubble {
   position: absolute;
@@ -863,18 +877,38 @@ body {
   opacity: 1;
 }
 
-/* --- login screen ---------------------------------------------------------- */
+/* --- login screen ----------------------------------------------------------
+   Same ambient backdrop as `.report` (see the shared --ambient-bg-light/-dark
+   vars above) so the signed-out screen reads as the same room, not a flat
+   page behind a card. Login forces the dark theme (App.tsx wraps it in
+   <ThemeProvider value={themes.dark}> — see .login__card below) but the
+   ambient layer itself picks light/dark from prefers-color-scheme, the only
+   signal there is pre-sign-in — data-theme on <html> can be stale from a
+   previous session (see the .login select/option comment further down) and
+   .report's own data-mode attribute doesn't exist here at all. */
 .login {
   height: 100vh;
   width: 100%;
   display: grid;
   place-items: center;
   padding: 24px;
+  background-attachment: fixed;
+  background-image: var(--ambient-bg-light);
 }
+@media (prefers-color-scheme: dark) {
+  .login {
+    background-image: var(--ambient-bg-dark);
+  }
+}
+/* .login__card is a .glass-overlay surface (Login.tsx applies the class and
+   spreads glassOverlayVars(t) inline, same as every other portalled surface
+   — see that class's own comment above) — no border/box-shadow set here,
+   .glass-overlay supplies its own scrim background, blur, drop shadow and
+   specular rim. Radius comes from `.glass-overlay`'s `border-radius: var(
+   --r-overlay)` (14px) rather than a hardcoded duplicate of that number. */
 .login__card {
   width: 100%;
   max-width: 360px;
-  border-radius: 14px;
   padding: 28px 26px 24px;
 }
 .login__brand {
@@ -1041,11 +1075,7 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .anim-up,
-  .anim-down,
-  .anim-pop,
-  .anim-fade,
   .pulse-soft,
-  .blob-drift,
   .kpi-row > *,
   .glass-overlay,
   .cmdk-closing,
@@ -1438,11 +1468,7 @@ html {
    The @media (prefers-reduced-motion: reduce) block above already handles the
    OS-level preference on its own; this covers the in-app override switch. */
 [data-reduce-motion="true"] .anim-up,
-[data-reduce-motion="true"] .anim-down,
-[data-reduce-motion="true"] .anim-pop,
-[data-reduce-motion="true"] .anim-fade,
 [data-reduce-motion="true"] .pulse-soft,
-[data-reduce-motion="true"] .blob-drift,
 [data-reduce-motion="true"] .kpi-row > *,
 [data-reduce-motion="true"] .glass-overlay,
 [data-reduce-motion="true"] .cmdk-closing,

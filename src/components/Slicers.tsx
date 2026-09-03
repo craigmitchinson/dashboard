@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { fonts, glassOverlayVars } from "../theme";
 import { useTheme } from "../theme-context";
-import { IconChevron } from "./icons";
+import { IconChevron, IconCheck } from "./icons";
 import { useFilters, DATA_MIN_ISO, DATA_MAX_ISO } from "../filters-context";
 import type { RangePreset } from "../filters-context";
 import { SPOKES, SPOKE_INFO, QUEUES, TAGS } from "../rpaData";
@@ -132,7 +132,9 @@ function Option({ selected, onClick, children }: { selected: boolean; onClick: (
       onMouseEnter={(e) => (e.currentTarget.style.background = t.themeBand)}
       onMouseLeave={(e) => (e.currentTarget.style.background = selected ? t.themeBand : "transparent")}
     >
-      <span style={{ width: 13, height: 13, flex: "0 0 auto", borderRadius: 4, border: `1.5px solid ${selected ? t.accent : t.ruleSoft}`, background: selected ? t.accent : "transparent", display: "grid", placeItems: "center", color: t.paper, fontSize: 9, fontWeight: 900 }}>{selected ? "✓" : ""}</span>
+      <span style={{ width: 13, height: 13, flex: "0 0 auto", borderRadius: 4, border: `1.5px solid ${selected ? t.accent : t.ruleSoft}`, background: selected ? t.accent : "transparent", display: "grid", placeItems: "center", color: t.paper }}>
+        {selected && <IconCheck size={10} strokeWidth={3} />}
+      </span>
       {children}
     </button>
   );
