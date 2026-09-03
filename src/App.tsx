@@ -82,11 +82,6 @@ interface Page {
   // page — for admin/reference/docs pages where cross-filtering doesn't
   // apply, not data-viz pages.
   noSlicers?: boolean;
-  // Rendered indented, as a child of the group above it, with no group
-  // hairline of its own — currently just process-detail under Operate (a
-  // drill-through target, not a page anyone navigates to head-on). See
-  // Report()'s nav render for the dynamic-label behaviour that goes with it.
-  indent?: boolean;
   // Page-header contextual actions slot (nav/motion P1). Optional — no
   // PAGES entry below sets one yet, that's the next pass, done by each
   // page's own owner. To use it: write a small component that renders
@@ -109,7 +104,7 @@ const PAGES: Page[] = [
   { id: "input-outcome", label: "Input & Outcome", group: "Operate", Icon: IconFlow, Component: InputOutcome, blurb: "Case flow in and out, by outcome, daily or monthly" },
   { id: "process", label: "Process Analysis", group: "Operate", Icon: IconBars, Component: ProcessAnalysis, blurb: "Completion time, throughput and exception trends by process" },
   { id: "exceptions", label: PAGE_LABELS.exceptions, group: "Operate", Icon: IconAlert, Component: Exceptions, blurb: "Exception heatmap and searchable detail" },
-  { id: "process-detail", label: PAGE_LABELS["process-detail"], group: "Operate", Icon: IconRoute, Component: ProcessDetail, blurb: "Drill-through — one process in depth (click a process anywhere)", indent: true },
+  { id: "process-detail", label: PAGE_LABELS["process-detail"], group: "Operate", Icon: IconRoute, Component: ProcessDetail, blurb: "Drill-through — one process in depth (click a process anywhere)" },
   { id: "capacity", label: PAGE_LABELS.capacity, group: "Optimise", Icon: IconServer, Component: Capacity, blurb: "Digital-worker utilisation, idle time and estate cost" },
   { id: "value", label: PAGE_LABELS.value, group: "Value", Icon: IconValue, Component: ValueFinance, blurb: "Net value, ROI, cost composition and run-rate forecast for finance and the exec" },
   { id: "commercial", label: PAGE_LABELS.commercial, group: "Value", Icon: IconCoins, Component: Commercial, blurb: "Cost per case, grade-based benefit and cumulative ROI" },
@@ -524,9 +519,8 @@ function UserMenu({ user, signOut, extra }: { user: User; signOut: () => void; e
 // (the visible/non-visible-axis quirk), so an in-place absolutely-positioned
 // bubble would get silently clipped at the nav's right edge. A tiny
 // hover/focus-driven position capture sidesteps that entirely.
-function NavItem({ collapsed, indent, on, label, Icon, showBadge, badgeCount, onClick, isActiveRef }: {
+function NavItem({ collapsed, on, label, Icon, showBadge, badgeCount, onClick, isActiveRef }: {
   collapsed: boolean;
-  indent?: boolean;
   on: boolean;
   label: string;
   Icon: ComponentType<{ size?: number }>;
@@ -581,7 +575,7 @@ function NavItem({ collapsed, indent, on, label, Icon, showBadge, badgeCount, on
           gap: 11,
           width: "100%",
           textAlign: "left",
-          padding: collapsed ? "10px" : indent ? "9px 10px 9px 26px" : "9px 10px",
+          padding: collapsed ? "10px" : "9px 10px",
           justifyContent: collapsed ? "center" : "flex-start",
           border: "none",
           borderRadius: 8,
@@ -590,12 +584,12 @@ function NavItem({ collapsed, indent, on, label, Icon, showBadge, badgeCount, on
           background: "transparent",
           color: t.ink,
           fontFamily: fonts.body,
-          fontSize: indent ? 12.5 : 13.5,
+          fontSize: 13.5,
           fontWeight: on ? 700 : 500,
           position: "relative",
         }}
       >
-        <Icon size={indent ? 15 : 18} />
+        <Icon size={18} />
         {!collapsed && <span style={{ minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>}
         {showBadge && (
           <span
@@ -1074,16 +1068,15 @@ function Report({ ambientAccent }: { ambientAccent?: string }) {
                   const on = p.id === pageId;
                   const isAlerts = p.id === "alerts";
                   const showBadge = isAlerts && unackedCount > 0;
-                  // process-detail (the one `indent` page) shows the drilled
+                  // process-detail (the drill-through page) shows the drilled
                   // process's name instead of its generic label once a drill
                   // is active, so the nav itself previews where "back" leads.
-                  const activeProcess = p.indent && filters.processId !== "All" ? PROCESS_BY_ID.get(filters.processId)?.name : undefined;
+                  const activeProcess = p.id === "process-detail" && filters.processId !== "All" ? PROCESS_BY_ID.get(filters.processId)?.name : undefined;
                   const label = activeProcess ?? p.label;
                   return (
                     <NavItem
                       key={p.id}
                       collapsed={collapsed}
-                      indent={p.indent}
                       on={on}
                       label={label}
                       Icon={p.Icon}
