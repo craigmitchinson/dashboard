@@ -76,7 +76,7 @@ function renderSection(section) {
 
 // --- assemble the document --------------------------------------------------
 const header = "<!-- GENERATED FILE — do not hand-edit. Edit src/pages/playbook-content.ts (or its data module) and run \"npm run docs:playbook\" to regenerate. -->";
-const title = "# Operational Playbook — Intelligent Automation — Performance";
+const title = "# Intelligent Automation — Operational Playbook";
 const intro = "How to run, extend and troubleshoot this dashboard, in plain English. Every section below also renders as an in-app page (Playbook, in the Reference group) — both come from the same content module, so they never drift apart.";
 
 const toc = ["## Contents", ""].concat(
