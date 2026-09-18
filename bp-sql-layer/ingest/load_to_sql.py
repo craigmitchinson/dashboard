@@ -117,10 +117,20 @@ EXIT CODES:
   0  success
   1  configuration error (missing/invalid env var, bad CSV path)
   2  CSV validation error (header doesn't match the 16-column contract,
-     or the file is otherwise unreadable as the expected shape)
+     or the file is otherwise unreadable as the expected shape) -- for a
+     real (non-dry-run) invocation this is now ALSO recorded as a
+     Status='failed' core.PipelineRun row (see validate_csv_header(),
+     called after the run row is opened) so a header mismatch is visible
+     to GET /api/health, not just this process's exit code.
   3  SQL execution error (connection failure, load failure, usp_RunPull
      failure) -- core.PipelineRun is updated to Status='failed' before
      this is raised, where a RunId had already been opened.
+
+  (run_pipeline.py additionally exits 4 when this run's own row-level
+  rejects -- see raw.WorkQueueItemRejected / 05_proc_load_staging.sql --
+  exceed MAX_REJECT_PCT of rows staged; that check runs one layer up,
+  after this module already recorded a Status='success' run, since the
+  load itself genuinely succeeded -- see run_pipeline.py.)
 
 LOGGING: structured JSON, one object per line, to stdout -- see
 log_event() below. Pipe through `jq` or a log-ingestion sidecar in
@@ -169,15 +179,26 @@ def build_config(args):
     }
 
 
-def validate_csv(path):
-    """Confirm the file exists and its header matches the 16-column
-    contract exactly (order and names) -- fail fast and specifically,
-    rather than letting a schema-drifted file surface as a confusing SQL
-    error many rows in. Returns nothing; raises ValueError on mismatch."""
+def validate_csv_exists(path):
+    """Confirm the CSV path is set and points at a real file. Deliberately
+    separate from validate_csv_header() below: this check runs BEFORE a
+    core.PipelineRun row is opened (a missing/misconfigured path is a
+    configuration problem, not a run worth recording in the ledger --
+    nothing was attempted), whereas a header mismatch runs AFTER, so it
+    can be recorded as a failed run -- see load_and_merge()."""
     if not path:
         raise ValueError("no CSV path given (set CSV_PATH or pass --csv)")
     if not os.path.isfile(path):
         raise ValueError(f"CSV path does not exist or is not a file: {path}")
+
+
+def validate_csv_header(path):
+    """Confirm the header matches the 16-column BPAWorkQueueItem contract
+    EXACTLY -- same 16 names, same order. Fails fast and specifically,
+    naming exactly what's missing/extra, rather than letting a
+    schema-drifted export (a renamed/reordered/added/dropped column)
+    surface many rows in as a confusing SQL error. Returns nothing;
+    raises ValueError on any mismatch."""
     with open(path, "r", newline="", encoding="utf-8-sig") as fh:
         reader = csv.reader(fh)
         try:
@@ -185,12 +206,31 @@ def validate_csv(path):
         except StopIteration:
             raise ValueError(f"CSV is empty (no header row): {path}")
     if header != COLUMNS:
+        missing = [c for c in COLUMNS if c not in header]
+        extra = [c for c in header if c not in COLUMNS]
+        detail = []
+        if missing:
+            detail.append(f"missing columns: {missing}")
+        if extra:
+            detail.append(f"extra/unexpected columns: {extra}")
+        if not detail:
+            detail.append("column order differs from the expected 16-column contract")
         raise ValueError(
-            "CSV header does not match the 16-column BPAWorkQueueItem contract.\n"
+            "CSV header does not match the 16-column BPAWorkQueueItem contract "
+            f"({'; '.join(detail)}).\n"
             f"  expected: {COLUMNS}\n"
             f"  actual:   {header}\n"
             "See ARCHITECTURE.md's '16-column contract' section."
         )
+
+
+def validate_csv(path):
+    """Full pre-flight check: path exists, header matches exactly. Used by
+    the dry-run path (build_config()'s --dry-run), which never opens a SQL
+    connection/PipelineRun row at all, so both checks happen together,
+    up front, with no ledger entry either way."""
+    validate_csv_exists(path)
+    validate_csv_header(path)
 
 
 def iter_batches(path, batch_size):
@@ -287,15 +327,78 @@ def open_pipeline_run(conn, adapter):
 
 
 def finish_pipeline_run(conn, run_id, status, rows_staged=None, rows_merged=None,
-                         max_last_updated=None, error=None):
+                         max_last_updated=None, error=None, rows_rejected=None,
+                         unmapped_queues_json=None, watermark_age_minutes=None):
     cur = conn.cursor()
     cur.execute(
         "UPDATE core.PipelineRun SET FinishedAt = SYSUTCDATETIME(), Status = ?, "
-        "RowsStaged = ?, RowsMerged = ?, MaxLastUpdated = ?, Error = ? "
+        "RowsStaged = ?, RowsMerged = ?, MaxLastUpdated = ?, Error = ?, "
+        "RowsRejected = ?, UnmappedQueues = ?, WatermarkAgeMinutes = ? "
         "WHERE RunId = ?;",
-        (status, rows_staged, rows_merged, max_last_updated, error, run_id),
+        (status, rows_staged, rows_merged, max_last_updated, error,
+         rows_rejected, unmapped_queues_json, watermark_age_minutes, run_id),
     )
     conn.commit()
+
+
+def count_rejected_rows(conn, load_batch_id):
+    """Rows from THIS pull's raw.WorkQueueItem that staging.usp_LoadStaging
+    quarantined to raw.WorkQueueItemRejected (see 11_pipeline_ops.sql /
+    05_proc_load_staging.sql). Scoped by LoadBatchId, not RunId -- the
+    stored procedure has no RunId parameter (see that table's own header
+    comment for why), so LoadBatchId (already stamped on every raw row
+    this pull by load_batches() below) is the join key available here.
+    scalar() isn't reused here because it takes a plain (unparameterised)
+    SQL string -- this needs a bound parameter."""
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) FROM raw.WorkQueueItemRejected WHERE LoadBatchId = ?", (load_batch_id,))
+    row = cur.fetchone()
+    return row[0] if row else 0
+
+
+def backfill_rejected_run_id(conn, run_id, load_batch_id):
+    """Stamp this pull's RunId onto the rejected rows staging.usp_LoadStaging
+    just wrote for it (identified by LoadBatchId, see count_rejected_rows).
+    Only touches rows still NULL so a manual re-run of core.usp_RunPull by
+    an operator (RunId-less, outside load_to_sql.py) never has its rows
+    silently reattributed to a later pipeline run."""
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE raw.WorkQueueItemRejected SET RunId = ? WHERE LoadBatchId = ? AND RunId IS NULL;",
+        (run_id, load_batch_id),
+    )
+    conn.commit()
+
+
+def unmapped_queues_this_pull(conn):
+    """JSON-ready list of {"queue","rows"} for every QueueName staged this
+    pull (staging.WorkQueueItem, rebuilt fresh every pull) with no
+    core.RefQueueMap row -- this pull's own early-warning copy of what
+    report.vw_ModelUnmappedQueues/core.usp_RunPull's PRINT already surface
+    cumulatively, scoped instead to what just landed."""
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT s.QueueName, COUNT(*) AS Rows
+        FROM staging.WorkQueueItem s
+        LEFT JOIN core.RefQueueMap qm ON qm.QueueName = s.QueueName
+        WHERE qm.QueueName IS NULL AND s.QueueName IS NOT NULL AND s.QueueName <> ''
+        GROUP BY s.QueueName
+        ORDER BY COUNT(*) DESC;
+        """
+    )
+    return [{"queue": row[0], "rows": row[1]} for row in cur.fetchall()]
+
+
+def watermark_age_minutes(conn):
+    """DATEDIFF computed SERVER-SIDE (not python's utcnow() vs a fetched
+    datetime) so a clock difference between this container and the SQL
+    Server instance can never skew the figure -- "now" and "MAX(LastUpdatedDate)"
+    are compared in the same place they're both already stored."""
+    return scalar(
+        conn,
+        "SELECT DATEDIFF(MINUTE, MAX(LastUpdatedDate), SYSUTCDATETIME()) FROM staging.WorkQueueItem;",
+    )
 
 
 def load_and_merge(csv_path, adapter, batch_size=DEFAULT_BATCH_SIZE, dry_run=False):
@@ -306,11 +409,14 @@ def load_and_merge(csv_path, adapter, batch_size=DEFAULT_BATCH_SIZE, dry_run=Fal
     exit code). Safe to import and call directly from run_pipeline.py
     (no subprocess needed, one shared connection)."""
     t_start = time.time()
-    log_event("phase_start", phase="validate", csv_path=csv_path, adapter=adapter)
-    validate_csv(csv_path)
-    log_event("phase_done", phase="validate", duration_ms=int((time.time() - t_start) * 1000))
 
     if dry_run:
+        # Dry run never opens a SQL connection/PipelineRun row at all, so
+        # both checks (existence + strict header) happen together, up
+        # front -- see validate_csv()'s own docstring.
+        log_event("phase_start", phase="validate", csv_path=csv_path, adapter=adapter)
+        validate_csv(csv_path)
+        log_event("phase_done", phase="validate", duration_ms=int((time.time() - t_start) * 1000))
         log_event(
             "dry_run_plan",
             csv_path=csv_path,
@@ -328,6 +434,11 @@ def load_and_merge(csv_path, adapter, batch_size=DEFAULT_BATCH_SIZE, dry_run=Fal
             "data (this is not the CSV-generation step -- see the adapters for that)."
         )
 
+    # Existence-only check BEFORE opening a connection/run row -- a missing
+    # file is a configuration problem, nothing was attempted, no ledger
+    # entry warranted (see validate_csv_exists()'s own docstring).
+    validate_csv_exists(csv_path)
+
     t_connect = time.time()
     log_event("phase_start", phase="connect")
     conn = sqlconn.connect()
@@ -337,6 +448,20 @@ def load_and_merge(csv_path, adapter, batch_size=DEFAULT_BATCH_SIZE, dry_run=Fal
     log_event("pipeline_run_opened", run_id=run_id, adapter=adapter)
 
     try:
+        # STRICT HEADER CHECK, now that a run row exists to record a
+        # failure against. A schema-drifted export (wrong/missing/
+        # reordered columns) is exactly the "corrupted or wrong format on
+        # ingestion" failure mode operators need visible in
+        # core.PipelineRun (and therefore GET /api/health), not just a
+        # container exit code with no run row for anyone to find. Raising
+        # ValueError here (same type validate_csv_header always raised)
+        # is still caught by main()'s ValueError branch -> exit code 2,
+        # unchanged -- only WHERE it's recorded changes, not its exit code.
+        t_validate = time.time()
+        log_event("phase_start", phase="validate_header", csv_path=csv_path)
+        validate_csv_header(csv_path)
+        log_event("phase_done", phase="validate_header", duration_ms=int((time.time() - t_validate) * 1000))
+
         import uuid
         load_batch_id = str(uuid.uuid4())
         source_file = os.path.abspath(csv_path)
@@ -366,9 +491,17 @@ def load_and_merge(csv_path, adapter, batch_size=DEFAULT_BATCH_SIZE, dry_run=Fal
         rows_merged = (fact_after or 0) - (fact_before or 0)
         max_last_updated = scalar(conn, "SELECT MAX(LastUpdatedDate) FROM staging.WorkQueueItem;")
 
+        rows_rejected = count_rejected_rows(conn, load_batch_id)
+        backfill_rejected_run_id(conn, run_id, load_batch_id)
+        unmapped_queues = unmapped_queues_this_pull(conn)
+        unmapped_queues_json = json.dumps(unmapped_queues)
+        watermark_age = watermark_age_minutes(conn)
+
         finish_pipeline_run(
             conn, run_id, "success",
             rows_staged=rows_staged, rows_merged=rows_merged, max_last_updated=max_last_updated,
+            rows_rejected=rows_rejected, unmapped_queues_json=unmapped_queues_json,
+            watermark_age_minutes=watermark_age,
         )
 
         summary = {
@@ -379,6 +512,9 @@ def load_and_merge(csv_path, adapter, batch_size=DEFAULT_BATCH_SIZE, dry_run=Fal
             "fact_after": fact_after,
             "rows_merged": rows_merged,
             "max_last_updated": max_last_updated,
+            "rows_rejected": rows_rejected,
+            "unmapped_queues": unmapped_queues,
+            "watermark_age_minutes": watermark_age,
             "duration_ms": int((time.time() - t_start) * 1000),
         }
         log_event("pipeline_run_success", **summary)

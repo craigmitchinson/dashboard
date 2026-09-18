@@ -258,6 +258,7 @@ export function KpiCard({
   return (
     <div
       className="tile-lift kpi-card"
+      data-tour="kpi"
       style={{
         background: `linear-gradient(165deg, ${t.paper}, ${t.themeBand})`,
         border: `1px solid ${t.ruleSoft}`,

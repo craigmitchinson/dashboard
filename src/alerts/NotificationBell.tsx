@@ -135,6 +135,7 @@ export function NotificationBell({ setPageId }: { setPageId: (id: string) => voi
         aria-expanded={open}
         aria-haspopup="menu"
         aria-label={`Notifications, ${unackedCount} unacknowledged`}
+        data-tour="bell"
         style={{ position: "relative", display: "inline-flex", alignItems: "center", border: `1px solid ${t.ruleSoft}`, color: t.inkSoft }}
       >
         <IconBell size={15} />

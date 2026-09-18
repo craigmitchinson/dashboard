@@ -237,13 +237,31 @@ export async function fetchModel(): Promise<ModelJson> {
 
 // --- health ----------------------------------------------------------------
 
-// GET {API}/api/health -> { ok, dataThrough, lastPullAt, dbOk, version }
+// GET {API}/api/health -> { ok, dataThrough, lastPullAt, dbOk, version, lastRun, stale }
+// lastRun/stale are the "set and forget" ingest-health surface (see
+// server/src/routes/health.ts's own doc comment for the full contract) —
+// consumed by src/data/status.tsx (the header freshness dot) and
+// src/pages/admin/DataSyncSection.tsx (the Data health block).
+export interface PipelineRunHealth {
+  status: "running" | "success" | "failed";
+  startedAt: string;
+  finishedAt: string | null;
+  rowsStaged: number | null;
+  rowsMerged: number | null;
+  rowsRejected: number | null;
+  unmappedQueues: { queue: string; rows: number }[];
+  watermarkAgeMinutes: number | null;
+  error: string | null;
+}
+
 export interface HealthStatus {
   ok: boolean;
   dataThrough: string;
   lastPullAt: string | null;
   dbOk: boolean;
   version: string;
+  lastRun: PipelineRunHealth | null;
+  stale: boolean;
 }
 
 export async function fetchHealth(): Promise<HealthStatus> {

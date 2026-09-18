@@ -195,15 +195,11 @@ export function ProcessDetail() {
         </nav>
         <div style={{ display: "flex", gap: 8, flex: "0 0 auto" }}>
           {navOrigin.from && (
-            <button
-              onClick={navOrigin.back}
-              className="bar-btn"
-              style={{ border: `1px solid ${t.ruleSoft}`, background: "transparent", color: t.inkSoft, whiteSpace: "nowrap" }}
-            >
+            <button onClick={navOrigin.back} className="crumb-action" style={{ color: t.inkSoft }}>
               ← Back
             </button>
           )}
-          <button onClick={() => setFilters({ processId: "All" })} style={{ fontFamily: fonts.mono, fontSize: 10.5, letterSpacing: "0.04em", textTransform: "uppercase", fontWeight: 700, padding: "6px 11px", borderRadius: 7, cursor: "pointer", border: `1px solid ${t.ruleSoft}`, background: "transparent", color: t.inkSoft, whiteSpace: "nowrap" }}>
+          <button onClick={() => setFilters({ processId: "All" })} className="crumb-action" style={{ color: t.inkSoft }}>
             Clear drill
           </button>
         </div>

@@ -67,6 +67,9 @@
                                           / .reference.exceptionDisplayCodes / .vdiOperatingHoursPerDay
      core.RefVersion                   optimistic-concurrency token for PUT /api/reference (If-Match)
      core.RefChangeLog                 -> reference.json's changelog (ChangelogEntry[] in reference-store.ts)
+     report.vw_PipelineHealth          -> GET /api/health's `lastRun` (server/src/data/sql-model.ts's
+                                          getLastRun()) -- the single most recent core.PipelineRun row
+                                          (11_pipeline_ops.sql), whatever its Status.
    ===================================================================== */
 USE BPAnalytics;
 GO
@@ -418,4 +421,26 @@ BEGIN
         Section NVARCHAR(100) NOT NULL   -- free-form: which reference section changed (e.g. "resources", "gradeRates")
     );
 END
+GO
+
+/* =====================================================================
+   vw_PipelineHealth — the single most recent core.PipelineRun row
+   (11_pipeline_ops.sql), regardless of Status ('running'/'success'/
+   'failed') — GET /api/health's `lastRun` reads THIS, not "the last
+   successful run", because a failed or still-running run is exactly the
+   condition the dashboard's Data health block (src/pages/admin/
+   DataSyncSection.tsx) exists to surface; `lastPullAt` (server/src/data/
+   sql-model.ts's existing getLastPullAt) remains the "last SUCCESSFUL
+   pull" figure for the header freshness pill, unchanged.
+   Depends on 11_pipeline_ops.sql having run first (same file-ordering
+   assumption every other view in this file already makes about
+   03_core_dimensions.sql/04_fact_and_calendar.sql).
+   ===================================================================== */
+CREATE OR ALTER VIEW report.vw_PipelineHealth AS
+SELECT TOP (1)
+    RunId, Status, StartedAt, FinishedAt,
+    RowsStaged, RowsMerged, RowsRejected, UnmappedQueues, WatermarkAgeMinutes,
+    Error
+FROM core.PipelineRun
+ORDER BY StartedAt DESC;
 GO

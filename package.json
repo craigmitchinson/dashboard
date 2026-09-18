@@ -11,6 +11,7 @@
     "data:build": "node tools/build-dashboard-data.mjs",
     "data:all": "npm run data:mock && npm run data:build",
     "data:verify": "node tools/verify-economics.mjs",
+    "data:validate": "node tools/validate-workqueue-csv.mjs",
     "docs:playbook": "node tools/build-playbook-md.mjs",
     "test": "vitest run",
     "test:watch": "vitest",

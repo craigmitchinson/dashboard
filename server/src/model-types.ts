@@ -27,3 +27,19 @@ export interface ModelRowsets {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type ModelJson = Record<string, any>;
+
+/** GET /api/health's `lastRun` -- the latest core.PipelineRun row
+ *  (report.vw_PipelineHealth, 13_api_model_views.sql), whatever its
+ *  Status. See server/src/data/sql-model.ts's getLastRun() (sql mode) and
+ *  server/src/data/fixtures.ts's synthetic healthy object (fixture mode). */
+export interface PipelineHealth {
+  status: "running" | "success" | "failed";
+  startedAt: string;
+  finishedAt: string | null;
+  rowsStaged: number | null;
+  rowsMerged: number | null;
+  rowsRejected: number | null;
+  unmappedQueues: { queue: string; rows: number }[];
+  watermarkAgeMinutes: number | null;
+  error: string | null;
+}

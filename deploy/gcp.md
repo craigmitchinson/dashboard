@@ -126,6 +126,11 @@ env var matrix, and §7 for Entra ID app registration.
    authorized network on the Cloud SQL instance (see `deploy/cloudsql.md`
    §5's connectivity options) — set `MonthLabel`'s "Sort by" = `MonthSortKey`
    once (see the Data model page's build notes in-app).
+7. **Alert on it.** `deploy/scripts/11_alerting.sh` (any time after step 2 —
+   it only needs `INGEST_JOB_NAME` to exist) sets up email alerting for the
+   ingest job itself: any execution finishing with a non-zero exit, or no
+   successful execution in 60 minutes. See §11 below for what it creates and
+   how it relates to `GET /api/health`'s own `lastRun`/`stale` fields.
 
 ## 4. First real data pull — runbook
 
@@ -413,3 +418,26 @@ This is also the fastest loop for testing a `src/**`/`server/**` change
 without waiting on a Cloud Build round trip, and the path CI (see
 `deploy/cloudbuild.yaml`'s test gates) exercises before any image is even
 built.
+
+## 11. Alerting
+
+`deploy/scripts/11_alerting.sh` sets up two Cloud Monitoring log-based alert
+policies for the ingest job (`$INGEST_JOB_NAME`), both emailing the single
+address in `ALERT_EMAIL` (`env.sh`): one fires the moment any execution logs
+a failure event — i.e. finishes with a non-zero exit (see `run_pipeline.py`'s
+own EXIT CODES doc for what each code means: adapter failure, a CSV/SQL
+error, or this run's own reject rate exceeding `MAX_REJECT_PCT`); the other
+is a log-absence condition (via a logs-based metric counting
+`pipeline_success` events, since Cloud Monitoring's alerting API expresses
+"no log entries" as a metric-absence condition, not a standalone log-absence
+condition type) that fires when no execution has succeeded in 60 minutes —
+catching the case the first policy structurally can't: nothing invoking the
+job at all (a paused/misconfigured Cloud Scheduler trigger), or a
+container-level crash before any of `run_pipeline.py`'s own logging runs.
+Both are independent of, and a deliberate belt-and-braces alongside,
+`GET /api/health`'s `lastRun`/`stale` fields (`server/src/routes/health.ts`)
+and the dashboard's own Data health block
+(`src/pages/admin/DataSyncSection.tsx`) — those two answer "is the data
+trustworthy right now" for someone looking at the dashboard; this script is
+for when nobody is. Idempotent — safe to re-run any time after
+`06_deploy_ingest_job.sh` has created the job.

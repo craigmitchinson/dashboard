@@ -7,10 +7,11 @@ import { join } from "node:path";
 import type { Config } from "./config.js";
 import { Db } from "./db.js";
 import type { Logger } from "./logger.js";
-import { FixtureModelSource, InMemoryReferenceStore, loadFixtureReference } from "./data/fixtures.js";
-import { SqlModelSource, getLastPullAt } from "./data/sql-model.js";
+import { FixtureModelSource, InMemoryReferenceStore, loadFixtureReference, fixtureLastRun } from "./data/fixtures.js";
+import { SqlModelSource, getLastPullAt, getLastRun } from "./data/sql-model.js";
 import { SqlReferenceStore } from "./data/sql-reference.js";
 import type { ReferenceStore } from "./data/reference-store.js";
+import type { PipelineHealth } from "./model-types.js";
 
 export interface ModelSource {
   computeCacheKey(): Promise<string>;
@@ -23,6 +24,8 @@ export interface DataSourceBundle {
   sourceLabel: string;
   isDbOk: () => boolean;
   getLastPullAt: () => Promise<string | null>;
+  /** GET /api/health's `lastRun` -- see model-types.ts's PipelineHealth. */
+  getLastRun: () => Promise<PipelineHealth | null>;
   db: Db | null;
 }
 
@@ -42,6 +45,7 @@ export async function createDataSource(config: Config, log: Logger): Promise<Dat
       sourceLabel: `fixtures:${fixturesDir}`,
       isDbOk: () => true, // no DB in fixture mode; "true" = the fixture data source itself is fine
       getLastPullAt: async () => null,
+      getLastRun: async () => fixtureLastRun(),
       db: null,
     };
   }
@@ -54,6 +58,7 @@ export async function createDataSource(config: Config, log: Logger): Promise<Dat
     sourceLabel: `sql:${config.sql.database}`,
     isDbOk: () => db.isConnected(),
     getLastPullAt: () => getLastPullAt(db),
+    getLastRun: () => getLastRun(db),
     db,
   };
 }

@@ -30,6 +30,7 @@ import {
 import type { PutReferenceInput, ReferenceSnapshot, ReferenceStore } from "./reference-store.js";
 import { VersionConflictError } from "./reference-store.js";
 import { validateReference } from "../validate/reference-schema.js";
+import type { PipelineHealth } from "../model-types.js";
 
 async function readJson(path: string): Promise<unknown> {
   return JSON.parse(await readFile(path, "utf8"));
@@ -64,6 +65,28 @@ export class InMemoryReferenceStore implements ReferenceStore {
 
 export async function loadFixtureReference(referenceJsonPath: string): Promise<Record<string, unknown>> {
   return (await readJson(referenceJsonPath)) as Record<string, unknown>;
+}
+
+/** Fixture mode has no core.PipelineRun to read (no live pipeline at all --
+ *  see DataSyncSection.tsx's "Static build — no live pipeline" copy for the
+ *  SPA-visible equivalent). GET /api/health's `lastRun` still needs SOME
+ *  well-formed object rather than null, so consumers (the dashboard's Data
+ *  health block) can render one code path instead of a special-cased
+ *  "no pipeline info at all" branch -- a synthetic, always-healthy run
+ *  dated to when this process started serving fixtures. */
+export function fixtureLastRun(): PipelineHealth {
+  const now = new Date().toISOString();
+  return {
+    status: "success",
+    startedAt: now,
+    finishedAt: now,
+    rowsStaged: null,
+    rowsMerged: null,
+    rowsRejected: 0,
+    unmappedQueues: [],
+    watermarkAgeMinutes: 0,
+    error: null,
+  };
 }
 
 export class FixtureModelSource {

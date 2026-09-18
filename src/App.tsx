@@ -46,8 +46,10 @@ import {
   IconContrastCircle,
   IconInfo,
   IconSearch,
+  IconHelp,
 } from "./components/icons";
 import { CommandPalette } from "./components/CommandPalette";
+import { openHelpDrawer } from "./help/help-store";
 import { NotificationBell } from "./alerts/NotificationBell";
 import { AlertsProvider, useAlerts } from "./alerts/alerts-context";
 import { AlertsPage } from "./alerts/AlertsPage";
@@ -69,6 +71,10 @@ const ExecutiveSummary = lazy(() => import("./pages/ExecutiveSummary").then((m) 
 const DataModel = lazy(() => import("./pages/DataModel").then((m) => ({ default: m.DataModel })));
 const Playbook = lazy(() => import("./pages/Playbook").then((m) => ({ default: m.Playbook })));
 const Admin = lazy(() => import("./pages/Admin").then((m) => ({ default: m.Admin })));
+// Guided tour + per-page help drawer (src/help/) — lazy for the same reason:
+// nothing in it (including the feature-catalogue text the drawer renders)
+// should load until someone actually opens it.
+const HelpRoot = lazy(() => import("./help/HelpRoot").then((m) => ({ default: m.HelpRoot })));
 
 interface Page {
   id: string;
@@ -832,6 +838,8 @@ function Report({ ambientAccent }: { ambientAccent?: string }) {
   const { unackedCount, sortedAlerts, acked, ackAll } = useAlerts();
   const { pendingSync } = useReference();
   const systemStatus = useSystemStatus();
+  // Amber-state message: say which of the two causes applies.
+  const staleTooltip = systemStatus.reachable && systemStatus.stale ? "Data is stale — the scheduled pull has not delivered new data recently" : "API unreachable — showing last loaded data";
   const { prefs, cycleTheme } = useDisplayPrefs();
   // High-contrast is a black/white CSS overlay (see styles.css) layered on top
   // of the dark-mode JS tokens — there is no separate "high-contrast" Mode in
@@ -1066,6 +1074,7 @@ function Report({ ambientAccent }: { ambientAccent?: string }) {
       // purely so the cheat-sheet lists the shortcut.
       { keys: "⌘K / Ctrl+K", description: "Open the command palette", test: () => false, run: () => {} },
       { keys: "Shift+A", description: "Open Accessibility & display settings", test: (e) => e.shiftKey && e.key.toLowerCase() === "a", run: () => setShowA11yPanel(true) },
+      { keys: "Shift+H", description: "Open help for this page", test: (e) => e.shiftKey && e.key.toLowerCase() === "h", run: () => openHelpDrawer() },
       { keys: "/", description: "Focus the first slicer (Spoke)", test: (e) => e.key === "/", run: () => { if (!page?.noSlicers) (document.querySelector('[data-first-slicer="true"]') as HTMLElement | null)?.focus(); } },
       { keys: "[", description: "Toggle navigation collapse", test: (e) => e.key === "[", run: () => setCollapsed((c) => !c) },
       { keys: "Esc", description: "Close the shortcuts list", test: (e) => e.key === "Escape", run: () => setShowShortcuts(false) },
@@ -1194,7 +1203,7 @@ function Report({ ambientAccent }: { ambientAccent?: string }) {
             )}
           </div>
 
-          <nav ref={navListRef} aria-label="Pages" style={{ flex: 1, overflow: "auto", padding: "10px 8px", position: "relative" }}>
+          <nav ref={navListRef} aria-label="Pages" data-tour="nav" style={{ flex: 1, overflow: "auto", padding: "10px 8px", position: "relative" }}>
             <div
               aria-hidden
               className="nav-active-bar"
@@ -1257,7 +1266,7 @@ function Report({ ambientAccent }: { ambientAccent?: string }) {
                 160px floor (styles.css) and never truncates. */}
             <div style={{ minWidth: 0, display: "flex", alignItems: "baseline", gap: 10, overflow: "hidden" }}>
               <h1 style={{ margin: 0, fontFamily: fonts.display, fontSize: 18, fontWeight: 700, color: t.ink, lineHeight: 1.1, whiteSpace: "nowrap" }}>{page.label}</h1>
-              <p className="hdr-blurb-text" style={{ margin: 0, fontFamily: fonts.body, fontSize: 12, color: t.inkSoft, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>
+              <p className="hdr-blurb-text" title={page.blurb} style={{ margin: 0, fontFamily: fonts.body, fontSize: 12, color: t.inkSoft, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>
                 <Bionic>{page.blurb}</Bionic>
               </p>
             </div>
@@ -1290,11 +1299,12 @@ function Report({ ambientAccent }: { ambientAccent?: string }) {
                 season) lives in tooltips, not extra visual lines. */}
             <span
               className="hdr-fresh-full"
+              data-tour="freshness"
               style={{ alignItems: "center", gap: 6, fontFamily: fonts.mono, fontSize: 10.5, letterSpacing: "0.04em", color: t.inkSoft, whiteSpace: "nowrap" }}
               title={
                 systemStatus.apiOk
                   ? `Data through ${fmtDateFull(DATE_MAX)} · Source: ${META.source} · ${META.sourceRows.toLocaleString()} queue items · built ${META.generatedAt.slice(0, 16).replace("T", " ")}`
-                  : "API unreachable — showing last loaded data"
+                  : staleTooltip
               }
             >
               {/* Colour-only state change (same 6px dot, same position in every
@@ -1306,8 +1316,9 @@ function Report({ ambientAccent }: { ambientAccent?: string }) {
             {/* <1040px: the pill collapses to a dot + tooltip (same info, on hover/focus). */}
             <span
               className="hdr-fresh-dot"
+              data-tour="freshness"
               aria-label={`Data to ${fmtDateFull(DATE_MAX)}, ${META.sourceRows.toLocaleString()} queue items`}
-              title={systemStatus.apiOk ? `Data through ${fmtDateFull(DATE_MAX)} · ${META.sourceRows.toLocaleString()} queue items` : "API unreachable — showing last loaded data"}
+              title={systemStatus.apiOk ? `Data through ${fmtDateFull(DATE_MAX)} · ${META.sourceRows.toLocaleString()} queue items` : staleTooltip}
               style={{ alignItems: "center" }}
             >
               <span style={{ width: 7, height: 7, borderRadius: "50%", background: systemStatus.apiOk ? t.status.committed.dot : warnDot, flex: "0 0 auto" }} className="pulse-soft" />
@@ -1347,6 +1358,15 @@ function Report({ ambientAccent }: { ambientAccent?: string }) {
               {activeFilters > 0 && <span className="sr-only">, {activeFilters} active</span>}
             </button>
             <NotificationBell setPageId={go} />
+            <button
+              onClick={() => openHelpDrawer()}
+              className="bar-btn"
+              aria-label="Help for this page"
+              title="Help (Shift+H)"
+              style={{ ...btn(t), padding: "0 9px" }}
+            >
+              <IconHelp size={15} />
+            </button>
             <span className="hdr-a11y-inline">
               <button
                 onClick={() => setShowA11yPanel(true)}
@@ -1389,6 +1409,7 @@ function Report({ ambientAccent }: { ambientAccent?: string }) {
             </button>
             <HeaderOverflowMenu
               items={[
+                { key: "help", label: "Help for this page", icon: <IconHelp size={15} />, onClick: () => openHelpDrawer() },
                 { key: "a11y", label: "Accessibility & display", icon: <IconAccessibility size={15} />, onClick: () => setShowA11yPanel(true) },
                 {
                   key: "theme",
@@ -1421,6 +1442,7 @@ function Report({ ambientAccent }: { ambientAccent?: string }) {
               ref={cmdkFullRef}
               onClick={() => setPaletteOpen(true)}
               className="bar-btn hdr-cmdk-full"
+              data-tour="search"
               style={btn(t)}
               aria-haspopup="dialog"
               title="Search everything (Ctrl+K)"
@@ -1439,6 +1461,7 @@ function Report({ ambientAccent }: { ambientAccent?: string }) {
               ref={cmdkIconRef}
               onClick={() => setPaletteOpen(true)}
               className="bar-btn hdr-cmdk-icon"
+              data-tour="search"
               aria-label="Search (Ctrl+K)"
               title="Search everything (Ctrl+K)"
               style={{ ...btn(t), padding: "0 9px" }}
@@ -1448,41 +1471,8 @@ function Report({ ambientAccent }: { ambientAccent?: string }) {
           </header>
 
           {!page.noSlicers && (
-            <div className="report__slicers" style={{ borderBottom: `1px solid ${t.ruleSoft}` }}>
+            <div className="report__slicers" data-tour="filters" style={{ borderBottom: `1px solid ${t.ruleSoft}` }}>
               <FilterBar />
-              {/* Drill chip (nav/motion P1) — Slicers.tsx's "Process name"
-                  slicer already surfaces the active process as its own
-                  summary text, but nothing else on the page names it or
-                  offers a one-click way out of the drill; this adds that.
-                  See the task report for the "existing drill chip"
-                  investigation this followed. */}
-              {filters.processId !== "All" && (
-                <span
-                  className="drill-chip"
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 6,
-                    marginTop: 10,
-                    padding: "4px 6px 4px 10px",
-                    borderRadius: 999,
-                    background: t.themeBand,
-                    border: `1px solid ${t.ruleSoft}`,
-                    fontFamily: fonts.mono,
-                    fontSize: 11,
-                    color: t.ink,
-                  }}
-                >
-                  Process: {PROCESS_BY_ID.get(filters.processId)?.name ?? filters.processId}
-                  <button
-                    onClick={() => setFilters({ processId: "All" })}
-                    aria-label="Clear process filter"
-                    style={{ border: "none", background: "transparent", color: t.inkSoft, cursor: "pointer", fontSize: 14, lineHeight: 1, padding: "0 2px" }}
-                  >
-                    ×
-                  </button>
-                </span>
-              )}
             </div>
           )}
           </div>
@@ -1531,6 +1521,14 @@ function Report({ ambientAccent }: { ambientAccent?: string }) {
         acked={acked}
         ackAll={ackAll}
       />
+      {/* First-run tour + per-page help drawer (src/help/) — see that
+          directory's own file headers. Lazy: nothing in it loads until the
+          tour auto-starts for a first-time user or someone opens the
+          drawer/tour explicitly (header button, overflow menu, command
+          palette or Shift+H). */}
+      <Suspense fallback={null}>
+        <HelpRoot pageId={pageId} userId={user?.id} isAdmin={can("view_docs")} go={go} />
+      </Suspense>
     </>
   );
 }

@@ -218,13 +218,13 @@ We can run and test the API with no infrastructure at all: DATA_SOURCE=fixtures 
 | Operate | Process Analysis | Which processes are healthy, which are not? |
 | Operate | Exceptions | What is failing, and why? |
 | Optimise | VDI & Capacity | Are our machines used well? |
-| Value | Executive Summary | The headline numbers for the exec and finance, on one screen |
+| Value | Executive Summary | The headline numbers for the exec and finance, for the estate or one hub |
 | Value | Value & Finance | What is automation worth, net? |
 | Value | Commercial Performance | What is the ROI, per case, per process? |
 | Manage | Administration | Where we edit reference data |
 | Reference | Data model, Playbook (admin only) | How the data and pipeline work |
 
-Executive Summary is the one page with no slicer bar: it has its own period control (This month, Last month, Quarter to date or FY to date, always anchored on the data-through date) and puts the headline numbers, estate health, a by-hub table, movers and a generated three-sentence briefing on a single screen. Print and Copy figures give the exec and finance a clean page or a pasteable set of figures without touching any other page.
+Executive Summary is the one page with no slicer bar: it has its own period control (This month, Last month, Quarter to date or FY to date, always anchored on the data-through date) and its own hub control (Estate plus every hub — a hub lead or business user sees only their own hub(s) and defaults to it, an admin or CoE-wide user sees Estate plus every hub and defaults to Estate, remembered per signed-in user). It puts the headline numbers, estate health, a by-hub table (or, once a hub is picked, a by-proposition table for that hub), movers and a generated three-sentence briefing on a single screen — every figure re-scopes to the selected hub, nothing here compares hubs against each other. Print and Copy figures give the exec and finance a clean page or a pasteable set of figures without touching any other page.
 
 Ctrl+K (or Cmd+K) opens a searchable command palette: pages, a 'drill into' shortcut for any process, a 'filter to' shortcut for any spoke, saved views, our top 5 unacknowledged alerts, actions like resetting slicers or toggling theme, and — for admins — a jump straight to any Playbook section. Typing > searches actions only.
 

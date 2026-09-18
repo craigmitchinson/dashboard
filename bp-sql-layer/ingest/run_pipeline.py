@@ -78,6 +78,14 @@ CONFIG (env vars):
                            without duplicating it in three places.
   IN_FLIGHT_STALE_MINUTES  See "CONCURRENCY / OVERLAP GUARD" above (default 30).
   LOAD_BATCH_SIZE          Passed through to load_to_sql.py (default 5000).
+  MAX_REJECT_PCT           If this run's RowsRejected (see
+                           raw.WorkQueueItemRejected / 05_proc_load_staging.sql)
+                           exceed this percentage of RowsStaged, the run is
+                           treated as a pipeline failure (exit 4) even
+                           though load_to_sql.py itself completed and
+                           recorded Status='success' -- the LOAD didn't
+                           fail, but the DATA QUALITY of what it loaded
+                           did. Default 2 (i.e. 2%).
   (plus every SQL_* var from sqlconn.py, needed unless --dry-run)
 
 EXIT CODES:
@@ -85,6 +93,10 @@ EXIT CODES:
   1  configuration error
   2  adapter subprocess failed (non-zero exit) -- its stderr is in the logs
   3  CSV validation or SQL execution error (from load_to_sql.py)
+  4  the load succeeded, but this run's reject rate (RowsRejected /
+     RowsStaged + RowsRejected) exceeded MAX_REJECT_PCT -- see "reject_rate_check" in the
+     logs either way (checked and logged on every successful load, pass
+     or fail, not only when it fails).
 """
 
 import json
@@ -222,6 +234,34 @@ def main():
         return 3
 
     log_event("pipeline_success", **summary)
+
+    max_reject_pct = float(env("MAX_REJECT_PCT", "2"))
+    rows_staged = summary.get("rows_staged") or 0
+    rows_rejected = summary.get("rows_rejected") or 0
+    # Share of all rows processed this pull that were rejected. A pull where
+    # every row was rejected (nothing staged) is 100%, never 0%.
+    rows_processed = rows_staged + rows_rejected
+    reject_pct = (rows_rejected / rows_processed * 100) if rows_processed else 0.0
+    exceeded = reject_pct > max_reject_pct
+    # Logged unconditionally (pass or fail) -- this is the one line an
+    # operator or alert (see deploy/scripts/11_alerting.sh) needs to answer
+    # "did this run's data quality hold up", independent of whether the
+    # load itself succeeded.
+    log_event(
+        "reject_rate_check",
+        rows_staged=rows_staged, rows_rejected=rows_rejected,
+        reject_pct=round(reject_pct, 4), max_reject_pct=max_reject_pct, exceeded=exceeded,
+    )
+    if exceeded:
+        log_event(
+            "pipeline_failed", stage="reject_rate",
+            error=(
+                f"{rows_rejected} of {rows_staged} staged rows rejected "
+                f"({reject_pct:.2f}%), exceeding MAX_REJECT_PCT={max_reject_pct}%"
+            ),
+        )
+        return 4
+
     return 0
 
 

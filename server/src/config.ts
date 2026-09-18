@@ -24,6 +24,11 @@ export interface Config {
   dataSource: DataSource;
   fixturesDir: string | undefined;
 
+  /** Expected minutes between pulls (Cloud Scheduler's cadence) -- GET
+   *  /api/health's `stale` = lastRun.watermarkAgeMinutes > 3 x this. See
+   *  routes/health.ts. */
+  pullCadenceMinutes: number;
+
   sql: {
     server: string | undefined;
     port: number;
@@ -66,6 +71,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 
     dataSource,
     fixturesDir: env.FIXTURES_DIR,
+    pullCadenceMinutes: Number(env.PULL_CADENCE_MINUTES ?? 15),
 
     sql: {
       server: env.SQL_SERVER,

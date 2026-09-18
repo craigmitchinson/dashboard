@@ -79,7 +79,11 @@ derives them from `core.Ref*` on every request.
 
 ## Endpoints
 
-- `GET /api/health` → `{ ok, dataThrough, lastPullAt, dbOk, version }`. No auth.
+- `GET /api/health` → `{ ok, dataThrough, lastPullAt, dbOk, version, lastRun, stale }`. No
+  auth. `lastRun` is the latest `core.PipelineRun` row (whatever its status)
+  via `report.vw_PipelineHealth`; `stale` is true when its
+  `watermarkAgeMinutes` exceeds `3 x PULL_CADENCE_MINUTES`. See "What breaks
+  and how you'll know" below.
 - `GET /api/model` → `ModelJson`, gzip'd, `ETag`/`If-None-Match` aware (304 on
   a match). Any authenticated user. Falls back to the last good cached model
   with `X-Data-Stale: true` if the data source is unavailable; 503 if
@@ -138,6 +142,7 @@ user, regardless of role.
 | `AUTH_MODE` | `none` | `entra` \| `dev` \| `none` |
 | `ENTRA_TENANT_ID` / `ENTRA_AUDIENCE` | — | required for `AUTH_MODE=entra` |
 | `DATA_SOURCE` | `sql` | `sql` \| `fixtures` |
+| `PULL_CADENCE_MINUTES` | `15` | Expected minutes between ingest pulls — `GET /api/health`'s `stale` = `lastRun.watermarkAgeMinutes > 3x` this. |
 | `FIXTURES_DIR` | — | required for `DATA_SOURCE=fixtures` |
 | `FIXTURES_REFERENCE_PATH` | derived | override the fixture-mode reference.json path |
 | `SQL_SERVER` / `SQL_PORT` / `SQL_DATABASE` / `SQL_USER` / `SQL_PASSWORD` | — | |
@@ -188,6 +193,25 @@ npm test
   rejects NaN/Infinity in a numeric field (a bare `typeof` check would wrongly
   admit both) and rejects a duplicate `spokeId` within `financeTargets[]`
   with a named error rather than silently overwriting one row with another.
+
+## What breaks and how you'll know
+
+"Set and forget" only works if a broken pipeline or a bad ingest is
+impossible to miss. This is the map from symptom to cause to fix, across
+the whole ingest→SQL→API→dashboard chain (see `bp-sql-layer/scripts/
+05_proc_load_staging.sql`/`11_pipeline_ops.sql` for the quarantine/ledger
+mechanics this table refers to, and `deploy/gcp.md`'s §11 for the
+out-of-band email alerts).
+
+| Symptom | Where it shows | What to do |
+|---|---|---|
+| A row is missing from the dashboard entirely | Nowhere obvious — this is the failure mode quarantining exists to prevent | Check `raw.WorkQueueItemRejected` for that `ID`/date range; `RejectReason` names exactly which field failed (blank ID, an unparseable date, a non-integer/negative Worktime or Attempt, an unknown Status). Fix the source export and re-pull. |
+| "Rows rejected" is non-zero, or the ingest job exits 4 | `GET /api/health`'s `lastRun.rowsRejected`; the dashboard's Admin → Data & sync → Data health block; Cloud Run execution logs (`reject_rate_check` / `pipeline_failed` structured log lines) | A small, steady trickle is often a known-messy source field — check `raw.WorkQueueItemRejected`'s `RejectReason` breakdown. A sudden spike usually means the source export changed shape or a queue started emitting garbage; fix at source, don't just raise `MAX_REJECT_PCT`. |
+| A queue's items never appear against any process | The dashboard's Data health block's "Unmapped queues" list; `report.vw_ModelUnmappedQueues`; `core.usp_RunPull`'s own PRINT warning | Add the queue to `core.RefQueueMap` under Administration → Propositions & processes → Queue mappings (or directly in SQL) — the hint text next to each unmapped queue says the same. |
+| The ingest job container exits non-zero | Cloud Run Jobs execution history; the email alert from `deploy/scripts/11_alerting.sh`'s `bp-ingest-run-failed` policy; `core.PipelineRun.Status = 'failed'` with `Error` populated | Read `Error` on the latest `core.PipelineRun` row (or the container's own JSON stdout logs) — exit 1 is a config problem (env vars), 2 is the adapter subprocess, 3 is a CSV header mismatch or SQL error, 4 is an excessive reject rate (see above). |
+| Nothing has pulled in a long time, but no single run "failed" | The email alert from `11_alerting.sh`'s `bp-ingest-no-recent-success` policy (log-absence, 60 minutes); `GET /api/health`'s `stale: true` | Check Cloud Scheduler hasn't been paused/deleted (`gcloud scheduler jobs describe <job>-scheduler`), and that the job isn't stuck `Status='running'` past `IN_FLIGHT_STALE_MINUTES` (`core.usp_GetInFlightRun`). |
+| The dashboard's header dot is amber | `src/data/status.tsx`'s `apiOk` (folds in both API-unreachable and `stale`) | Check `GET /api/health` directly — `dbOk: false` means the API can't reach SQL; `stale: true` means the data itself is old even though the API/DB are both up. The Admin → Data & sync page has the detail either way. |
+| A database not yet migrated with this task's columns | `GET /api/health`'s `lastRun: null`; `core.PipelineRun` missing `RowsRejected`/`UnmappedQueues`/`WatermarkAgeMinutes` | Re-run `bp-sql-layer/scripts/11_pipeline_ops.sql` and `13_api_model_views.sql` — both are idempotent (`IF COL_LENGTH(...) IS NULL` guards the `ALTER TABLE`s). |
 
 ## Integration notes for other workers
 

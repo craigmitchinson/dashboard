@@ -64,7 +64,7 @@ export const SECTIONS = [
             ["Operate", "Exceptions", "What is failing, and why?", "Everyone"],
             ["Operate", "Process detail", "One process in depth", "Everyone"],
             ["Optimise", "VDI & Capacity", "Are our machines used well?", "Everyone"],
-            ["Value", "Executive Summary", "Headline numbers for the exec and finance, on one screen", "Everyone"],
+            ["Value", "Executive Summary", "Headline numbers for the exec and finance, for the estate or one hub", "Everyone, scoped to their hub"],
             ["Value", "Value & Finance", "What is automation worth, net?", "Everyone"],
             ["Value", "Commercial Performance", "What is the ROI, per case, per process?", "Everyone"],
             ["Manage", "Administration", "Where reference data is edited", "Admin, hub lead, hub member"],
@@ -405,8 +405,13 @@ export const SECTIONS = [
   {
     id: "page-exec",
     title: "Page: Executive Summary",
-    intro: "One screen of headline numbers for the exec and finance. No slicer bar — it has its own period control, always anchored on the data-through date, never on today.",
+    intro: "One screen of headline numbers for the exec and finance, for the whole estate or for a single hub. No slicer bar — it has its own period control and its own hub control, always anchored on the data-through date, never on today.",
     items: [
+      {
+        id: "pex2-hub",
+        title: "Hub control",
+        body: "A control beside the period control offering **Estate** plus every hub. A hub lead or business user (anyone scoped to one or more hubs) sees only their own hub(s) and no Estate option, defaulting to their first hub; an admin or CoE-wide user sees Estate plus every hub, defaulting to Estate. The choice is remembered per signed-in user. Selecting a hub re-scopes every figure on the page — KPIs, operations, estate health, the table, movers and the briefing — to that hub alone; nothing here compares hubs against each other.",
+      },
       {
         id: "pex2-period",
         title: "Period control",
@@ -415,37 +420,37 @@ export const SECTIONS = [
       {
         id: "pex2-kpis",
         title: "Six KPI tiles",
-        body: "**Net benefit** with the change against the prior period, **Gross benefit**, **Estate cost**, **ROI**, **vs annual target** (fiscal-year-to-date net against the estate's annual net benefit target, or a prompt when none is set), and **Projected FY-end** at the current run-rate.",
+        body: "**Net benefit** with the change against the prior period, **Gross benefit**, **Estate cost** (or the hub's cost, once a hub is selected), **ROI**, **vs annual target** (fiscal-year-to-date net against the estate's — or the selected hub's own — annual net benefit target, or a prompt when none is set), and **Projected FY-end** at the current run-rate.",
       },
       {
         id: "pex2-ops",
         title: "Operations this period",
-        body: "A compact grid: Completed cases (with a trend sparkline), Completion rate, Exception rate, Cost per completed case, FTE released and Colleague hours saved — each with its change against the prior period, and a target-met dot on the four metrics that carry a target.",
+        body: "A compact grid, for the estate or the selected hub: Completed cases (with a trend sparkline), Completion rate, Exception rate, Cost per completed case, FTE released and Colleague hours saved — each with its change against the prior period, and a target-met dot on the three metrics that carry a target. The card title names the hub and period, e.g. \"Operations this period — Risk — FY to date\".",
       },
       {
         id: "pex2-health",
         title: "Estate health",
-        body: "Open breach and warning counts, active digital workers out of the estate total, average utilisation, spare capacity hours, and the three worst open alert headlines.",
+        body: "Open breach and warning counts, active digital workers, average utilisation, spare capacity hours, and the three worst open alert headlines. Once a hub is selected this is scoped to that hub's own alerts, plus any estate-wide breach or warning — the same rule the Alerts page uses for a hub-scoped user.",
       },
       {
         id: "pex2-byhub",
-        title: "By hub table",
-        body: "One row per hub: net benefit, fiscal-year-to-date net, attainment against that hub's annual target, completed cases, exception rate, cost per completed case, and a trend arrow against the prior period. A total row reconciles to the KPI tiles.",
+        title: "By hub / By proposition table",
+        body: "On the **Estate** view: one row per hub — net benefit, fiscal-year-to-date net, attainment against that hub's annual target, completed cases, exception rate, cost per completed case, and a trend arrow against the prior period. Once a **hub** is selected this table becomes **By proposition** instead: the same figures (minus the hub-level target column) broken down one row per proposition within that hub. A total row reconciles to the KPI tiles either way.",
       },
       {
         id: "pex2-movers",
         title: "Movers",
-        body: "The top three processes by net benefit, and the bottom three running at a loss, each with the reason it was flagged (the same fixed rules as Value & Finance's review candidates).",
+        body: "The top three processes by net benefit, and the bottom three running at a loss, each with the reason it was flagged (the same fixed rules as Value & Finance's review candidates) — drawn only from the estate, or only from the selected hub's own processes.",
       },
       {
         id: "pex2-briefing",
         title: "Briefing",
-        body: "Three sentences generated from the live model, alerts and reference targets: a headline (fiscal-year-to-date net benefit and its target status), the highest-priority risk (the worst open breach, or the worst process exception rate above target when nothing has breached), and a recommended action (the top loss-making process and why).",
+        body: "Three sentences generated from the live model, alerts and reference targets, scoped the same way as the rest of the page: a headline (fiscal-year-to-date net benefit and its target status), the highest-priority risk (the worst open breach, or the worst process exception rate above target when nothing has breached), and a recommended action (the top loss-making process and why).",
       },
       {
         id: "pex2-actions",
         title: "Print and Copy figures",
-        body: "**Print** opens a print-friendly layout of the page. **Copy figures** copies every tile, table row and briefing sentence as tab-separated text to the clipboard, for pasting into an email or a slide.",
+        body: "**Print** opens a print-friendly layout of the page. **Copy figures** copies every tile, table row and briefing sentence as tab-separated text to the clipboard, headed with the selected hub and period, for pasting into an email or a slide.",
       },
     ],
   },

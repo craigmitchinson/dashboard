@@ -35,12 +35,13 @@
 // Run: npm run data:build   (optionally: node tools/build-dashboard-data.mjs path/to/export.csv)
 // ---------------------------------------------------------------------------
 import { readFileSync, writeFileSync, mkdirSync, statSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assembleModel } from "../shared/model-assembler.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const CSV_PATH = process.argv[2] ? join(process.cwd(), process.argv[2]) : join(root, "data", "mock", "BPAWorkQueueItem.csv");
+// resolve() accepts both relative and absolute paths (join() would double-prefix an absolute Windows path).
+const CSV_PATH = process.argv[2] ? resolve(process.cwd(), process.argv[2]) : join(root, "data", "mock", "BPAWorkQueueItem.csv");
 const REF_PATH = join(root, "data", "reference", "reference.json");
 const OUT_DIR = join(root, "public", "data");
 

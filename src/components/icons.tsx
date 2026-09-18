@@ -35,10 +35,12 @@ export const IconForm = (p: IconProps) => (
   </Svg>
 );
 
+// Circled cross — the one close affordance for every dialog, drawer and
+// popover (a tick read as "confirm", not "close").
 export const IconClose = (p: IconProps) => (
   <Svg {...p}>
     <circle cx="12" cy="12" r="8.5" />
-    <path d="M8.5 12.5l2.5 2.5 4.5-5" />
+    <path d="M9 9l6 6M15 9l-6 6" />
   </Svg>
 );
 
@@ -295,5 +297,14 @@ export const IconDownload = (p: IconProps) => (
 export const IconCheck = (p: IconProps) => (
   <Svg {...p}>
     <path d="M4.5 12.5l5 5 10-11" />
+  </Svg>
+);
+
+// Circled question mark — help drawer trigger (src/help)
+export const IconHelp = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="M9.3 9.3a2.7 2.7 0 1 1 3.9 2.4c-.7.4-1.2.9-1.2 1.8v.3" />
+    <path d="M12 17v.2" />
   </Svg>
 );

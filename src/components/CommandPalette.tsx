@@ -15,6 +15,7 @@ import type { User } from "../auth/types";
 import { PLAYBOOK_SECTIONS } from "../pages/playbook-content";
 import { matchTier, rankPool, loadRecents, saveRecents, recentsKey } from "./command-ranking";
 import type { RecentEntry } from "./command-ranking";
+import { openHelpDrawer, startTour } from "../help/help-store";
 
 // Re-exported unchanged so the rest of the app (and this file) keep a single
 // import site — see src/components/command-ranking.ts for the actual
@@ -332,6 +333,8 @@ export function CommandPalette(props: CommandPaletteProps) {
       { label: "Accessibility settings", run: () => setShowA11yPanel(true) },
       { label: "Show shortcuts", run: () => setShowShortcuts(true) },
       { label: "Acknowledge all alerts", run: ackAll },
+      { label: "Take the tour", run: () => startTour() },
+      { label: "Help for this page", run: () => openHelpDrawer() },
       { label: "Sign out", run: signOut },
     ];
     for (const a of actions) items.push({ id: `action:${a.label}`, group: "Actions", label: a.label, run: a.run });

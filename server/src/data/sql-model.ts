@@ -14,7 +14,7 @@ import {
   resourcesRowsetFromReference,
   spokesRowsetFromReference,
 } from "./reference-mapping.js";
-import type { ModelRowsets, Row } from "../model-types.js";
+import type { ModelRowsets, PipelineHealth, Row } from "../model-types.js";
 
 /** mssql returns SQL DATE columns as JS Date objects (UTC midnight, given
  *  the driver's default useUTC:true) — convert to 'YYYY-MM-DD' so they match
@@ -37,7 +37,7 @@ export class SqlModelSource {
     const result = await req.query(`
       DECLARE @dataKey NVARCHAR(50) = NULL;
       IF OBJECT_ID('core.PipelineRun') IS NOT NULL
-        SELECT TOP 1 @dataKey = CAST(Id AS NVARCHAR(50)) FROM core.PipelineRun WHERE Status = 'ok' ORDER BY FinishedAt DESC;
+        SELECT TOP 1 @dataKey = CAST(RunId AS NVARCHAR(50)) FROM core.PipelineRun WHERE Status = 'success' ORDER BY FinishedAt DESC;
       IF @dataKey IS NULL
         SELECT @dataKey = CONVERT(NVARCHAR(50), MAX(LastUpdatedDate), 126) FROM core.FactWorkItem;
       DECLARE @refVersion INT = (SELECT TOP 1 Version FROM core.RefVersion WHERE Id = 1);
@@ -91,9 +91,44 @@ export async function getLastPullAt(db: Db): Promise<string | null> {
   const result = await db.request().query(`
     DECLARE @finishedAt DATETIME2(0) = NULL;
     IF OBJECT_ID('core.PipelineRun') IS NOT NULL
-      SELECT TOP 1 @finishedAt = FinishedAt FROM core.PipelineRun WHERE Status = 'ok' ORDER BY FinishedAt DESC;
+      SELECT TOP 1 @finishedAt = FinishedAt FROM core.PipelineRun WHERE Status = 'success' ORDER BY FinishedAt DESC;
     SELECT @finishedAt AS FinishedAt;
   `);
   const v = result.recordset[0]?.FinishedAt;
   return v ? new Date(v).toISOString() : null;
+}
+
+/** GET /api/health's `lastRun`: the single most recent core.PipelineRun
+ *  row, WHATEVER its Status (unlike getLastPullAt above, which only ever
+ *  looks at successful runs) -- a failed or still-running run is exactly
+ *  what the dashboard's Data health block needs to surface. Tolerates
+ *  report.vw_PipelineHealth's absence (a database not yet migrated with
+ *  13_api_model_views.sql's latest addition) -> null, same convention as
+ *  getLastPullAt's core.PipelineRun tolerance above. */
+export async function getLastRun(db: Db): Promise<PipelineHealth | null> {
+  const result = await db.request().query(`
+    IF OBJECT_ID('report.vw_PipelineHealth') IS NOT NULL
+      SELECT * FROM report.vw_PipelineHealth;
+  `);
+  const row = result.recordset?.[0];
+  if (!row) return null;
+  let unmappedQueues: { queue: string; rows: number }[] = [];
+  if (row.UnmappedQueues) {
+    try {
+      unmappedQueues = JSON.parse(row.UnmappedQueues);
+    } catch {
+      unmappedQueues = [];
+    }
+  }
+  return {
+    status: row.Status,
+    startedAt: new Date(row.StartedAt).toISOString(),
+    finishedAt: row.FinishedAt ? new Date(row.FinishedAt).toISOString() : null,
+    rowsStaged: row.RowsStaged ?? null,
+    rowsMerged: row.RowsMerged ?? null,
+    rowsRejected: row.RowsRejected ?? null,
+    unmappedQueues,
+    watermarkAgeMinutes: row.WatermarkAgeMinutes ?? null,
+    error: row.Error ?? null,
+  };
 }
