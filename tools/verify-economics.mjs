@@ -207,7 +207,7 @@ function pctDiff(a, b) {
 const benefitDiffPct = pctDiff(recomputedBenefit, bakedBenefit);
 const costDiffPct = pctDiff(recomputedCost, bakedCost);
 const exceptionCostDiffPct = pctDiff(recomputedExceptionCost, bakedExceptionCost);
-const THRESHOLD_PCT = 0.5;
+const THRESHOLD_PCT = 0.01;
 
 const ok = benefitDiffPct <= THRESHOLD_PCT && costDiffPct <= THRESHOLD_PCT && exceptionCostDiffPct <= THRESHOLD_PCT;
 
@@ -216,7 +216,7 @@ function fmt(n) {
 }
 
 if (!ok) {
-  console.error("PARITY FAILED — client economics engine does not reproduce the pipeline-baked totals within 0.5%.\n");
+  console.error(`PARITY FAILED — client economics engine does not reproduce the pipeline-baked totals within ${THRESHOLD_PCT}%.\n`);
   console.error("metric          | baked          | recomputed     | abs diff       | % diff");
   console.error("----------------|----------------|----------------|----------------|--------");
   console.error(`benefit (gb)    | ${fmt(bakedBenefit).padEnd(14)} | ${fmt(recomputedBenefit).padEnd(14)} | ${fmt(Math.abs(recomputedBenefit - bakedBenefit)).padEnd(14)} | ${benefitDiffPct.toFixed(3)}%`);

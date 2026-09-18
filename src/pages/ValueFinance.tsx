@@ -2,13 +2,14 @@ import { useMemo, useState } from "react";
 import { fonts } from "../theme";
 import { useTheme } from "../theme-context";
 import { useFilters, fiscalYearBounds, FISCAL_YEAR_START_MONTH_DEFAULT } from "../filters-context";
-import { fmtDate, TARGETS } from "../rpaData";
+import { fmtDate } from "../rpaData";
 import { useReference } from "../reference/reference-context";
 import { KpiCard, VisualCard, PageGrid, Row, useViz, fmtGBPc, fmtMoney2, fmtPct, fmtInt } from "../components/viz";
 import { ExportCsvButton } from "../components/PageActions";
 import { WaterfallChart, ParetoChart, StackedCostTrend, SpokePLTable, fyFinanceColors } from "../components/viz-finance";
 import type { WaterfallStep } from "../components/viz-finance";
 import { classifyReviewCandidate, fyAttainment } from "./value-rules";
+import { resolvedTarget, targetMetAtMost } from "./target-rules";
 
 const DAY = 86400000;
 // Stable fallback so `reference.financeTargets` being undefined doesn't
@@ -17,12 +18,13 @@ const DAY = 86400000;
 const NO_FINANCE_TARGETS: NonNullable<ReturnType<typeof useReference>["reference"]["financeTargets"]> = [];
 
 export function ValueFinance() {
-  const { model } = useFilters();
+  const { model, filters } = useFilters();
   const { reference } = useReference();
   const m = model;
   const v = useViz();
   const t = useTheme();
   const colors = fyFinanceColors(t);
+  const costPerCaseTarget = resolvedTarget(reference, "costPerCase", filters.spoke);
   const hasRows = m.rows.length > 0;
   // Tracks the Spoke P&L table's current sort order (see SpokePLTable's
   // onSortedChange) so its CSV export matches exactly what's on screen.
@@ -166,7 +168,7 @@ export function ValueFinance() {
           delta={m.prev.costPerCase ? (m.costPerCase - m.prev.costPerCase) / m.prev.costPerCase : undefined}
           deltaGood="down"
           sub="vs prev. period"
-          target={{ label: `Target ≤ ${fmtMoney2(TARGETS.costPerCase)}`, met: m.costPerCase <= TARGETS.costPerCase }}
+          target={{ label: `Target ≤ ${fmtMoney2(costPerCaseTarget)}`, met: targetMetAtMost(m.costPerCase, costPerCaseTarget) }}
         />
       </div>
 

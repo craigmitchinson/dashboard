@@ -1,10 +1,11 @@
-import { createContext, useContext, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import {
   ROWS,
   EXC_ROWS,
   RES_ROWS,
   ESTATE_RATE,
+  SPOKES,
   PROCESSES,
   PROCESS_BY_ID,
   VDIS,
@@ -22,6 +23,7 @@ import { ReferenceProvider, useReference } from "./reference/reference-context";
 import { availableDaysInWindow, benefitForRow, buildRateTables, costForRow, costForResRow, reworkCostForRow } from "./reference/economics";
 import type { RateTables } from "./reference/economics";
 import type { ReferenceJson } from "./reference/reference-store";
+import { useAuth } from "./auth/auth-context";
 
 const DAY = 86400000;
 
@@ -45,6 +47,105 @@ export { DATA_MIN_ISO, DATA_MAX_ISO } from "./rpaData";
 // 0 = "value benefit at each process's own grade rate" (the honest default);
 // any other value is a what-if override applied as a flat £/h across the board.
 export const RATE_AUTO = 0;
+
+// --- per-user persistence -----------------------------------------------
+// Same per-user namespacing pattern App.tsx uses for saved views
+// (bp-saved-views-v1::{userId}) — filters/rate persist here so a signed-in
+// user's slicer state survives a reload, but two people sharing a browser
+// profile never see each other's.
+const FILTERS_STORAGE_KEY = "bp-filters-v1";
+
+function filtersKeyFor(userId: string | undefined): string {
+  return userId ? `${FILTERS_STORAGE_KEY}::${userId}` : FILTERS_STORAGE_KEY;
+}
+
+const RANGE_PRESETS: RangePreset[] = [7, 30, 90, "ytd", "all", "custom"];
+
+// Validates a raw (e.g. persisted, or decoded from a shared view link) value
+// into a safe Filters object — an unknown/stale spoke, proposition, process
+// or queue id (e.g. reference data changed, or a link from someone else's
+// browser) falls back to "All" rather than producing a filter combo that
+// silently matches nothing.
+//
+// Fields are NOT just independently validated against their own universe —
+// the spoke -> proposition -> process -> queue cascade is also enforced
+// (mirroring Slicers.tsx's own selection handlers, which always reset every
+// NARROWER field alongside a broader one), so an internally-inconsistent
+// combination (e.g. a persisted/shared spoke "A" paired with a process that
+// actually belongs to spoke "B") can never survive sanitization and quietly
+// filter every row out:
+//   1. processId whose OWN spoke != spoke (spoke != "All")   -> reset processId AND queue
+//   2. proposition whose OWN spoke != spoke (spoke != "All") -> reset proposition
+//   3. processId whose OWN proposition != proposition        -> reset processId
+//   4. queue whose OWN process != processId (processId != "All") -> reset queue
+// Rules 2 and 3 are applied in that dependency order (proposition is
+// corrected against spoke BEFORE processId is checked against it) even
+// though the numbering above lists processId-vs-spoke first — the two
+// checks are independent of each other, so the visible order doesn't change
+// the outcome, only the code's own read order.
+export function sanitizeFilters(raw: unknown): Filters {
+  if (!raw || typeof raw !== "object") return DEFAULT_FILTERS;
+  const r = raw as Partial<Filters>;
+
+  const spoke = typeof r.spoke === "string" && (r.spoke === "All" || SPOKES.includes(r.spoke)) ? r.spoke : "All";
+
+  let proposition =
+    typeof r.proposition === "string" && (r.proposition === "All" || PROCESSES.some((p) => p.proposition === r.proposition)) ? r.proposition : "All";
+  if (spoke !== "All" && proposition !== "All") {
+    const propositionSpoke = PROCESSES.find((p) => p.proposition === proposition)?.spoke;
+    if (propositionSpoke !== spoke) proposition = "All";
+  }
+
+  let processId = typeof r.processId === "string" && (r.processId === "All" || PROCESS_BY_ID.has(r.processId)) ? r.processId : "All";
+  let queue =
+    typeof r.queue === "string" && (r.queue === "All" || PROCESSES.some((p) => p.queues.some((q) => q.queue === r.queue))) ? r.queue : "All";
+
+  if (processId !== "All") {
+    const proc = PROCESS_BY_ID.get(processId);
+    if (spoke !== "All" && proc?.spoke !== spoke) {
+      processId = "All";
+      queue = "All";
+    } else if (proposition !== "All" && proc?.proposition !== proposition) {
+      processId = "All";
+    }
+  }
+
+  if (queue !== "All" && processId !== "All") {
+    const queueOwner = PROCESSES.find((p) => p.queues.some((q) => q.queue === queue));
+    if (queueOwner?.id !== processId) queue = "All";
+  }
+
+  const tags = Array.isArray(r.tags) ? r.tags.filter((tg): tg is string => typeof tg === "string") : [];
+  const range = RANGE_PRESETS.includes(r.range as RangePreset) ? (r.range as RangePreset) : DEFAULT_FILTERS.range;
+  const from = range === "custom" && typeof r.from === "string" ? r.from : undefined;
+  const to = range === "custom" && typeof r.to === "string" ? r.to : undefined;
+  return { spoke, proposition, processId, queue, tags, range, from, to };
+}
+
+interface PersistedFilterState {
+  filters: Filters;
+  peopleRate: number;
+}
+
+function loadPersistedFilterState(userId: string | undefined): PersistedFilterState {
+  try {
+    const raw = localStorage.getItem(filtersKeyFor(userId));
+    if (!raw) return { filters: DEFAULT_FILTERS, peopleRate: RATE_AUTO };
+    const parsed = JSON.parse(raw);
+    const peopleRate = typeof parsed?.peopleRate === "number" && Number.isFinite(parsed.peopleRate) ? parsed.peopleRate : RATE_AUTO;
+    return { filters: sanitizeFilters(parsed?.filters), peopleRate };
+  } catch {
+    return { filters: DEFAULT_FILTERS, peopleRate: RATE_AUTO };
+  }
+}
+
+function savePersistedFilterState(userId: string | undefined, state: PersistedFilterState): void {
+  try {
+    localStorage.setItem(filtersKeyFor(userId), JSON.stringify(state));
+  } catch {
+    /* ignore */
+  }
+}
 
 // Fiscal year start month (1 = January): defaults to April (UK FY) until
 // reference.targets exposes a configurable fiscalYearStartMonth (it does not
@@ -227,6 +328,10 @@ interface Ctx {
   // process options narrowed by the active spoke/proposition
   processOptions: { id: string; name: string }[];
   propositionOptions: string[];
+  // queue options narrowed by the active spoke/proposition/process — queues
+  // belong to processes (ProcessDim.queues), so this cascades the same way
+  // processOptions does.
+  queueOptions: string[];
   model: Model;
 }
 
@@ -633,8 +738,16 @@ export function FiltersProvider({ children }: { children: ReactNode }) {
 
 function FiltersProviderInner({ children }: { children: ReactNode }) {
   const { reference } = useReference();
-  const [filters, setFiltersState] = useState<Filters>(DEFAULT_FILTERS);
-  const [peopleRate, setPeopleRate] = useState(RATE_AUTO);
+  const { user } = useAuth();
+  const [filters, setFiltersState] = useState<Filters>(() => loadPersistedFilterState(user?.id).filters);
+  const [peopleRate, setPeopleRate] = useState(() => loadPersistedFilterState(user?.id).peopleRate);
+
+  // Persist on every change, per signed-in user — guarded by
+  // savePersistedFilterState's own try/catch (private-browsing / quota
+  // errors never throw here).
+  useEffect(() => {
+    savePersistedFilterState(user?.id, { filters, peopleRate });
+  }, [filters, peopleRate, user?.id]);
 
   const setFilters = (f: Partial<Filters>) => setFiltersState((prev) => ({ ...prev, ...f }));
   const reset = () => {
@@ -658,6 +771,19 @@ function FiltersProviderInner({ children }: { children: ReactNode }) {
     return ps.map((p) => ({ id: p.id, name: p.name }));
   }, [filters.spoke, filters.proposition]);
 
+  // Queues belong to processes (ProcessDim.queues), so narrow the same way
+  // processOptions does, ALSO narrowing by the active process (queues are
+  // the leaf of the spoke -> proposition -> process -> queue cascade).
+  const queueOptions = useMemo(() => {
+    const ps = PROCESSES.filter(
+      (p) =>
+        (filters.spoke === "All" || p.spoke === filters.spoke) &&
+        (filters.proposition === "All" || p.proposition === filters.proposition) &&
+        (filters.processId === "All" || p.id === filters.processId),
+    );
+    return Array.from(new Set(ps.flatMap((p) => p.queues.map((q) => q.queue)))).sort();
+  }, [filters.spoke, filters.proposition, filters.processId]);
+
   // Reference-data-driven rate tables: rebuilt only when reference changes
   // (edits in the browser), not on every filter/rate change.
   const tables = useMemo(
@@ -667,8 +793,19 @@ function FiltersProviderInner({ children }: { children: ReactNode }) {
 
   const model = useMemo<Model>(() => computeModel(filters, peopleRate, reference, tables), [filters, peopleRate, reference, tables]);
 
+  // Defensive cascade reset: every spoke/proposition/process slicer handler
+  // already resets `queue` to "All" alongside itself (Slicers.tsx), but this
+  // catches the remaining case — reference data (a process's queue list)
+  // edited out from under an already-selected queue — so a stale queue
+  // selection can never silently intersect with zero processes.
+  useEffect(() => {
+    if (filters.queue !== "All" && !queueOptions.includes(filters.queue)) {
+      setFiltersState((prev) => (prev.queue === "All" || queueOptions.includes(prev.queue) ? prev : { ...prev, queue: "All" }));
+    }
+  }, [queueOptions, filters.queue]);
+
   return (
-    <FiltersContext.Provider value={{ filters, setFilters, reset, peopleRate, setPeopleRate, applyView, processOptions, propositionOptions, model }}>
+    <FiltersContext.Provider value={{ filters, setFilters, reset, peopleRate, setPeopleRate, applyView, processOptions, propositionOptions, queueOptions, model }}>
       {children}
     </FiltersContext.Provider>
   );

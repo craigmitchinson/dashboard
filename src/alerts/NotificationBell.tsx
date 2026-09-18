@@ -34,7 +34,9 @@ const PREVIEW_COUNT = 5;
 
 export function NotificationBell({ setPageId }: { setPageId: (id: string) => void }) {
   const t = useTheme();
-  const { alerts, sortedAlerts, acked, unackedCount, ackAll } = useAlerts();
+  // visibleAlerts/sortedVisibleAlerts (not alerts/sortedAlerts) — a snoozed
+  // alert is hidden from the bell entirely (see alerts-context.tsx).
+  const { visibleAlerts: alerts, sortedVisibleAlerts: sortedAlerts, acked, unackedCount, ackAll } = useAlerts();
 
   // Announce only on an INCREASE in unacked count, never on a decrease (which
   // happens when the user acknowledges something).

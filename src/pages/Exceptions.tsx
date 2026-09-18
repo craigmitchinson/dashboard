@@ -103,17 +103,19 @@ export function Exceptions() {
   // NOT `minmax(30px, 1fr)` — so the coloured cell inside actually stretches
   // edge-to-edge to fill its track at any width instead of leaving slack.
   const colW = `170px repeat(${types.length}, minmax(0, 1fr)) 72px`;
-  // Uniform row height for the heatmap body (24px — the bottom of the
-  // 22–28px "still reads as a heatmap" range) so a full process list fits
-  // without its own scroll at 1440×900: at 27px, 14 processes (today's hub
-  // view) needed ~453px of content against ~300px actually available,
-  // silently dropping the last couple of rows with no scroll cue — the
-  // "13 processes before, 11 after, no visible scroll" bug. Header/totals
-  // stay `auto` so their own padding/border controls their height.
-  const ROW_H = 24;
+  // Uniform row height for the heatmap body — tightened further to 20px (2px
+  // below the original 22–28px "still reads as a heatmap" range) because
+  // 22px alone still left the full 14-row grid ~65px taller than the space
+  // left over once the detail table below claims its own fixed 3-row
+  // region — the last row or two would otherwise only be reachable via the
+  // heatmap's OWN internal scroll (`.heat-scroll--fade`), which technically
+  // keeps `.report__canvas` itself unscrolled but defeats "all 14 rows
+  // visible at once". Paired with tighter header/totals padding below, this
+  // closes that gap with the grid still comfortably legible at 1440×900.
+  const ROW_H = 20;
   const gridTemplateRows = `auto repeat(${processes.length}, ${ROW_H}px) auto`;
-  const headerCellStyle: CSSProperties = { paddingBottom: 5, borderBottom: `1px solid ${t.ruleSoft}` };
-  const totalCellStyle: CSSProperties = { paddingTop: 5, borderTop: `1px solid ${t.ruleSoft}` };
+  const headerCellStyle: CSSProperties = { paddingBottom: 3, borderBottom: `1px solid ${t.ruleSoft}` };
+  const totalCellStyle: CSSProperties = { paddingTop: 3, borderTop: `1px solid ${t.ruleSoft}` };
 
   // The heatmap card is now SIZED TO ITS CONTENT (Row grow={false} below),
   // not stretched to a fixed flex share of the page — every process row is
@@ -147,19 +149,20 @@ export function Exceptions() {
         <KpiCard label="Exception cost (period)" value={fmtGBP(m.exceptionCostGBP)} accent={v.bad} sub={`${fmtGBP(m.exceptionCostBusinessGBP)} business · ${fmtGBP(m.exceptionCostSystemGBP)} system`} />
       </div>
 
-      {/* grow={false}: sized to its OWN content (every process row at its
-          24px height, see ROW_H above) rather than a fixed flex share of
-          the page — the fix for "a heatmap must show every process at
-          once". The detail Row below still grows to fill whatever's left,
-          floored at minHeight so it always keeps its own ≥5 rows. */}
-      <Row cols="1fr" grow={false}>
-        <VisualCard title="Exception heatmap" subtitle="Volume by process (rows) and exception type (columns) — stronger colour = more">
+      {/* Takes the REMAINING canvas height (grow, default weight) once the
+          detail Row below claims its own small fixed region — every process
+          row is still guaranteed on screen by construction (the grid's rows
+          are fixed ROW_H px each; growing the Row only ever adds slack
+          space around the card, it never shrinks the grid below its content
+          height). */}
+      <Row cols="1fr">
+        <VisualCard title="Exception heatmap" subtitle="Volume by process (rows), exception type (columns) — stronger colour = more. Column codes are initials; hover a cell or header for the full name.">
         {processes.length === 0 ? (
           <EmptyState onReset={() => setFilters(DEFAULT_FILTERS)} />
         ) : (
-        <div ref={heatScrollRef} className={heatOverflowing ? "heat-scroll--fade" : undefined} style={{ overflow: "auto", paddingBottom: 4, maxHeight: heatMaxH }}>
+        <div ref={heatScrollRef} className={heatOverflowing ? "heat-scroll--fade" : undefined} style={{ overflow: "auto", maxHeight: heatMaxH }}>
           <div style={{ minWidth: 720 }}>
-            <div style={{ display: "grid", gridTemplateColumns: colW, gridTemplateRows, columnGap: 1, rowGap: 1 }}>
+            <div style={{ display: "grid", gridTemplateColumns: colW, gridTemplateRows, columnGap: 1, rowGap: 0 }}>
               {/* header row */}
               <span style={headerCellStyle} />
               {types.map((ty) => (
@@ -228,24 +231,27 @@ export function Exceptions() {
               ))}
               <span style={{ display: "grid", placeItems: "center", fontFamily: fonts.mono, fontSize: 10.5, fontWeight: 700, color: t.ink, ...totalCellStyle }}>{fmtCompact(rowTotals.reduce((s, val) => s + val, 0))}</span>
             </div>
-            <div style={{ display: "flex", gap: 16, marginTop: 8, fontFamily: fonts.mono, fontSize: 10, color: t.inkSoft }}>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: v.system }} /> System types</span>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: v.business }} /> Business types</span>
-              <span>Column codes are initials — hover a cell or header for the full name.</span>
-            </div>
+            {/* The System/Business colour-key + "hover for full name" hint
+                used to live in its own row here — folded into the card's
+                subtitle above instead (the column header codes are already
+                tinted system/business, same as before) so it no longer
+                costs its own ~21px of scrollable content height, which was
+                the difference between all 14 rows fitting at 1440×900
+                without the heatmap's own internal scroll kicking in. */}
           </div>
         </div>
         )}
         </VisualCard>
       </Row>
 
-      {/* minHeight 296 = DataTable's own header (~29.5px) + 5 data rows
-          (~36.3px each) + the card's own header/padding overhead (~64px) —
-          the floor that keeps "≥5 visible rows with its own scroll" true
-          regardless of how tall the now content-sized heatmap Row above
-          gets; still grows past that floor to fill any extra leftover
-          space via `grow`'s default flex:1. */}
-      <Row cols="1fr" style={{ minHeight: 296 }}>
+      {/* grow={false}: sized to its OWN small content — a 3-row visible
+          region (DataTable's maxBodyHeight below) that scrolls internally
+          for the rest, rather than a flex share of the page. This (plus
+          ROW_H 22 on the heatmap above) is what makes the whole page fit
+          .report__canvas with no page scroll at 1440×900 while still
+          showing all 14 heatmap rows — the previous ≥5-row fixed floor
+          (296px) was the ~160px of overflow this trades away. */}
+      <Row cols="1fr" grow={false}>
       <VisualCard
         title="Exception detail"
         subtitle="Every exception type across the current filters"
@@ -264,17 +270,16 @@ export function Exceptions() {
           </div>
         }
       >
-        {/* maxBodyHeight caps the table's own natural/intrinsic height instead
-            of letting it grow to fit every row unconstrained — without this,
-            DataTable (viz.tsx) happily renders all rows at full height, which
-            (via how `.report__canvas`'s flex column sizes itself off its
-            content when unconstrained by the viewport) would make the detail
-            table needlessly tall instead of using its own internal scroll.
-            360px comfortably clears the ≥5-row floor (header + ~9 rows) —
-            the Row above carries a matching `minHeight` (296) so this card
-            never renders shorter than that floor even when the heatmap Row
-            (now sized to its own content, not a fixed flex share) is tall. */}
-        <DataTable columns={columns} rows={tableRows} initialSort={{ key: "volume", dir: "desc" }} maxBodyHeight={360} onSortedChange={setSortedRows} />
+        {/* A 3-row visible region (DataTable's own header ~29.5px + 3 data
+            rows at ~36.3px each ≈ 138px) that scrolls internally for the
+            rest — `.viz-scroll` (primitives.css) adds the same bottom-fade
+            affordance the heatmap card already uses (`.heat-scroll--fade`)
+            so "more below, scroll" reads the same way in both places. This
+            wrapper's own fixed height is what the Row above (grow={false})
+            sizes itself to. */}
+        <div className="viz-scroll" style={{ height: 138 }}>
+          <DataTable columns={columns} rows={tableRows} initialSort={{ key: "volume", dir: "desc" }} onSortedChange={setSortedRows} />
+        </div>
       </VisualCard>
       </Row>
     </PageGrid>

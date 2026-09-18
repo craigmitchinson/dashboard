@@ -7,13 +7,17 @@ import type { Column } from "../components/viz";
 import { ExportCsvButton } from "../components/PageActions";
 import { SpokeSwatch } from "../components/SpokeSwatch";
 import { fonts } from "../theme";
-import { TARGETS } from "../rpaData";
+import { useReference } from "../reference/reference-context";
+import { resolvedTarget, utilWithinBand } from "./target-rules";
 
 export function Capacity() {
-  const { model } = useFilters();
+  const { model, filters } = useFilters();
+  const { reference } = useReference();
   const m = model;
   const v = useViz();
   const t = useTheme();
+  const utilMinTarget = resolvedTarget(reference, "utilMin", filters.spoke);
+  const utilMaxTarget = resolvedTarget(reference, "utilMax", filters.spoke);
 
   const [sortedRows, setSortedRows] = useState<VdiAgg[]>([]);
 
@@ -24,7 +28,7 @@ export function Capacity() {
   const avgUtil = totalAvail ? totalActive / totalAvail : 0;
   const totalCost = m.vdis.reduce((s, d) => s + d.cost, 0);
 
-  const utilColor = (u: number) => (u >= TARGETS.utilMax ? v.bad : u >= TARGETS.utilMin ? v.good : v.business);
+  const utilColor = (u: number) => (u >= utilMaxTarget ? v.bad : u >= utilMinTarget ? v.good : v.business);
 
   // Spoke-grouped utilisation strip (left card): group every digital worker
   // by owning spoke, each group sorted busiest-first — a flat, ungrouped
@@ -60,9 +64,9 @@ export function Capacity() {
     <PageGrid>
       <div className="kpi-row kpi-row--4">
         <KpiCard label="Active digital workers" value={String(active.length)} accent={t.series} sub={`of ${m.vdis.length} in the estate`} />
-        <KpiCard label="Average utilisation" value={fmtPct(avgUtil, 0)} accent={utilColor(avgUtil)} sub={`${fmtCompact(totalActive)} of ${fmtCompact(totalAvail)} hrs`} target={{ label: `Target ${fmtPct(TARGETS.utilMin, 0)}–${fmtPct(TARGETS.utilMax, 0)}`, met: avgUtil >= TARGETS.utilMin && avgUtil <= TARGETS.utilMax }} />
+        <KpiCard label="Average utilisation" value={fmtPct(avgUtil, 0)} accent={utilColor(avgUtil)} sub={`${fmtCompact(totalActive)} of ${fmtCompact(totalAvail)} hrs`} target={{ label: `Target ${fmtPct(utilMinTarget, 0)}–${fmtPct(utilMaxTarget, 0)}`, met: utilWithinBand(avgUtil, utilMinTarget, utilMaxTarget) }} />
         <KpiCard label="Spare capacity" value={fmtCompact(totalIdle)} accent={v.business} sub="hours available for new automations" />
-        <KpiCard label="Estate cost (period)" value={fmtGBP(totalCost)} accent={v.system} sub="hub pool + spoke infra, apportioned" />
+        <KpiCard label="Estate cost (period)" value={fmtGBP(totalCost)} accent={v.system} sub="Teams + Machines, apportioned" />
       </div>
 
       <Row cols="minmax(0,1fr) minmax(0,1.15fr)">
@@ -107,11 +111,11 @@ export function Capacity() {
             title="Capacity & cost summary"
             subtitle="Utilisation vs healthy band, and where the spend goes"
             style={{ flex: "0 0 auto" }}
-            summary={`Average utilisation ${fmtPct(avgUtil, 0)}, target ${fmtPct(TARGETS.utilMax, 0)}. Licensed capacity ${fmtCompact(totalAvail)} hours. Productive bot time ${fmtCompact(totalActive)} hours. Estate cost, apportioned, ${fmtGBP(totalCost)}.`}
+            summary={`Average utilisation ${fmtPct(avgUtil, 0)}, target ${fmtPct(utilMaxTarget, 0)}. Licensed capacity ${fmtCompact(totalAvail)} hours. Productive bot time ${fmtCompact(totalActive)} hours. Estate cost, apportioned, ${fmtGBP(totalCost)}.`}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 16, height: "100%", paddingTop: 2 }}>
               <div style={{ flex: "0 0 auto" }}>
-                <Gauge value={avgUtil} min={0} max={1} size={120} band={[TARGETS.utilMin, TARGETS.utilMax]} target={TARGETS.utilMax} color={utilColor(avgUtil)} format={(n) => fmtPct(n, 0)} label="Utilisation" />
+                <Gauge value={avgUtil} min={0} max={1} size={120} band={[utilMinTarget, utilMaxTarget]} target={utilMaxTarget} color={utilColor(avgUtil)} format={(n) => fmtPct(n, 0)} label="Utilisation" />
               </div>
               <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
               {[

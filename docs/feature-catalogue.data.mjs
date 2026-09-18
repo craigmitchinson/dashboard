@@ -10,8 +10,8 @@
 export const CATALOGUE_META = {
   title: "Intelligent Automation Performance Dashboard",
   subtitle: "Feature and metric catalogue for hub review",
-  version: "1.0",
-  dated: "2026-09-16",
+  version: "1.1",
+  dated: "2026-09-18",
   audience:
     "Hub leads and squad members in Insurance, Pensions & Investments; Risk; Commercial; Consumer Lending; and the CoE team.",
   purpose:
@@ -19,8 +19,8 @@ export const CATALOGUE_META = {
   howToReview: [
     "Work through the sections that matter to your hub. Every item is numbered so you can refer to it in your reply.",
     "For each item tell us whether it Meets your need, Partly meets it, or leaves a Gap, with a short note wherever it is Partly or Gap or the definition does not match how your hub measures things.",
-    "Section 23 lists the questions we most need answered. Section 22 lists what we already know is missing, so you can confirm or reprioritise.",
-    "Section 17 shows the reference data loaded today. If a rate, SMV, grade, VDI or people-cost figure for your hub is wrong, tell us the right one.",
+    "Section 24 lists the questions we most need answered. Section 23 lists what we already know is missing, so you can confirm or reprioritise.",
+    "Section 18 shows the reference data loaded today. If a rate, SMV, grade, VDI or people-cost figure for your hub is wrong, tell us the right one.",
     "Reply with comments in this document, or a list of item numbers and verdicts, to the CoE team.",
   ],
   hubs: [
@@ -52,8 +52,8 @@ export const SECTIONS = [
       },
       {
         id: "ov-pages",
-        title: "Twelve pages in six groups",
-        body: "Overview and Alerts (Overview group); Input & Outcome, Process Analysis, Exceptions and Process detail (Operate); VDI & Capacity (Optimise); Value & Finance and Commercial Performance (Value); Administration (Manage); Data model and Playbook (Reference, admin only). Pages a user may not see are removed from the navigation entirely.",
+        title: "Thirteen pages in six groups",
+        body: "Executive Summary and Value & Finance and Commercial Performance (Value group); Overview and Alerts (Overview group); Input & Outcome, Process Analysis, Exceptions and Process detail (Operate); VDI & Capacity (Optimise); Administration (Manage); Data model and Playbook (Reference, admin only). Pages a user may not see are removed from the navigation entirely.",
         table: {
           headers: ["Group", "Page", "What it answers", "Who sees it"],
           rows: [
@@ -64,6 +64,7 @@ export const SECTIONS = [
             ["Operate", "Exceptions", "What is failing, and why?", "Everyone"],
             ["Operate", "Process detail", "One process in depth", "Everyone"],
             ["Optimise", "VDI & Capacity", "Are our machines used well?", "Everyone"],
+            ["Value", "Executive Summary", "Headline numbers for the exec and finance, on one screen", "Everyone"],
             ["Value", "Value & Finance", "What is automation worth, net?", "Everyone"],
             ["Value", "Commercial Performance", "What is the ROI, per case, per process?", "Everyone"],
             ["Manage", "Administration", "Where reference data is edited", "Admin, hub lead, hub member"],
@@ -104,7 +105,7 @@ export const SECTIONS = [
       {
         id: "fl-queue",
         title: "Queue name filter",
-        body: "All 15 Blue Prism queue names. This list is not narrowed by the spoke or process chosen above it.",
+        body: "Cascades with the filters above it: options narrow to the queues belonging to the processes of the selected spoke, proposition and process, the same way the Process name filter narrows to the selected spoke and proposition. With nothing else selected, all 15 Blue Prism queue names are offered.",
       },
       {
         id: "fl-tags",
@@ -134,7 +135,7 @@ export const SECTIONS = [
       {
         id: "fl-views",
         title: "Saved views",
-        body: "Save the current filters, what-if rate and page under a name. Views are private to the signed-in user, listed under **Views** in the header and in the command palette, and can be deleted. Saving the same name again overwrites it. There is no separate rename.",
+        body: "Save the current filters, what-if rate and page under a name. Views are private to the signed-in user, listed under **Views** in the header and in the command palette, and can be renamed or deleted. Saving the same name again overwrites it. **Copy link** puts a shareable URL on the clipboard with the view encoded in the link's hash; opening it (by anyone) applies that view once, with no server round-trip and no sign-in requirement to decode it.",
       },
       {
         id: "fl-palette",
@@ -161,7 +162,7 @@ export const SECTIONS = [
       {
         id: "fl-persist",
         title: "What is remembered between visits",
-        body: "Per signed-in user: saved views, the last page and navigation state, display settings, recent palette choices and alert acknowledgements. Filter selections are not remembered; every visit starts at All spokes and Last 90 days.",
+        body: "Per signed-in user: saved views, the six filters and the what-if rate, the last page and navigation state, display settings, recent palette choices, and alert acknowledgements and snoozes. **Reset** clears the filters and what-if rate back to defaults (All spokes, Last 90 days) for that user; it does not delete saved views.",
       },
     ],
   },
@@ -225,17 +226,17 @@ export const SECTIONS = [
       {
         id: "pal-toolbar",
         title: "Counts, filters and export",
-        body: "The top strip shows breach, warning and acknowledged counts for the current view, a **Hide acknowledged** switch, **Acknowledge all** for the filtered set, and CSV export. Scope chips filter to Estate, Spoke, Process or VDI alerts. The spoke, proposition and process filters also narrow the feed.",
+        body: "The top strip shows breach, warning and acknowledged counts for the current view, a **Hide acknowledged** switch, a **Show snoozed** switch (off by default), **Acknowledge all** for the filtered set, and CSV export. Scope chips filter to Estate, Spoke, Process or VDI alerts. The spoke, proposition and process filters also narrow the feed.",
       },
       {
         id: "pal-visibility",
         title: "Who sees which alerts",
-        body: "Admins and CoE-wide users see every alert. A user attached to a hub sees estate-wide alerts plus alerts for their own hub, its processes and its VDIs. Alerts for hub-owned (shared or test) VDIs are a CoE concern and are not shown to hub-scoped users.",
+        body: "Admins and CoE-wide users see every alert. A user attached to a hub sees estate-wide alerts plus alerts for their own hub, its processes and its VDIs. Alerts for hub-owned (shared or test) VDIs are also shown to a hub whose own processes actually ran on that machine — the machine stays a CoE concern, but its health affects that hub's own throughput too. A hub-owned VDI that never ran any of a hub's processes stays hidden from that hub.",
       },
       {
         id: "pal-ack",
-        title: "Acknowledgement",
-        body: "Acknowledgements are per signed-in user. They expire automatically when a new data build moves the data-through date on, so a persisting problem resurfaces.",
+        title: "Acknowledgement and snooze",
+        body: "**Acknowledge** is per signed-in user and expires automatically when a new data build moves the data-through date on, so a persisting problem resurfaces. **Snooze until resolved** is also per user, but survives a data build: it hides the alert for as long as the same underlying breach keeps recurring, and clears itself the first time that breach does not reappear. A **Show snoozed** toggle reveals snoozed alerts again, each with an **Unsnooze** action.",
       },
       {
         id: "pal-bell",
@@ -293,7 +294,7 @@ export const SECTIONS = [
       {
         id: "ppa-league",
         title: "Process league table",
-        body: "Process, average cycle time, exception % (red above 10%) and estate cost, sorted by cost. A footer shows the weighted average cycle time across the estate. Click a row to open Process detail. Exportable to CSV.",
+        body: "Process, average cycle time, exception % and estate cost, sorted by cost. The exception % is coloured red above the exception rate target and amber within the same early-warning band the alerts use — both read live from Administration → Targets & thresholds, including any spoke override. A footer shows the weighted average cycle time across the estate. Click a row to open Process detail. Exportable to CSV.",
       },
     ],
   },
@@ -312,12 +313,12 @@ export const SECTIONS = [
       {
         id: "pex-heatmap",
         title: "Exception heatmap",
-        body: "Processes down the side, exception types across the top as three-letter codes (hover for the full reason), with stronger colour meaning more exceptions. Each row has a total bar, and a footer totals each column. Click a process row to filter to it. System and business types are distinguished by colour.",
+        body: "Processes down the side, exception types across the top as three-letter codes (hover for the full reason), with stronger colour meaning more exceptions. All 14 process rows are visible at once at a standard screen size, with no internal scroll needed. Each row has a total bar, and a footer totals each column. Click a process row to filter to it. System and business types are distinguished by colour.",
       },
       {
         id: "pex-detail",
         title: "Exception detail table",
-        body: "Every exception reason in the current filters with category, volume, share of total, rework cost and the most recent date seen. Switch between All, System and Business; search by name; sort any column. Exportable to CSV.",
+        body: "Every exception reason in the current filters with category, volume, share of total, rework cost and the most recent date seen. Switch between All, System and Business; search by name; sort any column. The table is a compact, three-row scrolling region — the rest of the page never scrolls to reach it. Exportable to CSV.",
       },
       {
         id: "pex-classification",
@@ -402,6 +403,55 @@ export const SECTIONS = [
 
   // ---------------------------------------------------------------------------
   {
+    id: "page-exec",
+    title: "Page: Executive Summary",
+    intro: "One screen of headline numbers for the exec and finance. No slicer bar — it has its own period control, always anchored on the data-through date, never on today.",
+    items: [
+      {
+        id: "pex2-period",
+        title: "Period control",
+        body: "**This month**, **Last month** (the full preceding calendar month), **Quarter to date** (the fiscal quarter containing the data-through date) or **FY to date**. Each is a fixed window ending at the data-through date; there is no custom range and the six slicers do not apply here.",
+      },
+      {
+        id: "pex2-kpis",
+        title: "Six KPI tiles",
+        body: "**Net benefit** with the change against the prior period, **Gross benefit**, **Estate cost**, **ROI**, **vs annual target** (fiscal-year-to-date net against the estate's annual net benefit target, or a prompt when none is set), and **Projected FY-end** at the current run-rate.",
+      },
+      {
+        id: "pex2-ops",
+        title: "Operations this period",
+        body: "A compact grid: Completed cases (with a trend sparkline), Completion rate, Exception rate, Cost per completed case, FTE released and Colleague hours saved — each with its change against the prior period, and a target-met dot on the four metrics that carry a target.",
+      },
+      {
+        id: "pex2-health",
+        title: "Estate health",
+        body: "Open breach and warning counts, active digital workers out of the estate total, average utilisation, spare capacity hours, and the three worst open alert headlines.",
+      },
+      {
+        id: "pex2-byhub",
+        title: "By hub table",
+        body: "One row per hub: net benefit, fiscal-year-to-date net, attainment against that hub's annual target, completed cases, exception rate, cost per completed case, and a trend arrow against the prior period. A total row reconciles to the KPI tiles.",
+      },
+      {
+        id: "pex2-movers",
+        title: "Movers",
+        body: "The top three processes by net benefit, and the bottom three running at a loss, each with the reason it was flagged (the same fixed rules as Value & Finance's review candidates).",
+      },
+      {
+        id: "pex2-briefing",
+        title: "Briefing",
+        body: "Three sentences generated from the live model, alerts and reference targets: a headline (fiscal-year-to-date net benefit and its target status), the highest-priority risk (the worst open breach, or the worst process exception rate above target when nothing has breached), and a recommended action (the top loss-making process and why).",
+      },
+      {
+        id: "pex2-actions",
+        title: "Print and Copy figures",
+        body: "**Print** opens a print-friendly layout of the page. **Copy figures** copies every tile, table row and briefing sentence as tab-separated text to the clipboard, for pasting into an email or a slide.",
+      },
+    ],
+  },
+
+  // ---------------------------------------------------------------------------
+  {
     id: "page-value-finance",
     title: "Page: Value & Finance",
     intro: "Net value, ROI, cost composition and run-rate forecast for finance and the executive.",
@@ -478,12 +528,12 @@ export const SECTIONS = [
       {
         id: "pcm-cpc",
         title: "Cost per completed case over time",
-        body: "Daily cost per case against the target line, with a shaded 14-day forecast projected from the recent trend.",
+        body: "Daily cost per case against the target line, with a shaded 14-day forecast. The forecast is seasonal-naive: each future day is the average of the same weekday over the last four weeks of actuals, with a band of ± one standard deviation of that sample (floored at 5% of the mean). The card subtitle says so.",
       },
       {
         id: "pcm-cumulative",
         title: "Cumulative benefit vs cost",
-        body: "Cumulative benefit and cumulative cost accruing through the period, each with a 14-day forecast. Exportable to CSV.",
+        body: "Cumulative benefit and cumulative cost accruing through the period, each with a 14-day forecast built the same seasonal-naive way as the cost-per-case chart — the daily increments are forecast, same-weekday over the last four weeks, then accumulated onto the running totals. The card subtitle says so. Exportable to CSV.",
       },
     ],
   },
@@ -560,7 +610,7 @@ export const SECTIONS = [
   {
     id: "money-rules",
     title: "How money is calculated",
-    intro: "The rules the whole dashboard follows. An automated check proves the browser and the warehouse agree to four decimal places.",
+    intro: "The rules the whole dashboard follows. An automated check proves the browser and the warehouse agree to four decimal places — the check fails on any difference above 0.01%.",
     items: [
       { id: "mr-benefit", title: "Benefit rule", body: "Benefit is valued at the grade rate in force on the day each case completed. Changing a rate today never changes history. A hub-specific rate for a grade wins over the universal rate." },
       { id: "mr-cost", title: "Cost rule", body: "Cost rides on the work that ran. The CoE's shared team and machines are spread across all work by bot time; each hub's own team and machines are spread across that hub's work only." },
@@ -615,7 +665,7 @@ export const SECTIONS = [
       { id: "ad-people", title: "People costs — hub lead for own spoke; CoE record admin only", body: "Per owner (CoE or a spoke): effective-dated records of headcount and annual cost with an optional note. New records cannot be backdated. A future record can be edited or deleted; the most recent record can be deleted to undo a mistake; older records are locked." },
       { id: "ad-vdi", title: "VDI estate — hub lead for own spoke; shared machines admin only", body: "Per owner: every machine with cost class, renewal date, annual cost override, licence expiry, status, current coverage window, and first and last case seen. Actions: edit, **Renew** (books a full year from a chosen date), **Retire** (from a chosen date), **Add VDI**. Machines seen in the data but not yet registered appear as **Unregistered — complete registration** with a one-step Register form. A **Review queue** lists machines idle beyond the threshold with a one-click Retire." },
       { id: "ad-vdirates", title: "VDI class-rate card", body: "The annual list price per machine for each cost class, effective-dated, universal (admin) or overridden per spoke (hub lead). Admins can make a backdated correction behind a confirmation that warns it revalues reported cost history." },
-      { id: "ad-targets", title: "Targets & thresholds", body: "Global targets (admin): completion rate, exception rate, system exception rate, cost per case, utilisation minimum and maximum, idle VDI review days, and the fiscal-year start month. Spoke and process overrides (hub lead for own spoke) for the rate and cost metrics; utilisation and idle thresholds per spoke only. Net benefit targets: an estate target (admin) and a per-spoke annual target (hub lead for own spoke), used by Value & Finance." },
+      { id: "ad-targets", title: "Targets & thresholds", body: "Global targets (admin): completion rate, exception rate, system exception rate, cost per case, utilisation minimum and maximum, idle VDI review days, and the fiscal-year start month. Spoke and process overrides (hub lead for own spoke) for the rate and cost metrics; utilisation and idle thresholds per spoke only. Net benefit targets: an estate target (admin) and a per-spoke annual target (hub lead for own spoke), used by Value & Finance. These are the single source of truth for the whole dashboard: every page reads them live, so a save here moves the alerts, the dashed target lines on charts, and every KPI target chip together, immediately — including Process Analysis, which colours its league table against the same threshold and warn band the alerts use." },
       { id: "ad-grades", title: "Grade rate card — definitions admin only; hub overrides by hub lead", body: "Grade definitions with code, name and scope (all spokes or named spokes); a grade in use cannot be deleted or narrowed. Per grade: an effective-dated universal hourly rate (admin) and per-spoke override rates (hub lead), with the same history locking and admin-only backdated corrections." },
       { id: "ad-patterns", title: "Exception patterns — admin only", body: "The ordered list of text patterns that classify a raw exception reason as System or Business. Explicit prefixes on the reason always win. Changes apply from the next data build." },
       { id: "ad-users", title: "Users & roles — admin only", body: "A working stand-in for the demo directory: name, email, roles, spokes, passphrase reset, remove. In production this is replaced by Entra ID group membership." },
@@ -857,16 +907,11 @@ export const SECTIONS = [
       { id: "gp-channels", title: "No email or Teams alerts", body: "Alerts are in-app only. Pushing to email or Teams needs a small scheduled job in the data API." },
       { id: "gp-itemlevel", title: "No item-level search", body: "Pages show aggregates by day, process and reason. There is no search for an individual case reference or item." },
       { id: "gp-pending", title: "Pending, deferred, retries and priority not shown", body: "These fields exist in the source but have no visual today." },
-      { id: "gp-queuecascade", title: "Queue filter is not narrowed", body: "The queue list always shows all 15 queues regardless of the spoke or process selected." },
       { id: "gp-patterns", title: "Exception reclassification is not retroactive", body: "A changed pattern applies from the next data build only." },
-      { id: "gp-baked-lines", title: "Target lines on charts come from the data build", body: "Changing a target in Administration changes the alerts immediately but the dashed reference lines on Input & Outcome, Capacity and Commercial update at the next data build." },
-      { id: "gp-hubvdi", title: "Hub-owned VDI alerts are not shown to hub users", body: "A deliberate choice: shared and test machines are a CoE concern." },
-      { id: "gp-views", title: "Saved views cannot be renamed or shared", body: "Views are private to the user; re-saving under a new name is the workaround." },
-      { id: "gp-filters", title: "Filters are not remembered between visits", body: "Every visit starts at All spokes and Last 90 days unless a saved view is applied." },
       { id: "gp-targets", title: "No net benefit targets set", body: "FY attainment and the vs-target column stay empty until an admin or hub lead enters targets." },
       { id: "gp-overrides", title: "No hub-specific rates or thresholds set", body: "All grade rates, VDI class rates and thresholds are universal today." },
       { id: "gp-browsers", title: "No supported-browser statement", body: "To be agreed with IT." },
-      { id: "gp-ack", title: "Acknowledgements reset with each data build", body: "By design, so a persisting breach resurfaces; there is no snooze." },
+      { id: "gp-ack", title: "Acknowledgements still reset with each data build", body: "By design, so a persisting breach resurfaces; use **Snooze until resolved** instead when you want an alert to stay hidden across builds for as long as the same breach keeps recurring." },
       { id: "gp-noundo", title: "No undo for reference edits", body: "Writes are versioned and logged, but reverting means re-entering the previous value." },
     ],
   },
@@ -879,7 +924,7 @@ export const SECTIONS = [
     items: [
       { id: "q-metrics", title: "Which measures are missing?", body: "Is there a number your hub reports today, or is asked for, that the dictionary does not contain?" },
       { id: "q-definitions", title: "Do the definitions match yours?", body: "In particular completion rate, exception rate, cost per case, and the treatment of business versus system exceptions." },
-      { id: "q-smv", title: "Are the SMVs and grades right?", body: "Section 17 lists each process's standard minutes and the grade it automates against." },
+      { id: "q-smv", title: "Are the SMVs and grades right?", body: "Section 18 lists each process's standard minutes and the grade it automates against." },
       { id: "q-people", title: "Is your people cost record right?", body: "Headcount and annual cost for your automation delivery and support team only." },
       { id: "q-vdis", title: "Is your VDI list complete and correct?", body: "Machines, cost class, renewal dates, and anything that should be retired." },
       { id: "q-targets", title: "What should your targets be?", body: "Completion, exception and cost-per-case thresholds for your hub, and an annual net benefit target." },

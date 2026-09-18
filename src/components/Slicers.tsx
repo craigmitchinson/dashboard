@@ -5,7 +5,7 @@ import { useTheme } from "../theme-context";
 import { IconChevron, IconCheck } from "./icons";
 import { useFilters, DATA_MIN_ISO, DATA_MAX_ISO } from "../filters-context";
 import type { RangePreset } from "../filters-context";
-import { SPOKES, SPOKE_INFO, QUEUES, TAGS } from "../rpaData";
+import { SPOKES, SPOKE_INFO, TAGS } from "../rpaData";
 import { useReference } from "../reference/reference-context";
 import { Portal } from "./Portal";
 import { useAnchoredPopover } from "./useAnchoredPopover";
@@ -172,7 +172,7 @@ function useSlicerSpokes(): { names: string[]; info: Record<string, { short: str
 }
 
 export function FilterBar() {
-  const { filters, setFilters, processOptions, propositionOptions } = useFilters();
+  const { filters, setFilters, processOptions, propositionOptions, queueOptions } = useFilters();
   const t = useTheme();
   const { names: spokeNames, info: spokeInfo } = useSlicerSpokes();
 
@@ -236,7 +236,7 @@ export function FilterBar() {
         {(close) => (
           <>
             <Option selected={filters.queue === "All"} onClick={() => { setFilters({ queue: "All" }); close(); }}>All queues</Option>
-            {QUEUES.map((q) => (
+            {queueOptions.map((q) => (
               <Option key={q} selected={filters.queue === q} onClick={() => { setFilters({ queue: q }); close(); }}>{q}</Option>
             ))}
           </>

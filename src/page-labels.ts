@@ -8,6 +8,7 @@
 // without introducing a circular import.
 // ---------------------------------------------------------------------------
 export const PAGE_LABELS = {
+  exec: "Executive Summary",
   overview: "Overview",
   exceptions: "Exceptions",
   commercial: "Commercial Performance",

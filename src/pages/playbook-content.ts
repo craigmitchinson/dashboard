@@ -309,6 +309,7 @@ export const PLAYBOOK_SECTIONS: PlaybookSection[] = [
           ["Operate", "Process Analysis", "Which processes are healthy, which are not?"],
           ["Operate", "Exceptions", "What is failing, and why?"],
           ["Optimise", "VDI & Capacity", "Are our machines used well?"],
+          ["Value", "Executive Summary", "The headline numbers for the exec and finance, on one screen"],
           ["Value", "Value & Finance", "What is automation worth, net?"],
           ["Value", "Commercial Performance", "What is the ROI, per case, per process?"],
           ["Manage", "Administration", "Where we edit reference data"],
@@ -316,7 +317,13 @@ export const PLAYBOOK_SECTIONS: PlaybookSection[] = [
         ]
       ),
       prose(
+        "Executive Summary is the one page with no slicer bar: it has its own period control (This month, Last month, Quarter to date or FY to date, always anchored on the data-through date) and puts the headline numbers, estate health, a by-hub table, movers and a generated three-sentence briefing on a single screen. Print and Copy figures give the exec and finance a clean page or a pasteable set of figures without touching any other page."
+      ),
+      prose(
         "Ctrl+K (or Cmd+K) opens a searchable command palette: pages, a 'drill into' shortcut for any process, a 'filter to' shortcut for any spoke, saved views, our top 5 unacknowledged alerts, actions like resetting slicers or toggling theme, and — for admins — a jump straight to any Playbook section. Typing > searches actions only."
+      ),
+      prose(
+        "The six slicers and the what-if rate are now remembered per signed-in user between visits, alongside saved views, the last page, display settings and alert acknowledgements/snoozes — Reset still returns filters and the what-if rate to their defaults (all spokes, last 90 days) without touching a saved view. A saved view can now be renamed in place, and Copy link puts a shareable URL on the clipboard with the view encoded in its hash, so anyone opening that link gets the same view applied, no sign-in or server round-trip needed to decode it."
       ),
       table(
         ["Keys", "Action"],
@@ -398,10 +405,16 @@ export const PLAYBOOK_SECTIONS: PlaybookSection[] = [
         "We configure this at Administration → Targets & thresholds. Admins edit the global targets directly; hub_leads add or remove overrides, but only for their own spoke(s) and that spoke's processes."
       ),
       prose(
+        "reference.targets is now the single source of truth for the whole dashboard, not just the alert engine: every page reads it live (with a spoke override resolved when one spoke is selected), so saving a target here moves the alerts, every KPI target chip, and every dashed reference line on a chart in the same instant. Process Analysis's league-table colouring reads the same threshold and the same early-warning band the alerts use, so a process never reads healthy on one page and breaching on another."
+      ),
+      prose(
         "We evaluate the trailing 7 days ending at the last data build, across the estate, every spoke, every process, and every VDI (utilisation only). Past the threshold is a breach; within 10% of it is a warn. A process with fewer than 30 completed-plus-exception items in the window is skipped — a 1-item process at 100% exceptions is noise, not a signal."
       ),
       prose(
-        "The header bell lists alerts, worst first, scoped to the spoke we currently have selected. Acknowledgement is per signed-in user and expires automatically once a new data build moves past the alert's date."
+        "The header bell lists alerts, worst first, scoped to the spoke we currently have selected. Acknowledgement is per signed-in user and expires automatically once a new data build moves past the alert's date. Snooze until resolved is also per user, but survives a data build: it hides an alert for as long as the same breach keeps recurring, and clears itself the first time that breach does not reappear. The Alerts page carries a Show snoozed toggle and an Unsnooze action for anything snoozed."
+      ),
+      prose(
+        "A hub-owned (shared or test) VDI stays a CoE concern, but its alerts are now also shown to a hub whose own processes actually ran on that machine — that hub's throughput depends on the machine's health too. A hub-owned VDI that never ran any of a hub's processes stays hidden from that hub."
       ),
       callout(
         "info",
@@ -536,7 +549,7 @@ export const PLAYBOOK_SECTIONS: PlaybookSection[] = [
         "server/'s own tests prove the API side: the static build and the live API produce byte-for-byte the same model; the SQL writer and the browser exporter use the same column order; the dev/none auth guard, hub_lead scoping, and the 409 conflict shape all behave as documented."
       ),
       prose(
-        "npm run data:verify reloads the built model, re-runs the same rate-table and benefit/cost math the client uses, and checks the totals match to within 0.5%. A pass prints PARITY OK."
+        "npm run data:verify reloads the built model, re-runs the same rate-table and benefit/cost math the client uses, and checks the totals match to within 0.01%. A pass prints PARITY OK."
       ),
       heading("CI gate order", 3),
       list(

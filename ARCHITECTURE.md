@@ -121,15 +121,18 @@ All of it lives in `data/reference/reference.json` (JSON twin of
   and processes narrow to it; the Capacity page shows exactly the machines
   that spoke pays for.
 - **Saved views**: named bookmarks of every slicer + rate assumption + page
-  (localStorage today; the `SavedView` type in `filters-context.tsx` is the
-  API contract if views move server-side).
+  (localStorage today; renameable, and shareable by link via a `#view=`
+  base64url hash decoded client-side — no server round-trip; the `SavedView`
+  type in `filters-context.tsx` is the API contract if views move
+  server-side). The six filters and the what-if rate are likewise persisted
+  per signed-in user between visits, separately from saved views.
 - **Client-side economics engine** (`src/reference/economics.ts`): recomputes
   benefit (SMV × grade rate in force on the outcome date) and cost (worktime ×
   hub £/bot-second + spoke pool £/bot-second) from rate tables built by
   `buildRateTables()`, which are rebuilt whenever reference data changes. This
   mirrors the SQL `report.vw_*` views exactly — `tools/verify-economics.mjs`
   (`npm run data:verify`) checks the client engine reproduces the
-  pipeline-baked totals to within 0.5%.
+  pipeline-baked totals to within 0.01%.
 - **Reference data** (`src/pages/Admin.tsx` + `src/pages/admin/*`,
   `src/reference/reference-store.ts`, `src/reference/reference-context.tsx`,
   `src/reference/backend.ts`): the Administration panel lets the team edit

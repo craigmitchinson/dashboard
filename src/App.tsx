@@ -1,11 +1,11 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ComponentType, ReactNode } from "react";
 import { themes } from "./theme";
 import type { Mode } from "./theme";
 import { fonts, glassOverlayVars } from "./theme";
 import { ThemeProvider, useTheme } from "./theme-context";
-import { FiltersProvider, useFilters, RATE_AUTO } from "./filters-context";
-import type { SavedView } from "./filters-context";
+import { FiltersProvider, useFilters, RATE_AUTO, sanitizeFilters } from "./filters-context";
+import type { SavedView, Filters } from "./filters-context";
 import { NavContext, NavOriginContext } from "./nav-context";
 import { PAGE_LABELS } from "./page-labels";
 import { FilterBar } from "./components/Slicers";
@@ -59,12 +59,16 @@ import { InputOutcome } from "./pages/InputOutcome";
 import { ProcessAnalysis } from "./pages/ProcessAnalysis";
 import { Exceptions } from "./pages/Exceptions";
 import { Capacity } from "./pages/Capacity";
-import { Commercial } from "./pages/Commercial";
 import { ProcessDetail } from "./pages/ProcessDetail";
-import { ValueFinance } from "./pages/ValueFinance";
-import { DataModel } from "./pages/DataModel";
-import { Playbook } from "./pages/Playbook";
-import { Admin } from "./pages/Admin";
+// Value, Manage and Reference pages load on first visit rather than at boot —
+// they carry the finance charts, the whole admin editor and the playbook, none
+// of which the operate pages need for first paint.
+const Commercial = lazy(() => import("./pages/Commercial").then((m) => ({ default: m.Commercial })));
+const ValueFinance = lazy(() => import("./pages/ValueFinance").then((m) => ({ default: m.ValueFinance })));
+const ExecutiveSummary = lazy(() => import("./pages/ExecutiveSummary").then((m) => ({ default: m.ExecutiveSummary })));
+const DataModel = lazy(() => import("./pages/DataModel").then((m) => ({ default: m.DataModel })));
+const Playbook = lazy(() => import("./pages/Playbook").then((m) => ({ default: m.Playbook })));
+const Admin = lazy(() => import("./pages/Admin").then((m) => ({ default: m.Admin })));
 
 interface Page {
   id: string;
@@ -106,6 +110,7 @@ const PAGES: Page[] = [
   { id: "exceptions", label: PAGE_LABELS.exceptions, group: "Operate", Icon: IconAlert, Component: Exceptions, blurb: "Exception heatmap and searchable detail" },
   { id: "process-detail", label: PAGE_LABELS["process-detail"], group: "Operate", Icon: IconRoute, Component: ProcessDetail, blurb: "Drill-through — one process in depth (click a process anywhere)" },
   { id: "capacity", label: PAGE_LABELS.capacity, group: "Optimise", Icon: IconServer, Component: Capacity, blurb: "Digital-worker utilisation, idle time and estate cost" },
+  { id: "exec", label: PAGE_LABELS.exec, group: "Value", Icon: IconValue, Component: ExecutiveSummary, blurb: "The headline numbers for the exec and finance, on one screen", noSlicers: true },
   { id: "value", label: PAGE_LABELS.value, group: "Value", Icon: IconValue, Component: ValueFinance, blurb: "Net value, ROI, cost composition and run-rate forecast for finance and the exec" },
   { id: "commercial", label: PAGE_LABELS.commercial, group: "Value", Icon: IconCoins, Component: Commercial, blurb: "Cost per case, grade-based benefit and cumulative ROI" },
   { id: "admin", label: "Administration", group: "Manage", Icon: IconShield, Component: Admin, blurb: "Reference data, users and roles — every edit here updates the dashboards instantly", permission: "view_admin", noSlicers: true },
@@ -145,6 +150,52 @@ function readNamespaced<T>(base: string, userId: string | undefined, fallback: T
 // safe, additive change.
 export function loadViews(userId: string | undefined): SavedView[] {
   return readNamespaced<SavedView[]>(VIEWS_KEY, userId, []);
+}
+
+// --- shareable view links (#view=<base64url JSON>) --------------------------
+// A "Copy link" on a saved view encodes {filters, rate, pageId} into the URL
+// hash so it can be pasted to a colleague — no server round-trip, since
+// views are themselves only ever localStorage today. TextEncoder/Decoder
+// (not escape/unescape) keeps this UTF-8 safe for view names with non-ASCII
+// characters.
+export interface ViewLinkPayload {
+  filters: Filters;
+  rate: number;
+  pageId: string;
+}
+
+function toBase64Url(json: string): string {
+  const bytes = new TextEncoder().encode(json);
+  let bin = "";
+  bytes.forEach((b) => (bin += String.fromCharCode(b)));
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function fromBase64Url(b64url: string): string {
+  let b64 = b64url.replace(/-/g, "+").replace(/_/g, "/");
+  while (b64.length % 4) b64 += "=";
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+
+export function encodeViewHash(payload: ViewLinkPayload): string {
+  return toBase64Url(JSON.stringify(payload));
+}
+
+// Validated decode: a garbled/foreign hash, or one from an older app version
+// missing a field, returns null rather than throwing or half-applying state.
+export function decodeViewHash(hash: string): ViewLinkPayload | null {
+  try {
+    const raw = JSON.parse(fromBase64Url(hash));
+    if (!raw || typeof raw !== "object") return null;
+    const rate = typeof raw.rate === "number" && Number.isFinite(raw.rate) ? raw.rate : RATE_AUTO;
+    const pageId = typeof raw.pageId === "string" && raw.pageId ? raw.pageId : "overview";
+    return { filters: sanitizeFilters(raw.filters), rate, pageId };
+  } catch {
+    return null;
+  }
 }
 
 export default function App() {
@@ -233,6 +284,12 @@ function ViewsMenu({ pageId, setPageId }: { pageId: string; setPageId: (id: stri
   const [views, setViews] = useState<SavedView[]>(() => loadViews(user?.id));
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState("");
+  // Rename: `renaming` holds the ORIGINAL name of the row being edited (the
+  // stable key while its own name field is mid-edit); `copiedName` drives a
+  // brief "Copied" confirmation on the link button that just fired.
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [copiedName, setCopiedName] = useState<string | null>(null);
   const box = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -323,6 +380,34 @@ function ViewsMenu({ pageId, setPageId }: { pageId: string; setPageId: (id: stri
     setNaming(false);
   };
 
+  const startRename = (v: SavedView) => {
+    setRenaming(v.name);
+    setRenameValue(v.name);
+  };
+
+  const commitRename = (originalName: string) => {
+    const nm = renameValue.trim();
+    setRenaming(null);
+    if (!nm || nm === originalName) return;
+    const target = views.find((v) => v.name === originalName);
+    if (!target) return;
+    // A rename that collides with another existing view's name overwrites
+    // it, matching saveCurrent's own "same name replaces" convention above.
+    persist([...views.filter((v) => v.name !== originalName && v.name !== nm), { ...target, name: nm }]);
+  };
+
+  const copyLink = async (v: SavedView) => {
+    try {
+      const hash = encodeViewHash({ filters: v.filters, rate: v.peopleRate, pageId: v.pageId ?? pageId });
+      const url = `${window.location.origin}${window.location.pathname}${window.location.search}#view=${hash}`;
+      await navigator.clipboard.writeText(url);
+      setCopiedName(v.name);
+      setTimeout(() => setCopiedName((n) => (n === v.name ? null : n)), 1600);
+    } catch {
+      /* clipboard unavailable (older browser, permissions, non-secure context) — silently no-op */
+    }
+  };
+
   return (
     <div ref={box} style={{ position: "relative" }}>
       <button
@@ -351,30 +436,62 @@ function ViewsMenu({ pageId, setPageId }: { pageId: string; setPageId: (id: stri
               <Bionic>No saved views yet. Set your spoke and slicers, then save them as a named view.</Bionic>
             </div>
           )}
-          {views.map((v) => (
-            <div key={v.name} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <button
-                onClick={() => {
-                  applyView(v);
-                  if (v.pageId) setPageId(v.pageId);
-                  setOpen(false);
-                }}
-                style={{ flex: 1, minWidth: 0, textAlign: "left", fontFamily: fonts.body, fontSize: 13, textTransform: "none", letterSpacing: 0, padding: "7px 9px", borderRadius: 7, border: "none", background: "transparent", color: t.ink, cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = t.themeBand)}
-                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                title={`${v.filters.spoke !== "All" ? v.filters.spoke + " · " : ""}saved ${new Date(v.savedAt).toLocaleDateString("en-GB")}`}
-              >
-                {v.name}
-                <span style={{ display: "block", fontFamily: fonts.mono, fontSize: 10, color: t.inkSoft, fontWeight: 400 }}>
-                  {v.filters.spoke === "All" ? "Hub-wide" : v.filters.spoke}
-                  {v.filters.processId !== "All" ? " · 1 process" : ""}
-                </span>
-              </button>
-              <button onClick={() => persist(views.filter((x) => x.name !== v.name))} title="Delete view" style={{ border: "none", background: "transparent", color: t.inkSoft, cursor: "pointer", fontSize: 14, padding: "2px 6px" }}>
-                ×
-              </button>
-            </div>
-          ))}
+          {views.map((v) =>
+            renaming === v.name ? (
+              <div key={v.name} style={{ display: "flex", gap: 6, padding: "2px 2px" }}>
+                <input
+                  autoFocus
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.stopPropagation();
+                      commitRename(v.name);
+                    } else if (e.key === "Escape") {
+                      // Cancel the rename only — stopPropagation keeps this
+                      // from also bubbling to the panel's own Escape handler,
+                      // which would close the whole menu.
+                      e.stopPropagation();
+                      setRenaming(null);
+                    }
+                  }}
+                  style={{ flex: 1, minWidth: 0, fontFamily: fonts.body, fontSize: 13, padding: "6px 8px", borderRadius: 7, border: `1px solid ${t.ruleSoft}`, background: t.themeBand, color: t.ink, outline: "none" }}
+                />
+                <button onClick={() => commitRename(v.name)} style={{ fontFamily: fonts.mono, fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", padding: "6px 10px", borderRadius: 7, border: "none", background: t.accentFill, color: "#fff", cursor: "pointer" }}>
+                  Save
+                </button>
+              </div>
+            ) : (
+              <div key={v.name} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <button
+                  onClick={() => {
+                    applyView(v);
+                    if (v.pageId) setPageId(v.pageId);
+                    setOpen(false);
+                  }}
+                  style={{ flex: 1, minWidth: 0, textAlign: "left", fontFamily: fonts.body, fontSize: 13, textTransform: "none", letterSpacing: 0, padding: "7px 9px", borderRadius: 7, border: "none", background: "transparent", color: t.ink, cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = t.themeBand)}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                  title={`${v.filters.spoke !== "All" ? v.filters.spoke + " · " : ""}saved ${new Date(v.savedAt).toLocaleDateString("en-GB")}`}
+                >
+                  {v.name}
+                  <span style={{ display: "block", fontFamily: fonts.mono, fontSize: 10, color: t.inkSoft, fontWeight: 400 }}>
+                    {v.filters.spoke === "All" ? "Hub-wide" : v.filters.spoke}
+                    {v.filters.processId !== "All" ? " · 1 process" : ""}
+                  </span>
+                </button>
+                <button onClick={() => startRename(v)} title="Rename view" aria-label={`Rename ${v.name}`} style={{ border: "none", background: "transparent", color: t.inkSoft, cursor: "pointer", fontSize: 12, padding: "2px 6px" }}>
+                  ✎
+                </button>
+                <button onClick={() => copyLink(v)} title="Copy link to this view" aria-label={`Copy link to ${v.name}`} style={{ border: "none", background: "transparent", color: copiedName === v.name ? t.accent : t.inkSoft, cursor: "pointer", fontSize: 12, padding: "2px 6px" }}>
+                  {copiedName === v.name ? "✓" : "⛓"}
+                </button>
+                <button onClick={() => persist(views.filter((x) => x.name !== v.name))} title="Delete view" aria-label={`Delete ${v.name}`} style={{ border: "none", background: "transparent", color: t.inkSoft, cursor: "pointer", fontSize: 14, padding: "2px 6px" }}>
+                  ×
+                </button>
+              </div>
+            ),
+          )}
           <div style={{ borderTop: views.length ? `1px solid ${t.ruleSoft}` : "none", marginTop: views.length ? 5 : 0, paddingTop: 5 }}>
             {naming ? (
               <div style={{ display: "flex", gap: 6, padding: "2px 2px" }}>
@@ -696,7 +813,12 @@ function PageTransition({ page }: { page: Page }) {
   return (
     <div className={leaving ? "page-leaving" : undefined} style={{ height: "100%", minHeight: 0, display: "flex", flexDirection: "column" }}>
       <ErrorBoundary resetKey={shown.id} label="This page">
-        <ShownComponent key={shown.id} />
+        {/* Lazy pages resolve within a frame or two from cache; the empty
+            fallback keeps the canvas geometry stable rather than flashing a
+            spinner during the existing 120ms page crossfade. */}
+        <Suspense fallback={<div aria-busy="true" style={{ flex: 1 }} />}>
+          <ShownComponent key={shown.id} />
+        </Suspense>
       </ErrorBoundary>
     </div>
   );
@@ -797,6 +919,24 @@ function Report({ ambientAccent }: { ambientAccent?: string }) {
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
+  }, []);
+  // Shared view links (#view=<base64url JSON>, see ViewsMenu's "Copy link"
+  // above): applied once on mount, then the hash is cleared immediately —
+  // reloading or navigating Back/Forward afterwards must not keep reapplying
+  // a stale shared view over whatever the person has since changed.
+  useEffect(() => {
+    if (!window.location.hash.startsWith("#view=")) return;
+    const payload = decodeViewHash(window.location.hash.slice("#view=".length));
+    if (payload) {
+      applyView({ name: "Shared view", filters: payload.filters, peopleRate: payload.rate, pageId: payload.pageId, savedAt: new Date().toISOString() });
+      go(payload.pageId);
+    }
+    try {
+      window.history.replaceState(window.history.state, "", window.location.pathname + window.location.search);
+    } catch {
+      /* ignore (e.g. sandboxed iframe) */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const navOriginValue = useMemo(
     () => ({ from: navOrigin, back: () => { if (navOrigin) setPageId(navOrigin); } }),

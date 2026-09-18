@@ -93,19 +93,26 @@ placeholder).
 
 ## What's in the app
 
-Twelve report pages in six nav groups — Overview (Overview, Alerts), Operate
+Thirteen report pages in six nav groups — Overview (Overview, Alerts), Operate
 (Input & Outcome, Process Analysis, Exceptions, and the Process detail
-drill-through), Optimise (VDI & Capacity), Value (Value & Finance, Commercial
-Performance), Manage (Administration, gated behind the `view_admin`
-permission), and Reference (Data model, **Playbook** — both admin-only). All
-report pages share one slicer bar: **Spoke** (each spoke selects itself; "All
-spokes" is the hub view), Proposition, Process, Queue, Tags, Date range —
-plus a command palette (Ctrl+K / ⌘K) for jumping anywhere, drilling into a
-process, or running an action — see [PLAYBOOK.md](PLAYBOOK.md) section 5.
+drill-through), Optimise (VDI & Capacity), Value (**Executive Summary**,
+Value & Finance, Commercial Performance), Manage (Administration, gated
+behind the `view_admin` permission), and Reference (Data model, **Playbook**
+— both admin-only). Executive Summary is the one page with no slicer bar — it
+has its own period control (This month / Last month / Quarter to date / FY to
+date), always anchored on the data-through date. Every other report page
+shares one slicer bar: **Spoke** (each spoke selects itself; "All spokes" is
+the hub view), Proposition, Process, Queue (cascades with the three above),
+Tags, Date range — plus a command palette (Ctrl+K / ⌘K) for jumping anywhere,
+drilling into a process, or running an action — see
+[PLAYBOOK.md](PLAYBOOK.md) section 5. The six filters and the what-if rate
+persist per signed-in user between visits; Reset returns them to defaults.
 
 - **Saved views** (☆ in the top bar): name and reapply any combination of
-  slicers, rate assumption and page. Local to the user today; the `SavedView`
-  type is the contract if views move server-side.
+  slicers, rate assumption and page. Views can be renamed in place and shared
+  by link (the view is encoded in the URL's hash, decoded with no server
+  round-trip). Private to the user today; the `SavedView` type is the
+  contract if views move server-side.
 - **Reference data**: in local mode, the committed base
   `data/reference/reference.json` can be edited in-browser from
   **Administration** (`src/pages/Admin.tsx`), persisted as a localStorage
@@ -116,8 +123,11 @@ process, or running an action — see [PLAYBOOK.md](PLAYBOOK.md) section 5.
   [PLAYBOOK.md](PLAYBOOK.md) section 8 for the full lifecycle.
 - **Thresholds & alerting**: the header bell evaluates global/spoke/process
   KPI targets (`Administration → Targets & thresholds`) against the trailing
-  week of data and flags breaches/warnings — in-app only today; see
-  [PLAYBOOK.md](PLAYBOOK.md) section 16.
+  week of data and flags breaches/warnings — in-app only today. These same
+  targets drive every KPI target chip and chart reference line on the
+  dashboard, live. Acknowledge is per user and expires on the next data
+  build; **Snooze until resolved** instead hides a recurring breach across
+  builds until it stops recurring; see [PLAYBOOK.md](PLAYBOOK.md) section 9.
 - **Spoke colour schemes**: each spoke carries its own accent (validated for
   CVD separation and contrast on both surfaces, light and dark). Selecting a
   spoke re-skins the dashboard accent to that spoke's colour; the hub view

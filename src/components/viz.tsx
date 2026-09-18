@@ -422,6 +422,15 @@ export interface LineSeries {
   dashed?: boolean;
   area?: boolean;
   forecast?: boolean; // project this series into the forecast region
+  // Precomputed forecast (e.g. components/forecast.ts's seasonalNaiveForecast)
+  // — when all three are present and each has exactly `forecast.periods`
+  // entries, LineChart draws THESE instead of fitting its own linear
+  // regression + fixed ±12% band. Omit to keep the old regression/±12%
+  // behaviour (fully backward compatible — existing callers that only set
+  // `forecast: true` are unaffected).
+  forecastPoint?: number[];
+  forecastLo?: number[];
+  forecastHi?: number[];
 }
 export interface RefLine {
   value: number;
@@ -498,11 +507,21 @@ export function LineChart({
   const fp = forecast?.periods ?? 0;
   const total = n + fp;
 
-  // forecast projections (per flagged series) via linear regression
+  // forecast projections (per flagged series) — a precomputed forecast (see
+  // LineSeries.forecastPoint's doc comment) wins when present; otherwise
+  // fall back to the original linear-regression projection.
   const proj = new Map<string, number[]>();
+  const projBand = new Map<string, { lo: number[]; hi: number[] }>();
   if (fp > 0 && n > 0) {
     series.forEach((s) => {
       if (!s.forecast) return;
+      if (s.forecastPoint && s.forecastPoint.length === fp) {
+        proj.set(s.name, s.forecastPoint);
+        if (s.forecastLo?.length === fp && s.forecastHi?.length === fp) {
+          projBand.set(s.name, { lo: s.forecastLo, hi: s.forecastHi });
+        }
+        return;
+      }
       const { slope, intercept } = fit(s.values);
       const arr: number[] = [];
       for (let i = n; i < total; i++) arr.push(Math.max(0, slope * i + intercept));
@@ -511,7 +530,13 @@ export function LineChart({
   }
 
   // don't floor to 1 — that breaks small-magnitude series (e.g. £0.09 cost/case)
-  const rawMax = Math.max(0, ...series.flatMap((s) => s.values), ...[...proj.values()].flat(), ...(refLines?.map((r) => r.value) ?? []));
+  const rawMax = Math.max(
+    0,
+    ...series.flatMap((s) => s.values),
+    ...[...proj.values()].flat(),
+    ...[...projBand.values()].flatMap((b) => b.hi),
+    ...(refLines?.map((r) => r.value) ?? []),
+  );
   const top = niceMax(rawMax);
   const ticks = 4;
 
@@ -681,8 +706,11 @@ export function LineChart({
             const s = series.find((q) => q.name === name)!;
             const startX = x(n - 1), startY = y(s.values[n - 1]);
             const line = `M${startX.toFixed(1)} ${startY.toFixed(1)} ` + arr.map((val, k) => `L${x(n + k).toFixed(1)} ${y(val).toFixed(1)}`).join(" ");
-            const up = arr.map((val, k) => `${x(n + k).toFixed(1)} ${y(val * 1.12).toFixed(1)}`);
-            const dn = arr.map((val, k) => `${x(n + k).toFixed(1)} ${y(val * 0.88).toFixed(1)}`).reverse();
+            // A precomputed band (precomputedBand) wins when present;
+            // otherwise the original fixed ±12% band around the projected point.
+            const precomputedBand = projBand.get(name);
+            const up = arr.map((val, k) => `${x(n + k).toFixed(1)} ${y(precomputedBand ? precomputedBand.hi[k] : val * 1.12).toFixed(1)}`);
+            const dn = arr.map((val, k) => `${x(n + k).toFixed(1)} ${y(precomputedBand ? precomputedBand.lo[k] : val * 0.88).toFixed(1)}`).reverse();
             const band = `M${startX.toFixed(1)} ${startY.toFixed(1)} L${up.join(" L")} L${dn.join(" L")} Z`;
             return (
               <g key={name}>

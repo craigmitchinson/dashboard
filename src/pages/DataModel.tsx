@@ -22,7 +22,7 @@ export function DataModel() {
   const v = useViz();
 
   const tables: Tbl[] = [
-    { x: 380, y: 105, w: 250, title: "Fact_WorkItem (day grain)", kind: "fact", color: t.series, fields: ["Date (FK) · ProcessId (FK)", "Completed · BusExc · SysExc", "WorktimeSec", "GrossBenefitGBP (grade-rate)", "EstateCostGBP (hub+spoke)"] },
+    { x: 380, y: 105, w: 250, title: "Fact_WorkItem (day grain)", kind: "fact", color: t.series, fields: ["Date (FK) · ProcessId (FK)", "Completed · BusExc · SysExc", "WorktimeSec", "GrossBenefitGBP (grade-rate)", "EstateCostGBP (Teams + Machines)"] },
     { x: 60, y: 10, w: 230, title: "Dim_Process", kind: "dim", color: v.completed, fields: ["ProcessId (PK)", "Name · Proposition", "Spoke (FK) · Queues", "SMV mins · Grade (FK)"] },
     { x: 60, y: 245, w: 230, title: "Dim_DigitalWorker", kind: "dim", color: v.business, fields: ["ResourceName (PK)", "VDI · CostClass", "Spoke (FK) · Lifecycle", "ActiveFrom / ActiveTo"] },
     { x: 720, y: 10, w: 230, title: "Dim_Date", kind: "dim", color: v.good, fields: ["Date (PK)", "MonthLabel + SortKey", "QuarterLabel + SortKey", "EstateRate in force"] },
@@ -43,11 +43,12 @@ export function DataModel() {
   };
 
   const lineage = [
-    { label: "Blue Prism API", sub: "work queue items", color: t.series },
-    { label: "Elastic / Kibana", sub: "log store, per queue", color: v.business },
-    { label: "CSV / raw layer", sub: "BPAWorkQueueItem schema", color: v.system },
-    { label: "SQL warehouse", sub: "staging → core → report", color: v.completed },
-    { label: "This dashboard", sub: "views only, no maths", color: v.good },
+    { label: "Blue Prism", sub: "work queues", color: t.series },
+    { label: "Data Gateways", sub: "queue item export", color: v.business },
+    { label: "Elastic / Kibana", sub: "log store, per queue", color: v.system },
+    { label: "Scheduled pull", sub: "every 15 min", color: v.accent },
+    { label: "SQL warehouse", sub: "raw → staging → core → report", color: v.completed },
+    { label: "This dashboard", sub: "data API, views only", color: v.good },
   ];
 
   const relationships = [
@@ -59,7 +60,7 @@ export function DataModel() {
   ];
   const notes = [
     `Source this build: ${META.source} — ${META.sourceRows.toLocaleString()} queue items, built ${META.generatedAt.slice(0, 10)}. Swap the CSV (or point VITE_DATA_URL at the API) and every visual follows.`,
-    "Money is resolved in the pipeline, never in visuals: benefit = SMV × grade rate in force on the outcome date; cost = worktime × (hub £/bot-sec + spoke infra £/bot-sec) of that day.",
+    "Money is resolved in the pipeline, never in visuals: benefit = SMV × grade rate in force on the outcome date; cost = worktime × (CoE pool £/bot-sec spread across all work + that spoke's pool £/bot-sec spread within the spoke) of that day.",
     "BI-tool parity: connect to the report.vw_* views (or /data/views/*.json) — same shapes, same numbers. Set MonthLabel 'Sort by' = MonthSortKey once.",
     "Owners: VDI class rates are set centrally; the CoE's shared people and VDI pool is apportioned across all work by worktime, each spoke's own pool across just that spoke's work.",
   ];

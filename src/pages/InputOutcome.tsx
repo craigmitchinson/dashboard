@@ -3,7 +3,8 @@ import { fonts } from "../theme";
 import { useTheme } from "../theme-context";
 import { useFilters } from "../filters-context";
 import { fmtDate, monthKey } from "../rpaData";
-import { TARGETS } from "../rpaData";
+import { useReference } from "../reference/reference-context";
+import { resolvedTarget } from "./target-rules";
 import { KpiCard, VisualCard, LineChart, Legend, PageGrid, Row, Segmented, useViz, fmtInt, fmtCompact, fmtPct } from "../components/viz";
 
 type Grain = "daily" | "monthly";
@@ -13,11 +14,14 @@ const GRAIN_OPTIONS: { value: Grain; label: string }[] = [
 ];
 
 export function InputOutcome() {
-  const { model } = useFilters();
+  const { model, filters } = useFilters();
+  const { reference } = useReference();
   const m = model;
   const v = useViz();
   const t = useTheme();
   const [grain, setGrain] = useState<Grain>("daily");
+  const completionTarget = resolvedTarget(reference, "completionPct", filters.spoke);
+  const exceptionRateTarget = resolvedTarget(reference, "exceptionRate", filters.spoke);
 
   const pts = grain === "daily" ? m.daily : m.monthly;
   const labels = pts.map((p) => (grain === "daily" ? fmtDate(p.ts) : monthKey(p.ts)));
@@ -72,8 +76,8 @@ export function InputOutcome() {
             yFormat={(n) => `${Math.round(n)}%`}
             tipFormat={(n) => `${n.toFixed(1)}%`}
             refLines={[
-              { value: TARGETS.completionPct * 100, label: `Completion target ${fmtPct(TARGETS.completionPct, 0)}`, color: v.good },
-              { value: TARGETS.exceptionRate * 100, label: `Exception ceiling ${fmtPct(TARGETS.exceptionRate, 0)}`, color: v.bad },
+              { value: completionTarget * 100, label: `Completion target ${fmtPct(completionTarget, 0)}`, color: v.good },
+              { value: exceptionRateTarget * 100, label: `Exception ceiling ${fmtPct(exceptionRateTarget, 0)}`, color: v.bad },
             ]}
             series={[
               { name: "Completion %", color: v.completed, values: pts.map((p) => { const a = p.completed + p.business + p.system; return a ? (p.completed / a) * 100 : 0; }), area: true },

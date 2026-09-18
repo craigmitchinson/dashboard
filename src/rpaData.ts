@@ -44,6 +44,10 @@ export type OutcomeKey = "completed" | "business" | "system";
 // --- shape of /data/model.json (the pipeline output) ------------------------
 export interface ModelJson {
   meta: { generatedAt: string; source: string; sourceRows: number; dateMin: string; dateMax: string; unmappedQueues: string[] };
+  // Kept for pipeline/SQL-BI-twin parity only — the emitted baked snapshot at
+  // data-build time. The app itself reads live, UI-editable targets off
+  // reference.targets (src/reference/reference-store.ts) instead, so nothing
+  // in src/ reads this field.
   targets: { completionPct: number; exceptionRate: number; systemRate: number; costPerCase: number; utilMin: number; utilMax: number };
   vdiOperatingHoursPerDay: number;
   spokes: { id: number; name: string; short: string; colorLight: string; colorDark: string }[];
@@ -158,7 +162,6 @@ export interface ResRow {
 
 // --- live bindings (populated by initData before first render) -------------------
 export let META: ModelJson["meta"] = { generatedAt: "", source: "", sourceRows: 0, dateMin: "", dateMax: "", unmappedQueues: [] };
-export let TARGETS: ModelJson["targets"] = { completionPct: 0.95, exceptionRate: 0.06, systemRate: 0.03, costPerCase: 9, utilMin: 0.15, utilMax: 0.6 };
 export let SPOKES: string[] = [];
 // per-spoke identity: short code + accent colour per surface (hub-validated set —
 // see reference.json; re-validate with the dataviz six-checks if changed)
@@ -208,7 +211,6 @@ const tsOf = (iso: string) => Date.parse(iso + "T00:00:00Z");
 
 export function initData(m: ModelJson) {
   META = m.meta;
-  TARGETS = m.targets;
   VDI_OPERATING_HOURS = m.vdiOperatingHoursPerDay;
   SPOKES = m.spokes.map((s) => s.name);
   SPOKE_INFO = Object.fromEntries(m.spokes.map((s) => [s.name, { short: s.short, light: s.colorLight, dark: s.colorDark }]));

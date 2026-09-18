@@ -3,8 +3,10 @@ import { fonts } from "../theme";
 import { useTheme } from "../theme-context";
 import { useFilters, DEFAULT_FILTERS } from "../filters-context";
 import { useNav } from "../nav-context";
-import { fmtDate, TARGETS } from "../rpaData";
+import { fmtDate } from "../rpaData";
 import { WARN_MARGIN } from "../alerts/engine";
+import { useReference } from "../reference/reference-context";
+import { resolvedTarget, targetMetAtLeast, targetMetAtMost, rateBand } from "./target-rules";
 import {
   KpiCard,
   VisualCard,
@@ -28,10 +30,14 @@ import { ExportCsvButton } from "../components/PageActions";
 
 export function Overview() {
   const { model, filters, setFilters } = useFilters();
+  const { reference } = useReference();
   const nav = useNav();
   const m = model;
   const v = useViz();
   const t = useTheme();
+  const completionTarget = resolvedTarget(reference, "completionPct", filters.spoke);
+  const costPerCaseTarget = resolvedTarget(reference, "costPerCase", filters.spoke);
+  const exceptionRateTarget = resolvedTarget(reference, "exceptionRate", filters.spoke);
   const activeProc = filters.processId !== "All" ? filters.processId : undefined;
   // 7-day trailing average overlay for the daily flow chart — only offered
   // once there's enough range for a week-long window to mean anything
@@ -50,11 +56,11 @@ export function Overview() {
   const canSmooth = labels.length >= 60;
 
   // Watchlist rate colour bands — reuse the alerting system's own warn-band
-  // convention (WARN_MARGIN, alerts/engine.ts) against TARGETS.exceptionRate
-  // rather than the previous unexplained 0.12/0.08 literals, so "bad"/"warn"
-  // here means the same thing it does everywhere else that watches this rate.
-  const watchBadRate = TARGETS.exceptionRate;
-  const watchWarnRate = TARGETS.exceptionRate * (1 - WARN_MARGIN);
+  // convention (WARN_MARGIN, alerts/engine.ts) against the resolved
+  // exception-rate target (reference.targets, spoke-override-aware — see
+  // target-rules.ts) rather than the previous unexplained 0.12/0.08 literals,
+  // so "bad"/"warn" here means the same thing it does everywhere else that
+  // watches this rate.
 
   const outcomeMix = [
     { label: "Completed", value: m.completed, color: v.completed },
@@ -75,8 +81,8 @@ export function Overview() {
     <PageGrid>
       {/* KPI cards */}
       <div className="kpi-row kpi-row--6">
-        <KpiCard label="Completion rate" value={fmtPct(m.completionPct, 1)} accent={v.good} delta={delta(m.completionPct, m.prev.completionPct)} sub="straight-through" target={{ label: `Target ≥ ${fmtPct(TARGETS.completionPct, 0)}`, met: m.completionPct >= TARGETS.completionPct }} />
-        <KpiCard label="Cost per completed case" value={fmtMoney2(m.costPerCase)} accent={v.accent} delta={delta(m.costPerCase, m.prev.costPerCase)} deltaGood="down" sub="fully-loaded estate" target={{ label: `Target ≤ ${fmtMoney2(TARGETS.costPerCase)}`, met: m.costPerCase <= TARGETS.costPerCase }} />
+        <KpiCard label="Completion rate" value={fmtPct(m.completionPct, 1)} accent={v.good} delta={delta(m.completionPct, m.prev.completionPct)} sub="straight-through" target={{ label: `Target ≥ ${fmtPct(completionTarget, 0)}`, met: targetMetAtLeast(m.completionPct, completionTarget) }} />
+        <KpiCard label="Cost per completed case" value={fmtMoney2(m.costPerCase)} accent={v.accent} delta={delta(m.costPerCase, m.prev.costPerCase)} deltaGood="down" sub="fully-loaded estate" target={{ label: `Target ≤ ${fmtMoney2(costPerCaseTarget)}`, met: targetMetAtMost(m.costPerCase, costPerCaseTarget) }} />
         <KpiCard label="Exceptions" value={fmtCompact(m.exceptions)} accent={v.system} delta={delta(m.exceptions, m.prev.exceptions)} deltaGood="down" sub="vs prev. period" spark={excSpark} />
         <KpiCard label="Net/FTE value" value={m.fte > 0 ? fmtMoney(m.netBenefit / m.fte, { compact: true }) : "—"} accent={v.business} sub={`${m.fte.toFixed(1)} FTE released`} />
         <KpiCard label="Completed cases" value={fmtCompact(m.completed)} accent={v.completed} delta={delta(m.completed, m.prev.completed)} sub="vs prev. period" spark={completedSpark} />
@@ -144,7 +150,7 @@ export function Overview() {
                   <span style={{ fontFamily: fonts.mono, fontSize: 11, color: t.inkSoft }}>{p.queue} · {fmtInt(p.exceptions)} exceptions</span>
                 </span>
                 <span style={{ fontFamily: fonts.mono, fontSize: 11.5, color: t.inkSoft }}>{fmtGBP(p.runtimeCost)}</span>
-                <span style={{ width: 56, textAlign: "right", fontFamily: fonts.mono, fontSize: 14, fontWeight: 700, color: p.rate > watchBadRate ? v.bad : p.rate > watchWarnRate ? v.business : v.ink }}>{fmtPct(p.rate, 1)}</span>
+                <span style={{ width: 56, textAlign: "right", fontFamily: fonts.mono, fontSize: 14, fontWeight: 700, color: (() => { const b = rateBand(p.rate, exceptionRateTarget, WARN_MARGIN); return b === "bad" ? v.bad : b === "warn" ? v.business : v.ink; })() }}>{fmtPct(p.rate, 1)}</span>
               </div>
             ))}
           </div>

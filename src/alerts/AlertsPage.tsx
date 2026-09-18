@@ -259,6 +259,9 @@ function AlertRow({
   isAcked,
   ackOne,
   unackOne,
+  isSnoozedRow,
+  onSnooze,
+  onUnsnooze,
   setFilters,
   setPageId,
 }: {
@@ -269,6 +272,9 @@ function AlertRow({
   isAcked: boolean;
   ackOne: (id: string) => void;
   unackOne: (id: string) => void;
+  isSnoozedRow: boolean;
+  onSnooze: (id: string) => void;
+  onUnsnooze: (id: string) => void;
   setFilters: (f: Partial<Filters>) => void;
   setPageId: (id: string) => void;
 }) {
@@ -337,6 +343,20 @@ function AlertRow({
             Acknowledge
           </button>
         )}
+        {isSnoozedRow ? (
+          <>
+            <span style={{ display: "inline-flex", alignItems: "center", height: 32, lineHeight: 1, fontFamily: fonts.mono, fontSize: 10, color: t.inkSoft, fontWeight: 700, textTransform: "uppercase", whiteSpace: "nowrap" }}>
+              Snoozed
+            </span>
+            <button onClick={() => onUnsnooze(a.id)} className="bar-btn" style={rowBtnStyle(t)}>
+              Unsnooze
+            </button>
+          </>
+        ) : (
+          <button onClick={() => onSnooze(a.id)} className="bar-btn" style={rowBtnStyle(t)} title="Hide this alert until it stops recurring, even across data builds">
+            Snooze until resolved
+          </button>
+        )}
       </div>
     </li>
   );
@@ -348,8 +368,13 @@ export function AlertsPage() {
   const { filters, setFilters } = useFilters();
   const setPageId = useNav();
   const { user } = useAuth();
-  const { sortedAlerts, acked, ackOne, unackOne, ackMany } = useAlerts();
+  const { sortedAlerts, sortedVisibleAlerts, acked, ackOne, unackOne, ackMany, isSnoozed, snoozeOne, unsnoozeOne } = useAlerts();
   const [hideAcked, setHideAcked] = useState(false);
+  // Off by default: a snoozed alert is hidden from this page entirely,
+  // matching the bell/counts — this toggle is the one place it can be
+  // brought back to unsnooze it.
+  const [showSnoozed, setShowSnoozed] = useState(false);
+  const baseAlerts = showSnoozed ? sortedAlerts : sortedVisibleAlerts;
   // Scope-kind chips (toolbar) — empty set = no restriction (see SCOPE_CHIPS
   // doc comment above).
   const [scopeFilter, setScopeFilter] = useState<Set<AlertScope>>(new Set());
@@ -382,8 +407,8 @@ export function AlertsPage() {
   // touch this set (see the note rendered in the toolbar below).
   const isFiltered = filters.spoke !== "All" || filters.proposition !== "All" || filters.processId !== "All";
   const scopedAlerts = useMemo(
-    () => filterAlertsForSlicers(sortedAlerts, filters),
-    [sortedAlerts, filters.spoke, filters.proposition, filters.processId],
+    () => filterAlertsForSlicers(baseAlerts, filters),
+    [baseAlerts, filters.spoke, filters.proposition, filters.processId],
   );
 
   // Scope-kind chips further narrow scopedAlerts (never widen it — same
@@ -465,6 +490,10 @@ export function AlertsPage() {
         <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: t.inkSoft, cursor: "pointer", whiteSpace: "nowrap" }}>
           <input type="checkbox" checked={hideAcked} onChange={(e) => setHideAcked(e.target.checked)} />
           Hide acknowledged
+        </label>
+        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: t.inkSoft, cursor: "pointer", whiteSpace: "nowrap" }}>
+          <input type="checkbox" checked={showSnoozed} onChange={(e) => setShowSnoozed(e.target.checked)} />
+          Show snoozed
         </label>
         <button onClick={ackAllFiltered} className="bar-btn" style={rowBtnStyle(t)}>
           Acknowledge all
@@ -561,6 +590,9 @@ export function AlertsPage() {
                     isAcked={acked.has(a.id)}
                     ackOne={ackOne}
                     unackOne={unackOne}
+                    isSnoozedRow={isSnoozed(a.id)}
+                    onSnooze={snoozeOne}
+                    onUnsnooze={unsnoozeOne}
                     setFilters={setFilters}
                     setPageId={setPageId}
                   />

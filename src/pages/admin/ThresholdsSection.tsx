@@ -20,10 +20,9 @@ const fmtGBP0 = (n: number) => `£${Math.round(n).toLocaleString("en-GB")}`;
 // ---------------------------------------------------------------------------
 // "Targets & thresholds" — the seven global TargetsRef values (used by the
 // alert engine, src/alerts/engine.ts) plus per-spoke/per-process overrides of
-// them (ThresholdOverrideRef[]). Deliberately NOT the same thing as the
-// baked target reference lines already drawn on Overview/Capacity/Commercial/
-// Input & Outcome — those come from the data build and are read-only here;
-// see the SectionTitle helper below for the exact wording shown to users.
+// them (ThresholdOverrideRef[]). Every page reads these live through
+// src/pages/target-rules.ts, so an edit here moves the alerts and every
+// target line and KPI chip together.
 // ---------------------------------------------------------------------------
 
 type TargetUnit = "pct" | "gbp" | "days";
@@ -339,7 +338,7 @@ export function ThresholdsSection({ reference, update, actor, can, isAdmin }: Se
     <div>
       <SectionTitle
         title="Targets & thresholds"
-        helper={`These global targets and per-spoke/per-process overrides drive the threshold alerts shown in the bell icon in the header — they do NOT change the target reference lines already shown on Overview/Capacity/Commercial/Input & Outcome, which come from the data build's own baked targets and are unaffected by edits made here. Resolution order for a given metric: a process-level override wins, else its spoke's override, else the global target below. Per-process alerts are skipped entirely for any process with fewer than ${MIN_ALERT_VOLUME} completed+exception items in the trailing 7-day window, to avoid noise from very low-volume processes. Utilisation minimum/maximum and the idle VDI review threshold can only be overridden at spoke (or estate) level, never per process — VDIs are spoke-owned rather than tied to any single process, so a process-level override of either wouldn't have anything to attach to.`}
+        helper={`These global targets and per-spoke/per-process overrides drive the threshold alerts shown in the bell icon in the header — they also drive the target reference lines and KPI target chips shown on every page. Resolution order for a given metric: a process-level override wins, else its spoke's override, else the global target below. Per-process alerts are skipped entirely for any process with fewer than ${MIN_ALERT_VOLUME} completed+exception items in the trailing 7-day window, to avoid noise from very low-volume processes. Utilisation minimum/maximum and the idle VDI review threshold can only be overridden at spoke (or estate) level, never per process — VDIs are spoke-owned rather than tied to any single process, so a process-level override of either wouldn't have anything to attach to.`}
       />
 
       {/* --- 2a. global targets --- */}

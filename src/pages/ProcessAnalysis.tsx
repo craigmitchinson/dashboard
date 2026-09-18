@@ -7,6 +7,9 @@ import { fmtDate, monthKey } from "../rpaData";
 import { VisualCard, LineChart, HBarChart, Legend, PageGrid, Row, Segmented, useViz, fmtCompact, fmtInt, fmtPct, fmtDuration, fmtMoney } from "../components/viz";
 import { ExportCsvButton } from "../components/PageActions";
 import { SpokeSwatch } from "../components/SpokeSwatch";
+import { useReference } from "../reference/reference-context";
+import { resolvedTarget, rateBand } from "./target-rules";
+import { WARN_MARGIN } from "../alerts/engine";
 
 type Metric = "time" | "throughput" | "exrate";
 const METRICS: { value: Metric; label: string }[] = [
@@ -17,11 +20,13 @@ const METRICS: { value: Metric; label: string }[] = [
 
 export function ProcessAnalysis() {
   const { model, filters, setFilters } = useFilters();
+  const { reference } = useReference();
   const nav = useNav();
   const m = model;
   const v = useViz();
   const t = useTheme();
   const activeProc = filters.processId !== "All" ? filters.processId : undefined;
+  const exceptionRateTarget = resolvedTarget(reference, "exceptionRate", filters.spoke);
   const [metric, setMetric] = useState<Metric>("time");
   const [grain, setGrain] = useState<"daily" | "monthly">("daily");
 
@@ -114,7 +119,7 @@ export function ProcessAnalysis() {
                   <span style={{ fontFamily: fonts.body, fontSize: 12.5, color: t.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={p.name}>{p.name}</span>
                 </span>
                 <span style={{ textAlign: "right", fontFamily: fonts.mono, fontSize: 12, color: t.ink }}>{fmtDuration(p.avgCycleSec)}</span>
-                <span style={{ textAlign: "right", fontFamily: fonts.mono, fontSize: 12, color: p.attempts && p.exceptions / p.attempts > 0.1 ? v.bad : t.ink }}>{fmtPct(p.attempts ? p.exceptions / p.attempts : 0, 1)}</span>
+                <span style={{ textAlign: "right", fontFamily: fonts.mono, fontSize: 12, color: (() => { const rate = p.attempts ? p.exceptions / p.attempts : 0; const b = rateBand(rate, exceptionRateTarget, WARN_MARGIN); return b === "bad" ? v.bad : b === "warn" ? v.business : t.ink; })() }}>{fmtPct(p.attempts ? p.exceptions / p.attempts : 0, 1)}</span>
                 <span style={{ textAlign: "right", fontFamily: fonts.mono, fontSize: 12, fontWeight: 700, color: t.ink }}>{fmtMoney(p.runtimeCost)}</span>
               </div>
             ))}
