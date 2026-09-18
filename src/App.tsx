@@ -1264,8 +1264,10 @@ function Report({ ambientAccent }: { ambientAccent?: string }) {
             {/* Title + blurb share one baseline row (blurb truncates first) so
                 the header fits the shared --header-h band. h1 has a fixed
                 160px floor (styles.css) and never truncates. */}
-            <div style={{ minWidth: 0, display: "flex", alignItems: "baseline", gap: 10, overflow: "hidden" }}>
-              <h1 style={{ margin: 0, fontFamily: fonts.display, fontSize: 18, fontWeight: 700, color: t.ink, lineHeight: 1.1, whiteSpace: "nowrap" }}>{page.label}</h1>
+            {/* The title is its own flex item that never shrinks; only the
+                blurb beside it lives in a shrinkable, clipping box. */}
+            <h1 style={{ margin: 0, fontFamily: fonts.display, fontSize: 18, fontWeight: 700, color: t.ink, lineHeight: 1.1, whiteSpace: "nowrap" }}>{page.label}</h1>
+            <div style={{ minWidth: 0, flex: "0 1 auto", overflow: "hidden", alignSelf: "baseline" }}>
               <p className="hdr-blurb-text" title={page.blurb} style={{ margin: 0, fontFamily: fonts.body, fontSize: 12, color: t.inkSoft, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>
                 <Bionic>{page.blurb}</Bionic>
               </p>
